@@ -1,0 +1,15 @@
+# Ignore large database file (persisted in Fly.io volume)
+CAMPD.db
+# Ignore temporary or local files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.log
+# Ignore secret key file
+secret_key.txt
+# Ignore uploads directory (will be managed in /data/static)
+static/uploads/

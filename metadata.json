@@ -1,0 +1,26 @@
+{
+  "title": "CAMPD (Clean Air Markets Program Data)",
+  "description": "Metadata from EPA's Clean Air Markets Program Data (CAMPD) emissions database.",
+  "license": "ODbL",
+  "license_url": "https://opendatacommons.org/licenses/odbl/",
+  "source": "EPA Clean Air Markets Program Data (CAMPD)",
+  "source_url": "https://campd.epa.gov/",
+  "databases": {
+    "CAMPD": {
+      "tables": {
+        "emissions": {"facets": ["unit", "year", "tag"]},
+        "admin_content": {"allow": {"id": "admin"}},
+        "users": {"allow": {"id": "admin"}}
+      }
+    }
+  },
+  "plugins": {
+    "datasette-render-markdown": {
+      "columns": ["id", "file_key", "datasette_link"]
+    },
+    "datasette-template-sql": {}
+  },
+  "settings": {
+    "csrf_protect": true
+  }
+}
