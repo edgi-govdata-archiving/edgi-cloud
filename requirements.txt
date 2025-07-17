@@ -1,0 +1,9 @@
+datasette==0.65.1
+sqlite-utils>=3.35
+datasette-cluster-map
+datasette-render-markdown
+datasette-template-sql
+markupsafe==2.1.5
+gunicorn==22.0.0
+bcrypt==4.2.0
+pandas>=2.0.0
