@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Register - EDGI Datasette Cloud Portal</title>
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -27,11 +27,14 @@
     </header>
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-4">
+            <h2 class="text-2xl font-semibold text-primary mb-4">Register</h2>
+            {% if error %}
+                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
+            {% endif %}
+            {% if success %}
+                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
+            {% endif %}
             <div class="bg-card rounded-card p-6 border border-border max-w-md mx-auto">
-                <h2 class="text-2xl font-semibold text-primary mb-4">Register</h2>
-                {% if error %}
-                    <p class="text-red-500 mb-4">{{ error }}</p>
-                {% endif %}
                 <form action="/register" method="post">
                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     <div class="mb-4">
@@ -49,13 +52,18 @@
                     <div class="mb-4">
                         <label for="role" class="block text-text mb-2">Role:</label>
                         <select id="role" name="role" class="w-full p-2 border rounded" required>
-                            <option value="admin">Admin</option>
-                            <option value="moderator">Moderator</option>
-                            <option value="viewer">Viewer</option>
+                            <option value="system_admin">System Admin</option>
+                            <option value="system_user">System User</option>
                         </select>
                     </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Register</button>
-                    <a href="/login" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition ml-2">Cancel</a>
+                    <div class="mb-4">
+                        <label for="invite_code" class="block text-text mb-2">Invite Code:</label>
+                        <input type="text" id="invite_code" name="invite_code" class="w-full p-2 border rounded" required>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Register</button>
+                        <a href="/" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Cancel</a>
+                    </div>
                 </form>
             </div>
         </section>
@@ -68,7 +76,7 @@
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
                     <div class="text-primary">
-                        <p>EDGI Datasette Cloud Portal</p>
+                        <p class="mb-4">Made with EDGI</p>
                     </div>
                 </div>
                 <div>

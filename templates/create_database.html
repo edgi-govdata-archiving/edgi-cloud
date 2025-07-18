@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Create Database - EDGI Datasette Cloud Portal</title>
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -17,44 +17,73 @@
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
                     <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
                 </div>
-                <div class="text-xl font-semibold">EDGI Datasette Cloud Portal</div>
+                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
             </div>
-            {% if actor %}
-                <div>
-                    {% if actor.role == "admin" %}
-                        <a href="/register" class="text-white hover:text-accent mr-4">Register User</a>
-                    {% endif %}
-                    <a href="/change-password" class="text-white hover:text-accent mr-4">Change Password</a>
-                    <a href="/logout" class="text-white hover:text-accent">Logout</a>
-                </div>
-            {% endif %}
+            <div>
+                <a href="/dashboard" class="text-white hover:text-accent mr-4">Dashboard</a>
+                <a href="/create-database" class="text-white hover:text-accent mr-4">Create Website</a>
+                {% if actor.role == "system_admin" %}
+                    <a href="/system-admin" class="text-white hover:text-accent mr-4">System Admin</a>
+                {% endif %}
+                <a href="/profile" class="text-white hover:text-accent mr-4">Profile</a>
+                <a href="/change-password" class="text-white hover:text-accent mr-4">Change Password</a>
+                <a href="/logout" class="text-white hover:text-accent">Logout</a>
+            </div>
         </div>
     </header>
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-4">
+            <h2 class="text-2xl font-semibold text-primary mb-4">Create New Website</h2>
+            {% if error %}
+                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
+            {% endif %}
+            {% if success %}
+                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
+            {% endif %}
             <div class="bg-card rounded-card p-6 border border-border">
-                <h2 class="text-2xl font-semibold text-primary mb-4">Create New Database</h2>
-                {% if error %}
-                    <p class="text-red-500 mb-4">{{ error }}</p>
-                {% endif %}
-                <form action="/create-database" method="post" enctype="multipart/form-data">
+                <form action="/create-database" method="post" enctype="multipart/form-data" class="mb-6" id="createForm">
                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     <div class="mb-4">
-                        <label class="block text-text mb-2">Database Name:</label>
-                        <input type="text" name="db_name" class="w-full p-2 border rounded" required>
+                        <label for="db_name" class="block text-text mb-2">Website Name:</label>
+                        <input type="text" id="db_name" name="db_name" class="w-full p-2 border rounded" required>
                         <p class="text-sm text-textlight mt-1">Enter a unique name (e.g., air_quality).</p>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-text mb-2">Dataset File (CSV or SQLite, max 50MB):</label>
-                        <div class="custom-file-input">
-                            <input type="file" name="dataset" id="dataset" accept=".csv,.db" onchange="updateFilePath('dataset', 'file-path')">
-                            <label for="dataset">Choose file</label>
-                        </div>
-                        <span id="file-path" class="text-textlight text-sm"></span>
+                        <label for="description" class="block text-text mb-2">Description:</label>
+                        <textarea id="description" name="description" class="w-full p-2 border rounded" rows="4"></textarea>
                     </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Create Database</button>
-                    <a href="/" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Cancel</a>
+                    <div class="mb-4">
+                        <label for="icon" class="block text-text mb-2">Icon (Remixicon Class):</label>
+                        <input type="text" id="icon" name="icon" value="ri-table-line" class="w-full p-2 border rounded">
+                        <p class="text-sm text-textlight mt-1">e.g., ri-table-line, ri-leaf-line (see <a href="https://remixicon.com" class="text-accent hover:text-primary">Remixicon docs</a>).</p>
+                    </div>
+                    <div class="mb-4">
+                        <label for="tags" class="block text-text mb-2">Tags (comma-separated):</label>
+                        <input type="text" id="tags" name="tags" class="w-full p-2 border rounded">
+                        <p class="text-sm text-textlight mt-1">e.g., air, pollution, environment</p>
+                    </div>
+                    <div class="mb-4">
+                        <label for="dataset" class="block text-text mb-2">Upload Dataset (CSV or SQLite, max 50MB):</label>
+                        <input type="file" id="dataset" name="dataset" accept=".csv,.db" class="w-full p-2 border rounded" required>
+                        <p class="text-sm text-textlight mt-1">
+                            <span id="fileName">Choose file</span>
+                        </p>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Create Website</button>
+                        <a href="/dashboard" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Cancel</a>
+                    </div>
                 </form>
+            </div>
+        </section>
+        <section id="confirmModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+            <div class="bg-white p-6 rounded-card shadow-lg">
+                <h3 class="text-xl font-semibold text-primary mb-4">Confirm Upload</h3>
+                <p class="text-text mb-4">Are you sure you want to create this website? Ensure your dataset is valid.</p>
+                <div class="flex space-x-4">
+                    <button id="confirmButton" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Confirm</button>
+                    <button id="cancelButton" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Cancel</button>
+                </div>
             </div>
         </section>
     </main>
@@ -66,7 +95,7 @@
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
                     <div class="text-primary">
-                        <p>EDGI Datasette Cloud Portal</p>
+                        <p class="mb-4">Made with EDGI</p>
                     </div>
                 </div>
                 <div>
@@ -76,15 +105,23 @@
         </div>
     </footer>
     <script>
-        function updateFilePath(inputId, spanId) {
-            const input = document.getElementById(inputId);
-            const span = document.getElementById(spanId);
-            if (input.files && input.files.length > 0) {
-                span.textContent = `Selected: ${input.files[0].name}`;
-            } else {
-                span.textContent = '';
-            }
-        }
+        document.getElementById('dataset').addEventListener('change', function() {
+            const fileName = this.files.length > 0 ? this.files[0].name : 'Choose file';
+            document.getElementById('fileName').textContent = fileName;
+        });
+
+        document.getElementById('createForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            document.getElementById('confirmModal').classList.remove('hidden');
+        });
+
+        document.getElementById('confirmButton').addEventListener('click', function() {
+            document.getElementById('createForm').submit();
+        });
+
+        document.getElementById('cancelButton').addEventListener('click', function() {
+            document.getElementById('confirmModal').classList.add('hidden');
+        });
     </script>
 </body>
 </html>

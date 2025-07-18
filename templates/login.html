@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Login - {{ content.title.content | default("EPA CAMPD") }}</title>
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -17,28 +17,38 @@
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
                     <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
                 </div>
-                <div class="text-xl font-semibold">Login - {{ content.title.content | default("EPA CAMPD") }}</div>
+                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+            </div>
+            <div>
+                <a href="/login" class="text-white hover:text-accent mr-4">Login</a>
+                <a href="/register" class="text-white hover:text-accent">Register</a>
             </div>
         </div>
     </header>
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-4">
+            <h2 class="text-2xl font-semibold text-primary mb-4">Login</h2>
+            {% if error %}
+                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
+            {% endif %}
+            {% if success %}
+                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
+            {% endif %}
             <div class="bg-card rounded-card p-6 border border-border max-w-md mx-auto">
-                <h2 class="text-xl font-semibold text-primary mb-4">Login</h2>
-                {% if error %}
-                    <p class="text-red-500 mb-4">{{ error }}</p>
-                {% endif %}
                 <form action="/login" method="post">
                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     <div class="mb-4">
-                        <label class="block text-text mb-2">Username:</label>
-                        <input type="text" name="username" class="w-full p-2 border rounded" required>
+                        <label for="username" class="block text-text mb-2">Username:</label>
+                        <input type="text" id="username" name="username" class="w-full p-2 border rounded" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-text mb-2">Password:</label>
-                        <input type="password" name="password" class="w-full p-2 border rounded" required>
+                        <label for="password" class="block text-text mb-2">Password:</label>
+                        <input type="password" id="password" name="password" class="w-full p-2 border rounded" required>
                     </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Login</button>
+                    <div class="flex space-x-4">
+                        <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Login</button>
+                        <a href="/register" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Register</a>
+                    </div>
                 </form>
             </div>
         </section>
@@ -50,11 +60,9 @@
                     <div class="w-8 h-8 flex items-center justify-center mr-2">
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
-                    <p class="text-primary">
-                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
-                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
-                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
-                    </p>
+                    <div class="text-primary">
+                        <p class="mb-4">Made with EDGI</p>
+                    </div>
                 </div>
                 <div>
                     <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
