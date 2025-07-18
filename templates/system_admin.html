@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | System Admin</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+            </div>
+            <div>
+                <a href="/dashboard" class="text-white hover:text-accent mr-4">Dashboard</a>
+                <a href="/create-database" class="text-white hover:text-accent mr-4">Create Website</a>
+                <a href="/system-admin" class="text-white hover:text-accent mr-4">System Admin</a>
+                <a href="/profile" class="text-white hover:text-accent mr-4">Profile</a>
+                <a href="/change-password" class="text-white hover:text-accent mr-4">Change Password</a>
+                <a href="/logout" class="text-white hover:text-accent">Logout</a>
+            </div>
+        </div>
+    </header>
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-4">
+            <h2 class="text-2xl font-semibold text-primary mb-4">System Admin Dashboard</h2>
+            {% if success %}
+                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
+            {% endif %}
+            {% if error %}
+                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
+            {% endif %}
+            <div class="bg-card rounded-card p-6 border border-border mb-6">
+                <h3 class="text-xl font-semibold text-primary mb-4">Invite User</h3>
+                <form action="/invite-user" method="post" class="mb-6">
+                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                    <div class="mb-4">
+                        <label for="invite_email" class="block text-text mb-2">Email:</label>
+                        <input type="email" id="invite_email" name="email" class="w-full p-2 border rounded" required>
+                    </div>
+                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Send Invite</button>
+                </form>
+            </div>
+            <div class="bg-card rounded-card p-6 border border-border mb-6">
+                <h3 class="text-xl font-semibold text-primary mb-4">Users</h3>
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="border p-2 text-left">Username</th>
+                            <th class="border p-2 text-left">Email</th>
+                            <th class="border p-2 text-left">Role</th>
+                            <th class="border p-2 text-left">Created At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                            <tr>
+                                <td class="border p-2">{{ user.username }}</td>
+                                <td class="border p-2">{{ user.email }}</td>
+                                <td class="border p-2">{{ user.role }}</td>
+                                <td class="border p-2">{{ user.created_at }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="bg-card rounded-card p-6 border border-border mb-6">
+                <h3 class="text-xl font-semibold text-primary mb-4">Invite Hierarchy</h3>
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="border p-2 text-left">Invite Code</th>
+                            <th class="border p-2 text-left">Inviter</th>
+                            <th class="border p-2 text-left">Used By</th>
+                            <th class="border p-2 text-left">Email</th>
+                            <th class="border p-2 text-left">Created At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for invite in invites %}
+                            <tr>
+                                <td class="border p-2">{{ invite.code }}</td>
+                                <td class="border p-2">{{ invite.inviter_username or 'N/A' }}</td>
+                                <td class="border p-2">{{ invite.used_by_username or 'Not Used' }}</td>
+                                <td class="border p-2">{{ invite.email }}</td>
+                                <td class="border p-2">{{ invite.created_at }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="bg-card rounded-card p-6 border border-border mb-6">
+                <h3 class="text-xl font-semibold text-primary mb-4">Publish Requests</h3>
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="border p-2 text-left">Website Name</th>
+                            <th class="border p-2 text-left">User</th>
+                            <th class="border p-2 text-left">Status</th>
+                            <th class="border p-2 text-left">Submitted At</th>
+                            <th class="border p-2 text-left">Feedback</th>
+                            <th class="border p-2 text-left">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for request in publish_requests %}
+                            <tr>
+                                <td class="border p-2">{{ request.db_name }}</td>
+                                <td class="border p-2">{{ request.username }}</td>
+                                <td class="border p-2">{{ request.status }}</td>
+                                <td class="border p-2">{{ request.submitted_at }}</td>
+                                <td class="border p-2">{{ request.feedback or 'N/A' }}</td>
+                                <td class="border p-2">
+                                    {% if request.status == "Pending" %}
+                                        <form action="/manage-publish-request" method="post" class="inline">
+                                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                            <input type="hidden" name="request_id" value="{{ request.request_id }}">
+                                            <input type="hidden" name="action" value="approve">
+                                            <textarea name="feedback" class="w-full p-2 border rounded mb-2" placeholder="Optional feedback"></textarea>
+                                            <button type="submit" class="bg-accent text-white px-2 py-1 rounded hover:bg-accent-dark transition">Approve</button>
+                                        </form>
+                                        <form action="/manage-publish-request" method="post" class="inline">
+                                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                            <input type="hidden" name="request_id" value="{{ request.request_id }}">
+                                            <input type="hidden" name="action" value="reject">
+                                            <textarea name="feedback" class="w-full p-2 border rounded mb-2" placeholder="Optional feedback"></textarea>
+                                            <button type="submit" class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition">Reject</button>
+                                        </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="bg-card rounded-card p-6 border border-border">
+                <h3 class="text-xl font-semibold text-primary mb-4">Activity Logs</h3>
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="border p-2 text-left">User ID</th>
+                            <th class="border p-2 text-left">Action</th>
+                            <th class="border p-2 text-left">Details</th>
+                            <th class="border p-2 text-left">Timestamp</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in activity_logs %}
+                            <tr>
+                                <td class="border p-2">{{ log.user_id }}</td>
+                                <td class="border p-2">{{ log.action }}</td>
+                                <td class="border p-2">{{ log.details }}</td>
+                                <td class="border p-2">{{ log.timestamp }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        <p class="mb-4">Made with EDGI</p>
+                    </div>
+                </div>
+                <div>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
