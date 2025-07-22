@@ -2,104 +2,99 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>{{ page_title | default("EDGI Datasette Cloud Portal") }}</title>
-    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-    <script src="/static/js/tailwind.config.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <link rel="icon" href="/static/favicon.ico">
+    <script src="/static/js/tailwind.config.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-background">
-    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
-        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
-            <div class="flex items-center">
-                <div class="w-10 h-10 flex items-center justify-center mr-3">
-                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto px-4 py-8">
+        {% if header_image.image_url %}
+        <div class="mb-8">
+            <img src="{{ header_image.image_url }}" alt="{{ header_image.alt_text }}" class="w-full h-64 object-cover rounded-lg">
+            {% if header_image.credit_text %}
+            <p class="text-sm text-gray-600 mt-2">
+                {% if header_image.credit_url %}
+                <a href="{{ header_image.credit_url }}" class="underline">{{ header_image.credit_text }}</a>
+                {% else %}
+                {{ header_image.credit_text }}
+                {% endif %}
+            </p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <h1 class="text-4xl font-bold mb-6">{{ content.title.content }}</h1>
+
+        {% if info.paragraphs %}
+        <div class="mb-8 prose">
+            {% for paragraph in info.paragraphs %}
+            <p>{{ paragraph | safe }}</p>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if feature_cards %}
+        <div class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4">User Websites</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for card in feature_cards %}
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h3 class="text-xl font-semibold mb-2">{{ card.db_name }}</h3>
+                    <p class="text-gray-600 mb-2">Status: {{ card.status }}</p>
+                    {% if card.website_url %}
+                    <a href="{{ card.website_url }}" class="text-blue-500 underline">Visit Website</a>
+                    {% endif %}
                 </div>
-                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
-            </div>
-            <div>
-                <a href="/login" class="text-white hover:text-accent mr-4">Login</a>
-                <a href="/register" class="text-white hover:text-accent">Register</a>
+                {% endfor %}
             </div>
         </div>
-    </header>
-    <main class="flex-grow pt-20 pb-6">
-        <section class="container mx-auto px-4 mt-4">
-            <div class="map-container relative mb-6">
-                <img src="{{ header_image.image_url | default('/static/header.jpg') }}" alt="{{ header_image.alt_text | default('Header Image') }}" class="map-image">
-                {% if header_image.credit_url %}
-                    <div class="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
-                        <a href="{{ header_image.credit_url }}" target="_blank" rel="noopener noreferrer" class="text-white hover:text-accent">
-                            {{ header_image.credit_text | default('Image by EDGI') }}
-                        </a>
-                    </div>
-                {% endif %}
-            </div>
-            {% if success %}
-                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
-            {% endif %}
-            {% if error %}
-                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
-            {% endif %}
-            <h2 class="text-2xl font-semibold text-primary mb-4">Welcome to EDGI Datasette Cloud Portal</h2>
-            <div class="bg-card rounded-card p-6 border border-border">
-                {% for paragraph in info.paragraphs | default(["The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites."]) %}
-                    <p class="text-text mb-4">{{ paragraph | safe }}</p>
+        {% endif %}
+
+        {% if statistics %}
+        <div class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Statistics</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {% for stat in statistics %}
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h3 class="text-lg font-semibold">{{ stat.label }}</h3>
+                    <p class="text-2xl font-bold">{{ stat.value }}</p>
+                    {% if stat.url %}
+                    <a href="{{ stat.url }}" class="text-blue-500 underline">Details</a>
+                    {% endif %}
+                </div>
                 {% endfor %}
-                <p class="text-text mb-4">Sign up with an invite code or log in to create and manage your environmental data websites.</p>
-                <div class="flex space-x-4">
-                    <a href="/login" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Log In</a>
-                    <a href="/register" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Register</a>
-                </div>
             </div>
-            {% if feature_cards %}
-                <h3 class="text-xl font-semibold text-primary mt-6 mb-4">Features</h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {% for card in feature_cards %}
-                        <div class="bg-card rounded-card p-6 border border-border">
-                            <i class="{{ card.icon }} text-primary text-2xl mb-2"></i>
-                            <h4 class="text-lg font-semibold text-primary mb-2">{{ card.title }}</h4>
-                            <p class="text-text">{{ card.description }}</p>
-                            {% if card.url %}
-                                <a href="{{ card.url }}" class="text-accent hover:text-primary mt-2 inline-block">Learn More</a>
-                            {% endif %}
-                        </div>
-                    {% endfor %}
-                </div>
+        </div>
+        {% endif %}
+
+        {% if success %}
+        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-6" role="alert">
+            <p>{{ success }}</p>
+        </div>
+        {% endif %}
+
+        {% if error %}
+        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+            <p>{{ error }}</p>
+        </div>
+        {% endif %}
+
+        <div class="mt-8">
+            {% if actor %}
+            <a href="/dashboard" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Go to Dashboard</a>
+            <a href="/logout" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Logout</a>
+            {% else %}
+            <a href="/login" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Login</a>
+            <a href="/register" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Register</a>
             {% endif %}
-            {% if statistics %}
-                <h3 class="text-xl font-semibold text-primary mt-6 mb-4">Statistics</h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {% for stat in statistics %}
-                        <div class="bg-card rounded-card p-6 border border-border text-center">
-                            <div class="text-3xl font-bold text-primary">{{ stat.value }}</div>
-                            <p class="text-text">{{ stat.label }}</p>
-                            {% if stat.url %}
-                                <a href="{{ stat.url }}" class="text-accent hover:text-primary mt-2 inline-block">View Details</a>
-                            {% endif %}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-        </section>
-    </main>
-    <footer class="bg-gray-50 border-t border-gray-100 py-8">
-        <div class="container mx-auto px-4">
-            <div class="flex flex-col md:flex-row justify-between items-center">
-                <div class="flex items-center mb-4 md:mb-0">
-                    <div class="w-8 h-8 flex items-center justify-center mr-2">
-                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
-                    </div>
-                    <div class="text-primary">
-                        <p class="mb-4">Made with EDGI</p>
-                    </div>
-                </div>
-                <div>
-                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
-                </div>
-            </div>
+        </div>
+    </div>
+
+    <footer class="bg-gray-800 text-white py-4 mt-8">
+        <div class="container mx-auto px-4 text-center">
+            <p>&copy; 2025 EDGI Datasette Cloud Portal. All rights reserved.</p>
         </div>
     </footer>
 </body>

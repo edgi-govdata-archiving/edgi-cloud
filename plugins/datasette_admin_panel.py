@@ -49,6 +49,9 @@ def parse_markdown_links(text):
     return parsed_paragraphs
 
 async def index_page(datasette, request):
+    cookies = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', []) if k.decode('utf-8') == 'cookie'}
+    logger.debug(f"Index Cookies: {cookies}")
+
     db = datasette.get_database("portal")
 
     async def get_section(section_name):
@@ -69,17 +72,87 @@ async def index_page(datasette, request):
     content = {}
     content['header_image'] = await get_section("header_image") or {'image_url': '/static/header.jpg', 'alt_text': '', 'credit_url': '', 'credit_text': ''}
     content['info'] = await get_section("info") or {'content': 'The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.', 'paragraphs': parse_markdown_links('The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.')}
-    content['feature_cards'] = await get_section("feature_cards") or []
-    content['statistics'] = await get_section("statistics") or []
     content['title'] = await get_section("title") or {'content': 'EDGI Datasette Cloud Portal'}
 
+    # Fetch user databases for feature_cards
+    try:
+        result = await db.execute("SELECT db_id, db_name, website_url, status FROM databases WHERE status IN ('Draft', 'Pending', 'Published') ORDER BY created_at DESC LIMIT 6")
+        content['feature_cards'] = [
+            {
+                'db_id': row['db_id'],
+                'db_name': row['db_name'],
+                'website_url': row['website_url'],
+                'status': row['status']
+            } for row in result
+        ]
+    except Exception as e:
+        logger.error(f"Error fetching user databases for feature_cards: {str(e)}")
+        content['feature_cards'] = []
+
+    # Define statistics based on databases table
     statistics_data = []
-    for stat in content['statistics']:
-        statistics_data.append({
-            'value': stat.get('value', '0'),
-            'label': stat.get('label', ''),
-            'icon': stat.get('icon', '')
-        })
+    try:
+        total_result = await db.execute("SELECT COUNT(*) FROM databases")
+        total_count = total_result.first()[0]
+        published_result = await db.execute("SELECT COUNT(*) FROM databases WHERE status = 'Published'")
+        published_count = published_result.first()[0]
+        statistics_data = [
+            {"label": "Total User Websites", "value": total_count, "url": "/databases"},
+            {"label": "Published Websites", "value": published_count, "url": "/databases?status=Published"}
+        ]
+    except Exception as e:
+        logger.error(f"Error fetching statistics: {str(e)}")
+        statistics_data = [
+            {"label": "Total User Websites", "value": "Error", "url": ""},
+            {"label": "Published Websites", "value": "Error", "url": ""}
+        ]
+
+    actor = request.scope.get("actor")
+    if not actor:
+        cookie_string = cookies.get("cookie", "")
+        ds_actor_cookie = None
+        for cookie in cookie_string.split("; "):
+            if cookie.startswith("ds_actor="):
+                ds_actor_cookie = cookie[len("ds_actor="):]
+                break
+        if ds_actor_cookie:
+            try:
+                if ds_actor_cookie.startswith('"') and ds_actor_cookie.endswith('"'):
+                    ds_actor_cookie = ds_actor_cookie[1:-1]
+                ds_actor_cookie = ds_actor_cookie.replace('\\054', ',').replace('\\"', '"')
+                logger.debug(f"Raw ds_actor cookie before unsigning: {ds_actor_cookie}")
+                logger.debug(f"Attempting to unsign ds_actor cookie: {ds_actor_cookie}")
+                actor = datasette.unsign(ds_actor_cookie, "actor")
+                logger.debug(f"Parsed and unsigned actor from ds_actor cookie: {actor}")
+                request.scope["actor"] = actor
+            except Exception as e:
+                logger.error(f"Failed to unsign ds_actor cookie: {e}, cookie value: {ds_actor_cookie}")
+                response = Response.redirect("/login?error=Session expired or invalid")
+                response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+                return response
+
+    if actor:
+        try:
+            result = await db.execute("SELECT user_id, role FROM users WHERE user_id = ?", [actor.get("id")])
+            user = result.first()
+            if not user:
+                logger.error(f"No user found for user_id: {actor.get('id')}")
+                response = Response.redirect("/login?error=User not found")
+                response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+                return response
+            if user["role"] != actor.get("role"):
+                logger.warning(f"Role mismatch for user_id={actor.get('id')}: db_role={user['role']}, cookie_role={actor.get('role')}")
+                response = Response.redirect("/login?error=Session invalid")
+                response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+                return response
+            redirect_url = "/system-admin" if actor.get("role") == "system_admin" else "/dashboard"
+            logger.debug(f"Authenticated user, redirecting to: {redirect_url}, actor: {actor}")
+            return Response.redirect(redirect_url)
+        except Exception as e:
+            logger.error(f"Error verifying user in index_page: {str(e)}")
+            response = Response.redirect("/login?error=Authentication error")
+            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+            return response
 
     logger.debug(f"Rendering index with data: content={content}, statistics_data={statistics_data}")
 
@@ -87,9 +160,15 @@ async def index_page(datasette, request):
         await datasette.render_template(
             "index.html",
             {
-                "metadata": datasette.metadata(),
+                "page_title": content['title'].get('content', "EDGI Datasette Cloud Portal") + " | EDGI",
+                "header_image": content['header_image'],
+                "info": content['info'],
+                "feature_cards": content['feature_cards'],
+                "statistics": statistics_data,
                 "content": content,
-                "statistics_data": statistics_data
+                "actor": actor,
+                "success": request.args.get('success'),
+                "error": request.args.get('error')
             },
             request=request
         )
@@ -130,49 +209,41 @@ async def login_page(datasette, request):
             result = await db.execute("SELECT user_id, username, password_hash, role FROM users WHERE username = ?", [username])
             user = result.first()
             if user:
-                logger.debug(f"User found: user_id={user['user_id']}, username={user['username']}, role={user['role']}")
-                if bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
-                    logger.debug(f"Login successful for user: {username}, role: {user['role']}")
-                    redirect_url = "/system-admin" if user["role"] == "system_admin" else "/dashboard"
-                    actor_data = {"id": user["user_id"], "name": f"User {username}", "role": user["role"], "username": username}
-                    try:
-                        signed_actor = datasette.sign(actor_data, namespace="actor")
+                logger.debug(f"User found: user_id={user['user_id']}, username={user['username']}, role={user['role']}, password_hash={user['password_hash']}")
+                try:
+                    if bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
+                        logger.debug(f"Login successful for user: {username}, role: {user['role']}")
+                        redirect_url = "/system-admin" if user["role"] == "system_admin" else "/dashboard"
+                        actor_data = {"id": user["user_id"], "name": f"User {username}", "role": user["role"], "username": username}
+                        signed_actor = datasette.sign(actor_data, "actor")
+                        response = Response.redirect(redirect_url)
+                        response.set_cookie("ds_actor", signed_actor, httponly=True, max_age=3600, samesite="lax")
+                        request.scope["actor"] = actor_data
                         logger.debug(f"Set signed cookie ds_actor: {signed_actor}")
-                    except Exception as e:
-                        logger.error(f"Failed to sign ds_actor cookie: {str(e)}, actor_data: {actor_data}")
+                        logger.debug(f"Redirecting to: {redirect_url}")
+                        return response
+                    else:
+                        logger.warning(f"Invalid password for user: {username}")
                         return Response.html(
                             await datasette.render_template(
                                 "login.html",
                                 {
                                     "metadata": datasette.metadata(),
                                     "content": content,
-                                    "error": f"Session error: {str(e)}"
+                                    "error": "Invalid username or password"
                                 },
                                 request=request
                             )
                         )
-                    response = Response.redirect(redirect_url)
-                    response.set_cookie(
-                        "ds_actor",
-                        signed_actor,
-                        httponly=True,
-                        max_age=3600,
-                        secure=False,
-                        samesite='Lax',
-                        path='/'
-                    )
-                    request.scope["actor"] = actor_data
-                    logger.debug(f"Redirecting to: {redirect_url}")
-                    return response
-                else:
-                    logger.warning(f"Invalid password for user: {username}")
+                except ValueError as ve:
+                    logger.error(f"Invalid password hash for user: {username}, error: {str(ve)}")
                     return Response.html(
                         await datasette.render_template(
                             "login.html",
                             {
                                 "metadata": datasette.metadata(),
                                 "content": content,
-                                "error": "Invalid username or password"
+                                "error": "Invalid password hash. Please contact the administrator."
                             },
                             request=request
                         )
@@ -333,18 +404,26 @@ async def profile_page(datasette, request):
 
     actor = request.scope.get("actor")
     if not actor:
-        ds_actor_cookie = cookies.get("ds_actor")
+        cookie_string = cookies.get("cookie", "")
+        ds_actor_cookie = None
+        for cookie in cookie_string.split("; "):
+            if cookie.startswith("ds_actor="):
+                ds_actor_cookie = cookie[len("ds_actor="):]
+                break
         if ds_actor_cookie:
             try:
-                actor = datasette.unsign(ds_actor_cookie, namespace="actor")
+                if ds_actor_cookie.startswith('"') and ds_actor_cookie.endswith('"'):
+                    ds_actor_cookie = ds_actor_cookie[1:-1]
+                ds_actor_cookie = ds_actor_cookie.replace('\\054', ',').replace('\\"', '"')
+                actor = datasette.unsign(ds_actor_cookie, "actor")
                 logger.debug(f"Parsed and unsigned actor from ds_actor cookie: {actor}")
                 request.scope["actor"] = actor
             except Exception as e:
-                logger.error(f"Failed to unsign ds_actor cookie: {str(e)}, cookie value: {ds_actor_cookie}")
+                logger.error(f"Failed to unsign ds_actor cookie: {e}, cookie value: {ds_actor_cookie}")
                 actor = None
 
     if not actor:
-        logger.warning(f"Unauthorized profile access attempt: actor={actor}")
+        logger.warning("Unauthorized profile access attempt")
         return Response.redirect("/login")
 
     db = datasette.get_database('portal')
@@ -380,16 +459,16 @@ async def profile_page(datasette, request):
         return Response.html(
             await datasette.render_template(
                 "profile.html",
-                {
-                    "metadata": datasette.metadata(),
-                    "content": content,
-                    "actor": actor,
-                    "user_info": {},
-                    "error": f"Error loading profile: {str(e)}"
-                },
-                request=request
+                    {
+                        "metadata": datasette.metadata(),
+                        "content": content,
+                        "actor": actor,
+                        "user_info": {},
+                        "error": f"Error loading profile: {str(e)}"
+                    },
+                    request=request
+                )
             )
-        )
 
     if request.method == "POST":
         post_vars = await request.post_vars()
@@ -417,34 +496,8 @@ async def profile_page(datasette, request):
                 [username, email, actor.get("id")]
             )
             actor_data = {"id": actor.get("id"), "name": f"User {username}", "role": actor.get("role"), "username": username}
-            try:
-                signed_actor = datasette.sign(actor_data, namespace="actor")
-                logger.debug(f"Set signed cookie ds_actor: {signed_actor}")
-            except Exception as e:
-                logger.error(f"Failed to sign ds_actor cookie: {str(e)}, actor_data: {actor_data}")
-                return Response.html(
-                    await datasette.render_template(
-                        "profile.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "actor": actor,
-                            "user_info": user_info,
-                            "error": f"Session error: {str(e)}"
-                        },
-                        request=request
-                    )
-                )
             response = Response.redirect("/dashboard?success=Profile updated successfully")
-            response.set_cookie(
-                "ds_actor",
-                signed_actor,
-                httponly=True,
-                max_age=3600,
-                secure=False,
-                samesite='Lax',
-                path='/'
-            )
+            response.set_cookie("ds_actor", datasette.sign(actor_data, "actor"), httponly=True, max_age=3600)
             request.scope["actor"] = actor_data
             await db.execute_write(
                 "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
@@ -489,35 +542,57 @@ async def dashboard_page(datasette, request):
 
     actor = request.scope.get("actor")
     if not actor:
-        ds_actor_cookie = cookies.get("ds_actor")
+        cookie_string = cookies.get("cookie", "")
+        ds_actor_cookie = None
+        for cookie in cookie_string.split("; "):
+            if cookie.startswith("ds_actor="):
+                ds_actor_cookie = cookie[len("ds_actor="):]
+                break
         if ds_actor_cookie:
             try:
-                actor = datasette.unsign(ds_actor_cookie, namespace="actor")
+                if ds_actor_cookie.startswith('"') and ds_actor_cookie.endswith('"'):
+                    ds_actor_cookie = ds_actor_cookie[1:-1]
+                ds_actor_cookie = ds_actor_cookie.replace('\\054', ',').replace('\\"', '"')
+                logger.debug(f"Attempting to unsign ds_actor cookie: {ds_actor_cookie}")
+                actor = datasette.unsign(ds_actor_cookie, "actor")
                 logger.debug(f"Parsed and unsigned actor from ds_actor cookie: {actor}")
                 request.scope["actor"] = actor
             except Exception as e:
-                logger.error(f"Failed to unsign ds_actor cookie: {str(e)}, cookie value: {ds_actor_cookie}")
+                logger.error(f"Failed to unsign ds_actor cookie: {e}, cookie value: {ds_actor_cookie}")
                 actor = None
 
     if not actor:
-        logger.warning(f"Unauthorized dashboard access attempt: actor={actor}")
+        logger.warning(f"Unauthorized dashboard access attempt: actor=None")
         return Response.redirect("/login")
 
-    db = datasette.get_database("portal")
+    # Verify user exists in database
+    db = datasette.get_database('portal')
+    try:
+        result = await db.execute("SELECT user_id, username, email FROM users WHERE user_id = ?", [actor.get("id")])
+        user = result.first()
+        if not user:
+            logger.error(f"No user found for user_id: {actor.get('id')}")
+            return Response.redirect("/login?error=Authentication error")
+    except Exception as e:
+        logger.error(f"Error verifying user in dashboard_page: {str(e)}")
+        return Response.redirect("/login?error=Authentication error")
+
     title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
     title_row = title.first()
     content = {
         'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'}
     }
 
+    user_databases = []
+    user_info = {}
     try:
         result = await db.execute("SELECT db_id, db_name, website_url, status FROM databases WHERE user_id = ?", [actor.get("id")])
         user_databases = [{"db_id": row["db_id"], "db_name": row["db_name"], "website_url": row["website_url"], "status": row["status"]} for row in result]
-        user_result = await db.execute("SELECT user_id, username, email FROM users WHERE user_id = ?", [actor.get("id")])
+        user_result = await db.execute("SELECT username, email FROM users WHERE user_id = ?", [actor.get("id")])
         user_row = user_result.first()
         if user_row:
             user_info = dict(user_row)
-            logger.debug(f"User profile found: user_id={user_info['user_id']}, username={user_info['username']}")
+            logger.debug(f"User profile found: user_id={actor.get('id')}, username={user_info['username']}")
         else:
             logger.error(f"No user found for user_id: {actor.get('id')}")
             return Response.html(
@@ -543,13 +618,15 @@ async def dashboard_page(datasette, request):
                     "page_title": content['title'].get('content', "EDGI Datasette Cloud Portal") + " | Dashboard",
                     "content": content,
                     "actor": actor,
-                    "user_databases": [],
+                    "user_databases": user_databases,
                     "user_info": {},
                     "error": f"Error loading dashboard: {str(e)}"
                 },
                 request=request
             )
         )
+
+    logger.debug(f"Rendering dashboard with data: content={content}, user_databases={user_databases}")
 
     return Response.html(
         await datasette.render_template(
@@ -573,21 +650,55 @@ async def system_admin_page(datasette, request):
 
     actor = request.scope.get("actor")
     if not actor:
-        ds_actor_cookie = cookies.get("ds_actor")
+        cookie_string = cookies.get("cookie", "")
+        ds_actor_cookie = None
+        for cookie in cookie_string.split("; "):
+            if cookie.startswith("ds_actor="):
+                ds_actor_cookie = cookie[len("ds_actor="):]
+                break
         if ds_actor_cookie:
             try:
-                actor = datasette.unsign(ds_actor_cookie, namespace="actor")
+                if ds_actor_cookie.startswith('"') and ds_actor_cookie.endswith('"'):
+                    ds_actor_cookie = ds_actor_cookie[1:-1]
+                ds_actor_cookie = ds_actor_cookie.replace('\\054', ',').replace('\\"', '"')
+                logger.debug(f"Raw ds_actor cookie before unsigning: {ds_actor_cookie}")
+                logger.debug(f"Attempting to unsign ds_actor cookie: {ds_actor_cookie}")
+                actor = datasette.unsign(ds_actor_cookie, "actor")
                 logger.debug(f"Parsed and unsigned actor from ds_actor cookie: {actor}")
                 request.scope["actor"] = actor
             except Exception as e:
-                logger.error(f"Failed to unsign ds_actor cookie: {str(e)}, cookie value: {ds_actor_cookie}")
-                actor = None
+                logger.error(f"Failed to unsign ds_actor cookie: {e}, cookie value: {ds_actor_cookie}")
+                response = Response.redirect("/login?error=Session expired or invalid")
+                response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+                return response
 
-    if not actor or actor.get("role") != "system_admin":
-        logger.warning(f"Unauthorized system admin access attempt: actor={actor}")
-        return Response.redirect("/login")
+    if not actor:
+        logger.warning(f"Unauthorized system admin access attempt: actor=None")
+        response = Response.redirect("/login?error=Session expired or invalid")
+        response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+        return response
 
+    # Verify user exists in database and has system_admin role
     db = datasette.get_database('portal')
+    try:
+        result = await db.execute("SELECT user_id, role FROM users WHERE user_id = ?", [actor.get("id")])
+        user = result.first()
+        if not user:
+            logger.error(f"No user found for user_id: {actor.get('id')}")
+            response = Response.redirect("/login?error=User not found")
+            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+            return response
+        if user["role"] != "system_admin":
+            logger.warning(f"Invalid role for user_id={actor.get('id')}: role={user['role']}")
+            response = Response.redirect("/login?error=Unauthorized access")
+            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+            return response
+    except Exception as e:
+        logger.error(f"Error verifying user in system_admin_page: {str(e)}")
+        response = Response.redirect("/login?error=Authentication error")
+        response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+        return response
+
     title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
     title_row = title.first()
     content = {
@@ -744,16 +855,13 @@ async def change_password_page(datasette, request):
     )
 
 async def logout_page(datasette, request):
+    logger.debug(f"Logout request: method={request.method}, scope={request.scope}")
+    cookies = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', []) if k.decode('utf-8') == 'cookie'}
+    logger.debug(f"Logout Cookies: {cookies}")
+    
     response = Response.redirect("/login")
-    response.set_cookie(
-        "ds_actor",
-        "",
-        expires=0,
-        httponly=True,
-        samesite='Lax',
-        path='/'
-    )
-    logger.debug("User logged out, ds_actor cookie cleared")
+    response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+    logger.debug("Cleared ds_actor cookie")
     return response
 
 async def create_database(datasette, request):
@@ -762,28 +870,59 @@ async def create_database(datasette, request):
 
     actor = request.scope.get("actor")
     if not actor:
-        ds_actor_cookie = cookies.get("ds_actor")
+        cookie_string = cookies.get("cookie", "")
+        ds_actor_cookie = None
+        for cookie in cookie_string.split("; "):
+            if cookie.startswith("ds_actor="):
+                ds_actor_cookie = cookie[len("ds_actor="):]
+                break
         if ds_actor_cookie:
             try:
-                actor = datasette.unsign(ds_actor_cookie, namespace="actor")
+                if ds_actor_cookie.startswith('"') and ds_actor_cookie.endswith('"'):
+                    ds_actor_cookie = ds_actor_cookie[1:-1]
+                ds_actor_cookie = ds_actor_cookie.replace('\\054', ',').replace('\\"', '"')
+                logger.debug(f"Raw ds_actor cookie before unsigning: {ds_actor_cookie}")
+                logger.debug(f"Attempting to unsign ds_actor cookie: {ds_actor_cookie}")
+                actor = datasette.unsign(ds_actor_cookie, "actor")
                 logger.debug(f"Parsed and unsigned actor from ds_actor cookie: {actor}")
                 request.scope["actor"] = actor
             except Exception as e:
-                logger.error(f"Failed to unsign ds_actor cookie: {str(e)}, cookie value: {ds_actor_cookie}")
-                actor = None
+                logger.error(f"Failed to unsign ds_actor cookie: {e}, cookie value: {ds_actor_cookie}")
+                response = Response.redirect("/login?error=Session expired or invalid")
+                response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+                return response
 
     if not actor:
-        logger.warning(f"Unauthorized create database attempt: actor={actor}")
-        return Response.redirect("/login")
+        logger.warning(f"Unauthorized create database attempt: actor=None")
+        return Response.redirect("/login?error=Session expired or invalid")
 
+    # Verify user exists in database
     db = datasette.get_database('portal')
+    try:
+        result = await db.execute("SELECT user_id, username FROM users WHERE user_id = ?", [actor.get("id")])
+        user = result.first()
+        if not user:
+            logger.error(f"No user found for user_id: {actor.get('id')}")
+            response = Response.redirect("/login?error=User not found")
+            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+            return response
+    except Exception as e:
+        logger.error(f"Error verifying user in create_database: {str(e)}")
+        return Response.redirect("/login?error=Authentication error")
+
     title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
     title_row = title.first()
     content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'}
+        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
+        'header_image': {'image_url': '', 'alt_text': '', 'credit_url': '', 'credit_text': ''},
+        'description': {'content': ''},
+        'footer': {'content': 'Made with EDGI', 'odbl_text': 'Data licensed under ODbL', 'odbl_url': 'https://opendatacommons.org/licenses/odbl/', 'paragraphs': ['Made with EDGI']},
+        'tags': {'content': []}
     }
 
     if request.method == "POST":
+        logger.debug(f"POST request headers: {dict(request.scope.get('headers', []))}")
+        logger.debug(f"POST request body: {await request.post_body()}")
         try:
             body = await request.post_body()
             content_type = request.headers.get('content-type', '')
@@ -823,9 +962,9 @@ async def create_database(datasette, request):
             
             db_name = forms.get('db_name', [''])[0].strip()
             description = forms.get('description', [''])[0].strip()
-            icon = forms.get('icon', ['ri-table-line'])[0].strip()
             tags = forms.get('tags', [''])[0].strip().split(',')
-            logger.debug(f"Create database: db_name={db_name}, files={files}, description={description}, icon={icon}, tags={tags}")
+            header_image_file = files.get('header_image')
+            logger.debug(f"Create database: db_name={db_name}, files={files}, description={description}, tags={tags}, header_image_file={header_image_file}")
 
             if not db_name or not files.get('dataset'):
                 return Response.html(
@@ -857,8 +996,23 @@ async def create_database(datasette, request):
                     )
                 )
 
+            if header_image_file and len(header_image_file['content']) > 5 * 1024 * 1024:  # 5MB limit
+                logger.error("Header image exceeds 5MB limit")
+                return Response.html(
+                    await datasette.render_template(
+                        "create_database.html",
+                        {
+                            "metadata": datasette.metadata(),
+                            "content": content,
+                            "actor": actor,
+                            "error": "Header image exceeds 5MB limit"
+                        },
+                        request=request
+                    )
+                )
+
             ext = Path(file['filename']).suffix.lower()
-            if ext not in ALLOWED_EXTENSIONS:
+            if ext not in {'.csv', '.db'}:
                 logger.error(f"Invalid file extension: {ext}")
                 return Response.html(
                     await datasette.render_template(
@@ -867,7 +1021,7 @@ async def create_database(datasette, request):
                             "metadata": datasette.metadata(),
                             "content": content,
                             "actor": actor,
-                            "error": f"Only {', '.join(ALLOWED_EXTENSIONS)} files allowed"
+                            "error": "Only .csv and .db files allowed"
                         },
                         request=request
                     )
@@ -895,43 +1049,105 @@ async def create_database(datasette, request):
             db_path = f"/data/{username}/{db_name}.db"
             website_url = f"{username}-{db_name}.datasette-portal.fly.dev"
 
-            os.makedirs(f"/data/{username}", exist_ok=True)
+            # Ensure directory exists and is writable
+            try:
+                os.makedirs(f"/data/{username}", exist_ok=True)
+                # Verify write permission
+                with open(db_path, 'a') as f:
+                    pass
+            except PermissionError as e:
+                logger.error(f"Permission denied creating database at {db_path}: {str(e)}")
+                return Response.html(
+                    await datasette.render_template(
+                        "create_database.html",
+                        {
+                            "metadata": datasette.metadata(),
+                            "content": content,
+                            "actor": actor,
+                            "error": f"Permission denied creating database: {str(e)}"
+                        },
+                        request=request
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Error creating directory or file at {db_path}: {str(e)}")
+                return Response.html(
+                    await datasette.render_template(
+                        "create_database.html",
+                        {
+                            "metadata": datasette.metadata(),
+                            "content": content,
+                            "actor": actor,
+                            "error": f"Error creating database: {str(e)}"
+                        },
+                        request=request
+                    )
+                )
+
             if ext == '.csv':
                 db_file = sqlite_utils.Database(db_path)
+                # Read CSV to determine columns
+                df = pd.read_csv(io.BytesIO(file['content']))
+                columns = {col: str for col in df.columns}  # Treat all columns as TEXT for simplicity
+                # Create or update measurements table with dynamic columns
+                if "measurements" not in db_file.table_names():
+                    db_file.create_table("measurements", columns)
+                else:
+                    existing_columns = set(db_file["measurements"].columns_dict.keys())
+                    for col in df.columns:
+                        if col not in existing_columns:
+                            db_file["measurements"].add_column(col, str)
                 db_file["measurements"].insert_all(
-                    pd.read_csv(io.BytesIO(file['content'])).to_dict('records'),
+                    df.to_dict('records'),
                     ignore=True
                 )
-                db_file.create_table("admin_content", {
-                    "section": str,
-                    "content": str,
-                    "updated_at": str,
-                    "updated_by": str
-                }, pk="section")
-                db_file["admin_content"].insert({
+                # Create or update admin_content table
+                if "admin_content" not in db_file.table_names():
+                    db_file.create_table("admin_content", {
+                        "section": str,
+                        "content": str,
+                        "updated_at": str,
+                        "updated_by": str
+                    }, pk="section")
+                db_file["admin_content"].upsert({
                     "section": "title",
                     "content": json.dumps({"content": db_name}),
                     "updated_at": datetime.utcnow().isoformat(),
                     "updated_by": username
-                })
-                db_file["admin_content"].insert({
+                }, pk="section")
+                db_file["admin_content"].upsert({
                     "section": "description",
                     "content": json.dumps({"content": description}),
                     "updated_at": datetime.utcnow().isoformat(),
                     "updated_by": username
-                })
-                db_file["admin_content"].insert({
-                    "section": "icon",
-                    "content": json.dumps({"content": icon}),
-                    "updated_at": datetime.utcnow().isoformat(),
-                    "updated_by": username
-                })
-                db_file["admin_content"].insert({
+                }, pk="section")
+                db_file["admin_content"].upsert({
                     "section": "tags",
                     "content": json.dumps({"content": [tag.strip() for tag in tags if tag.strip()]}),
                     "updated_at": datetime.utcnow().isoformat(),
                     "updated_by": username
-                })
+                }, pk="section")
+                if header_image_file:
+                    image_path = f"/data/{username}/{db_name}_header.jpg"
+                    with open(image_path, 'wb') as f:
+                        f.write(header_image_file['content'])
+                    db_file["admin_content"].upsert({
+                        "section": "header_image",
+                        "content": json.dumps({
+                            "image_url": f"/data/{username}/{db_name}_header.jpg",
+                            "alt_text": forms.get('alt_text', [''])[0],
+                            "credit_url": forms.get('credit_url', [''])[0],
+                            "credit_text": forms.get('credit_text', [''])[0]
+                        }),
+                        "updated_at": datetime.utcnow().isoformat(),
+                        "updated_by": username
+                    }, pk="section")
+                db_file["admin_content"].upsert({
+                    "section": "footer",
+                    "content": json.dumps({"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}),
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "updated_by": username
+                }, pk="section")
             else:
                 with open(db_path, 'wb') as f:
                     f.write(file['content'])
@@ -956,14 +1172,29 @@ async def create_database(datasette, request):
                         "updated_by": username
                     })
                     db_file["admin_content"].insert({
-                        "section": "icon",
-                        "content": json.dumps({"content": icon}),
+                        "section": "tags",
+                        "content": json.dumps({"content": [tag.strip() for tag in tags if tag.strip()]}),
                         "updated_at": datetime.utcnow().isoformat(),
                         "updated_by": username
                     })
+                    if header_image_file:
+                        image_path = f"/data/{username}/{db_name}_header.jpg"
+                        with open(image_path, 'wb') as f:
+                            f.write(header_image_file['content'])
+                        db_file["admin_content"].insert({
+                            "section": "header_image",
+                            "content": json.dumps({
+                                "image_url": f"/data/{username}/{db_name}_header.jpg",
+                                "alt_text": forms.get('alt_text', [''])[0],
+                                "credit_url": forms.get('credit_url', [''])[0],
+                                "credit_text": forms.get('credit_text', [''])[0]
+                            }),
+                            "updated_at": datetime.utcnow().isoformat(),
+                            "updated_by": username
+                        })
                     db_file["admin_content"].insert({
-                        "section": "tags",
-                        "content": json.dumps({"content": [tag.strip() for tag in tags if tag.strip()]}),
+                        "section": "footer",
+                        "content": json.dumps({"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}),
                         "updated_at": datetime.utcnow().isoformat(),
                         "updated_by": username
                     })
@@ -1012,40 +1243,72 @@ async def create_database(datasette, request):
     )
 
 async def template_page(datasette, request, db_id=None):
+    if not db_id:
+        logger.error("Missing db_id in template_page request")
+        return Response.redirect("/dashboard?error=Invalid database ID")
+
     cookies = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', []) if k.decode('utf-8') == 'cookie'}
     logger.debug(f"Template Cookies: {cookies}")
 
     actor = request.scope.get("actor")
     if not actor:
-        ds_actor_cookie = cookies.get("ds_actor")
+        cookie_string = cookies.get("cookie", "")
+        ds_actor_cookie = None
+        for cookie in cookie_string.split("; "):
+            if cookie.startswith("ds_actor="):
+                ds_actor_cookie = cookie[len("ds_actor="):]
+                break
         if ds_actor_cookie:
             try:
-                actor = datasette.unsign(ds_actor_cookie, namespace="actor")
+                if ds_actor_cookie.startswith('"') and ds_actor_cookie.endswith('"'):
+                    ds_actor_cookie = ds_actor_cookie[1:-1]
+                ds_actor_cookie = ds_actor_cookie.replace('\\054', ',').replace('\\"', '"')
+                logger.debug(f"Raw ds_actor cookie before unsigning: {ds_actor_cookie}")
+                logger.debug(f"Attempting to unsign ds_actor cookie: {ds_actor_cookie}")
+                actor = datasette.unsign(ds_actor_cookie, "actor")
                 logger.debug(f"Parsed and unsigned actor from ds_actor cookie: {actor}")
                 request.scope["actor"] = actor
             except Exception as e:
-                logger.error(f"Failed to unsign ds_actor cookie: {str(e)}, cookie value: {ds_actor_cookie}")
-                actor = None
+                logger.error(f"Failed to unsign ds_actor cookie: {e}, cookie value: {ds_actor_cookie}")
+                response = Response.redirect("/login?error=Session expired or invalid")
+                response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+                return response
 
     if not actor:
-        logger.warning(f"Unauthorized template access attempt: actor={actor}")
-        return Response.redirect("/login")
+        logger.warning(f"Unauthorized template access attempt: actor=None")
+        return Response.redirect("/login?error=Session expired or invalid")
 
+    # Verify user exists in database
     portal_db = datasette.get_database('portal')
-    if db_id:
-        result = await portal_db.execute("SELECT db_path, db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-        db_info = result.first()
-        if not db_info:
-            return Response.redirect("/dashboard?error=Invalid or unauthorized database")
-        db_path = db_info["db_path"]
-        db_name = db_info["db_name"]
-        db_status = db_info["status"]
-    else:
-        return Response.redirect("/dashboard?error=Database ID required")
+    try:
+        result = await portal_db.execute("SELECT user_id, username FROM users WHERE user_id = ?", [actor.get("id")])
+        user = result.first()
+        if not user:
+            logger.error(f"No user found for user_id: {actor.get('id')}")
+            response = Response.redirect("/login?error=User not found")
+            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+            return response
+    except Exception as e:
+        logger.error(f"Error verifying user in template_page: {str(e)}")
+        return Response.redirect("/login?error=Authentication error")
 
-    db = sqlite_utils.Database(db_path)
-    sections = await db.execute('SELECT section, content FROM admin_content')
-    content = {row['section']: json.loads(row['content']) for row in sections}
+    result = await portal_db.execute("SELECT db_path, db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
+    db_info = result.first()
+    if not db_info:
+        logger.error(f"Invalid or unauthorized database: db_id={db_id}, user_id={actor.get('id')}")
+        return Response.redirect("/dashboard?error=Invalid or unauthorized database")
+
+    db_path = db_info["db_path"]
+    db_name = db_info["db_name"]
+    db_status = db_info["status"]
+
+    try:
+        db = sqlite_utils.Database(db_path)
+        sections = await db.execute('SELECT section, content FROM admin_content')
+        content = {row['section']: json.loads(row['content']) for row in sections}
+    except Exception as e:
+        logger.error(f"Error loading database content for db_id={db_id}: {str(e)}")
+        return Response.redirect("/dashboard?error=Error loading database content")
 
     if 'title' not in content:
         content['title'] = {'content': db_name}
@@ -1081,7 +1344,8 @@ async def template_page(datasette, request, db_id=None):
                 'db_id': db_id,
                 'db_name': db_name,
                 'db_status': db_status,
-                'success': request.args.get('success')
+                'success': request.args.get('success'),
+                'error': request.args.get('error')
             },
             request=request
         )
@@ -1142,22 +1406,30 @@ async def publish_request(datasette, request):
 async def invite_user(datasette, request):
     cookies = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', []) if k.decode('utf-8') == 'cookie'}
     logger.debug(f"Invite User Cookies: {cookies}")
-
     actor = request.scope.get("actor")
     if not actor:
-        ds_actor_cookie = cookies.get("ds_actor")
+        cookie_string = cookies.get("cookie", "")
+        ds_actor_cookie = None
+        for cookie in cookie_string.split("; "):
+            if cookie.startswith("ds_actor="):
+                ds_actor_cookie = cookie[len("ds_actor="):]
+                break
         if ds_actor_cookie:
             try:
-                actor = datasette.unsign(ds_actor_cookie, namespace="actor")
+                if ds_actor_cookie.startswith('"') and ds_actor_cookie.endswith('"'):
+                    ds_actor_cookie = ds_actor_cookie[1:-1]
+                ds_actor_cookie = ds_actor_cookie.replace('\\054', ',').replace('\\"', '"')
+                logger.debug(f"Raw ds_actor cookie before unsigning: {ds_actor_cookie}")
+                logger.debug(f"Attempting to unsign ds_actor cookie: {ds_actor_cookie}")
+                actor = datasette.unsign(ds_actor_cookie, "actor")
                 logger.debug(f"Parsed and unsigned actor from ds_actor cookie: {actor}")
                 request.scope["actor"] = actor
             except Exception as e:
-                logger.error(f"Failed to unsign ds_actor cookie: {str(e)}, cookie value: {ds_actor_cookie}")
-                actor = None
-
-    if not actor:
+                logger.error(f"Failed to unsign ds_actor cookie: {e}, cookie value: {ds_actor_cookie}")
+                return Response.redirect("/login?error=Session expired or invalid")
+    if not actor or actor.get("role") != "system_admin":
         logger.warning(f"Unauthorized invite attempt: actor={actor}")
-        return Response.redirect("/login")
+        return Response.redirect("/login?error=Unauthorized access")
 
     db = datasette.get_database('portal')
     if request.method == "POST":
