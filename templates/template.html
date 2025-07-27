@@ -2,169 +2,154 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
-    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-    <script src="/static/js/tailwind.config.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
-    <link rel="stylesheet" href="/static/styles.css">
-    <link rel="icon" href="/static/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | Template Editor</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        header { background: #f8f8f8; padding: 1rem; }
+        nav a { margin-right: 1rem; text-decoration: none; color: #333; }
+        main { padding: 2rem; max-width: 1200px; margin: auto; }
+        .card { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; border-radius: 8px; }
+        .btn { padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        .btn-secondary { background: #6c757d; }
+        .alert { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
+        .alert-success { background: #d4edda; color: #155724; }
+        .alert-error { background: #f8d7da; color: #721c24; }
+        label { display: block; margin-bottom: 0.5rem; }
+        input, textarea { width: 100%; padding: 0.5rem; margin-bottom: 1rem; }
+        img { max-width: 100%; height: auto; margin-bottom: 1rem; }
+    </style>
 </head>
-<body class="bg-background">
-    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
-        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
-            <div class="flex items-center">
-                <div class="w-10 h-10 flex items-center justify-center mr-3">
-                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
-                </div>
-                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
-            </div>
-            <div>
-                <a href="/dashboard" class="text-white hover:text-accent mr-4">Dashboard</a>
-                <a href="/create-database" class="text-white hover:text-accent mr-4">Create Website</a>
-                {% if actor.role == "system_admin" %}
-                    <a href="/system-admin" class="text-white hover:text-accent mr-4">System Admin</a>
-                {% endif %}
-                <a href="/profile" class="text-white hover:text-accent mr-4">Profile</a>
-                <a href="/change-password" class="text-white hover:text-accent mr-4">Change Password</a>
-                <a href="/logout" class="text-white hover:text-accent">Logout</a>
-            </div>
-        </div>
+<body>
+    <header>
+        <nav>
+            <a href="/dashboard">Dashboard</a>
+            <a href="/manage-databases">Manage Databases</a>
+            {% if actor.role == "system_admin" %}
+                <a href="/system-admin">System Admin</a>
+            {% endif %}
+            <a href="/profile">Profile</a>
+            <a href="/change-password">Change Password</a>
+            <a href="/logout">Logout</a>
+        </nav>
     </header>
-    <main class="flex-grow pt-20 pb-6">
-        <section class="container mx-auto px-4 mt-4">
-            <h2 class="text-2xl font-semibold text-primary mb-4">Template Editor - {{ db_name }}</h2>
-            {% if success %}
-                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
-            {% endif %}
-            {% if error %}
-                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
-            {% endif %}
-            <div class="bg-card rounded-card p-6 border border-border mb-6">
-                <h3 class="text-xl font-semibold text-primary mb-4">Website Title</h3>
-                <form action="/admin/update" method="post" class="mb-6">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    <input type="hidden" name="section" value="title">
-                    <input type="hidden" name="db_id" value="{{ db_id }}">
-                    <div class="mb-4">
-                        <label for="title" class="block text-text mb-2">Title:</label>
-                        <input type="text" id="title" name="content" value="{{ content.title.content | default(db_name) }}" class="w-full p-2 border rounded">
-                    </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Update Title</button>
-                </form>
-            </div>
-            <div class="bg-card rounded-card p-6 border border-border mb-6">
-                <h3 class="text-xl font-semibold text-primary mb-4">Header Image</h3>
-                <div class="mb-4">
-                    <img src="{{ content.header_image.image_url | default('/static/header.jpg') }}" alt="{{ content.header_image.alt_text | default('Header Image') }}" class="map-image">
-                    {% if content.header_image.credit_url %}
-                        <div class="mt-2">
-                            <a href="{{ content.header_image.credit_url }}" target="_blank" rel="noopener noreferrer" class="text-accent hover:text-primary">
-                                {{ content.header_image.credit_text | default('Image by EDGI') }}
-                            </a>
-                        </div>
-                    {% endif %}
+
+    <main>
+        <h1>Template Editor - {{ db_name }} ({{ db_status }})</h1>
+
+        {% if success %}
+            <div class="alert alert-success">{{ success }}</div>
+        {% endif %}
+        {% if error %}
+            <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+
+        <section class="card">
+            <h2>Website Title</h2>
+            <p>Current: {{ content.title.content | default(db_name) }}</p>
+            <form action="/create-homepage/{{ db_id }}" method="POST">
+                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                <input type="hidden" name="section" value="title">
+                <div>
+                    <label for="content_title">Title:</label>
+                    <input type="text" id="content_title" name="content" value="{{ content.title.content | default(db_name) }}" required>
                 </div>
-                <form action="/admin/update" method="post" enctype="multipart/form-data" class="mb-6">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    <input type="hidden" name="section" value="header_image">
-                    <input type="hidden" name="db_id" value="{{ db_id }}">
-                    <div class="mb-4">
-                        <label for="image" class="block text-text mb-2">Upload New Image (jpg, png, max 5MB):</label>
-                        <input type="file" id="image" name="image" accept=".jpg,.png" class="w-full p-2 border rounded">
-                        <p class="text-sm text-textlight mt-1">
-                            <span id="fileName">Choose file</span>
-                        </p>
-                    </div>
-                    <div class="mb-4">
-                        <label for="alt_text" class="block text-text mb-2">Alt Text:</label>
-                        <input type="text" id="alt_text" name="alt_text" value="{{ content.header_image.alt_text | default('') }}" class="w-full p-2 border rounded">
-                    </div>
-                    <div class="mb-4">
-                        <label for="credit_text" class="block text-text mb-2">Credit Text:</label>
-                        <input type="text" id="credit_text" name="credit_text" value="{{ content.header_image.credit_text | default('') }}" class="w-full p-2 border rounded">
-                    </div>
-                    <div class="mb-4">
-                        <label for="credit_url" class="block text-text mb-2">Credit URL:</label>
-                        <input type="text" id="credit_url" name="credit_url" value="{{ content.header_image.credit_url | default('') }}" class="w-full p-2 border rounded">
-                    </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Update Header Image</button>
-                </form>
-            </div>
-            <div class="bg-card rounded-card p-6 border border-border mb-6">
-                <h3 class="text-xl font-semibold text-primary mb-4">Description</h3>
-                <form action="/admin/update" method="post" class="mb-6">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    <input type="hidden" name="section" value="description">
-                    <input type="hidden" name="db_id" value="{{ db_id }}">
-                    <div class="mb-4">
-                        <label for="description" class="block text-text mb-2">Description (Markdown):</label>
-                        <textarea id="description" name="content" class="w-full p-2 border rounded" rows="4">{{ content.description.content | default('') }}</textarea>
-                    </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Update Description</button>
-                </form>
-            </div>
-            <div class="bg-card rounded-card p-6 border border-border mb-6">
-                <h3 class="text-xl font-semibold text-primary mb-4">Icon</h3>
-                <form action="/admin/update" method="post" class="mb-6">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    <input type="hidden" name="section" value="icon">
-                    <input type="hidden" name="db_id" value="{{ db_id }}">
-                    <div class="mb-4">
-                        <label for="icon" class="block text-text mb-2">Icon (Remixicon Class):</label>
-                        <input type="text" id="icon" name="content" value="{{ content.icon.content | default('ri-table-line') }}" class="w-full p-2 border rounded">
-                    </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Update Icon</button>
-                </form>
-            </div>
-            <div class="bg-card rounded-card p-6 border border-border mb-6">
-                <h3 class="text-xl font-semibold text-primary mb-4">Tags</h3>
-                <form action="/admin/update" method="post" class="mb-6">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    <input type="hidden" name="section" value="tags">
-                    <input type="hidden" name="db_id" value="{{ db_id }}">
-                    <div class="mb-4">
-                        <label for="tags" class="block text-text mb-2">Tags (comma-separated):</label>
-                        <input type="text" id="tags" name="content" value="{{ content.tags.content | join(', ') }}" class="w-full p-2 border rounded">
-                    </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Update Tags</button>
-                </form>
-            </div>
-            {% if db_status == "Draft" %}
-                <div class="bg-card rounded-card p-6 border border-border">
-                    <h3 class="text-xl font-semibold text-primary mb-4">Submit for Publishing</h3>
-                    <form action="/publish-request" method="post">
-                        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                        <input type="hidden" name="db_id" value="{{ db_id }}">
-                        <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Submit to Admin</button>
-                    </form>
+                <button type="submit" class="btn">Update Title</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Header Image</h2>
+            {% if content.header_image.image_url %}
+                <img src="{{ content.header_image.image_url }}" alt="{{ content.header_image.alt_text | default('') }}">
+                {% if content.header_image.credit_url %}
+                    <p><a href="{{ content.header_image.credit_url }}">{{ content.header_image.credit_text | default('Image by EDGI') }}</a></p>
+                {% else %}
+                    <p>{{ content.header_image.credit_text | default('Image by EDGI') }}</p>
+                {% endif %}
+            {% endif %}
+            <form action="/create-homepage/{{ db_id }}" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                <input type="hidden" name="section" value="header_image">
+                <div>
+                    <label for="header_image">Upload New Image (jpg, png, max 5MB):</label>
+                    <input type="file" id="header_image" name="header_image" accept=".jpg,.png">
                 </div>
+                <div>
+                    <label for="alt_text">Alt Text:</label>
+                    <input type="text" id="alt_text" name="alt_text" value="{{ content.header_image.alt_text | default('') }}">
+                </div>
+                <div>
+                    <label for="credit_text">Credit Text:</label>
+                    <input type="text" id="credit_text" name="credit_text" value="{{ content.header_image.credit_text | default('') }}">
+                </div>
+                <div>
+                    <label for="credit_url">Credit URL:</label>
+                    <input type="url" id="credit_url" name="credit_url" value="{{ content.header_image.credit_url | default('') }}">
+                </div>
+                <button type="submit" class="btn">Update Header Image</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Description</h2>
+            <p>Current: {{ content.description.content | default('') }}</p>
+            <form action="/create-homepage/{{ db_id }}" method="POST">
+                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                <input type="hidden" name="section" value="description">
+                <div>
+                    <label for="content_description">Description (Markdown):</label>
+                    <textarea id="content_description" name="content">{{ content.description.content | default('') }}</textarea>
+                </div>
+                <button type="submit" class="btn">Update Description</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Footer</h2>
+            <p>Current: {{ content.footer.content | default('Made with EDGI') }}</p>
+            {% for paragraph in content.footer.paragraphs | default(['Made with EDGI']) %}
+                <p>{{ paragraph | safe }}</p>
+            {% endfor %}
+            <form action="/create-homepage/{{ db_id }}" method="POST">
+                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                <input type="hidden" name="section" value="footer">
+                <div>
+                    <label for="content_footer">Footer Content (Markdown):</label>
+                    <textarea id="content_footer" name="content">{{ content.footer.content | default('Made with EDGI') }}</textarea>
+                </div>
+                <button type="submit" class="btn">Update Footer</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Actions</h2>
+            <a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a>
+            <a href="/manage-databases" class="btn">Manage Tables</a>
+            {% if db_status == "Published" %}
+                <a href="/create-homepage/{{ db_id }}" class="btn">Edit Homepage</a>
             {% endif %}
         </section>
     </main>
-    <footer class="bg-gray-50 border-t border-gray-100 py-8">
-        <div class="container mx-auto px-4">
-            <div class="flex flex-col md:flex-row justify-between items-center">
-                <div class="flex items-center mb-4 md:mb-0">
-                    <div class="w-8 h-8 flex items-center justify-center mr-2">
-                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
-                    </div>
-                    <div class="text-primary">
-                        {% for paragraph in content.footer.paragraphs | default(["Made with EDGI"]) %}
-                            <p class="mb-4">{{ paragraph | safe }}</p>
-                        {% endfor %}
-                    </div>
-                </div>
-                <div>
-                    <a href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" class="text-accent hover:text-primary">{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</a>
-                </div>
-            </div>
+
+    <footer>
+        <div>
+            {% for paragraph in content.footer.paragraphs | default(["Made with EDGI"]) %}
+                <p>{{ paragraph | safe }}</p>
+            {% endfor %}
+            <a href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}">{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</a>
         </div>
     </footer>
+
     <script>
-        document.getElementById('image').addEventListener('change', function() {
-            const fileName = this.files.length > 0 ? this.files[0].name : 'Choose file';
-            document.getElementById('fileName').textContent = fileName;
+        document.querySelectorAll('input[name="csrftoken"]').forEach(input => {
+            if (!input.value) {
+                const cookie = document.cookie.split('; ').find(row => row.startsWith('ds_csrftoken='));
+                if (cookie) {
+                    input.value = cookie.split('=')[1];
+                }
+            }
         });
     </script>
 </body>

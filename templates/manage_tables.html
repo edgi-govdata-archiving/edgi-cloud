@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | Manage Tables</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        header { background: #f8f8f8; padding: 1rem; }
+        nav a { margin-right: 1rem; text-decoration: none; color: #333; }
+        main { padding: 2rem; max-width: 1200px; margin: auto; }
+        .card { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; border-radius: 8px; }
+        .btn { padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        .btn-secondary { background: #6c757d; }
+        .btn-danger { background: #dc3545; }
+        .alert { padding: 1rem; margin-bottom: 1rem; border-radius: 4px; }
+        .alert-success { background: #d4edda; color: #155724; }
+        .alert-error { background: #f8d7da; color: #721c24; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+        th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+        dialog { padding: 2rem; border-radius: 8px; }
+        .upload-area { border: 2px dashed #ddd; padding: 2rem; text-align: center; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="/dashboard">Dashboard</a>
+            <a href="/create-database">Create Website</a>
+            {% if actor.role == "system_admin" %}
+                <a href="/system-admin">System Admin</a>
+            {% endif %}
+            <a href="/profile">Profile</a>
+            <a href="/change-password">Change Password</a>
+            <a href="/logout">Logout</a>
+        </nav>
+    </header>
+
+    <main>
+        <h1>Manage Tables - {{ db_name }} ({{ db_status }})</h1>
+
+        {% if success %}
+            <div class="alert alert-success">{{ success }}</div>
+        {% endif %}
+        {% if error %}
+            <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+
+        <section class="card">
+            <h2>Tables</h2>
+            {% if tables %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Table Name</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for table in tables %}
+                            <tr>
+                                <td>{{ table.name }}</td>
+                                <td>
+                                    {% if db_status == "Draft" %}
+                                        <form action="/delete-table" method="POST" style="display: inline;">
+                                            <input type="hidden" name="db_id" value="{{ db_id }}">
+                                            <input type="hidden" name="table_name" value="{{ table.name }}">
+                                            <button type="button" class="btn btn-danger" onclick="showDeleteModal('{{ table.name }}')">🗑️ Delete</button>
+                                        </form>
+                                    {% else %}
+                                        <span>Deletion not allowed ({{ db_status }})</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>No tables found in this database.</p>
+            {% endif %}
+
+            {% if db_status == "Draft" %}
+                <h3>Add New Table</h3>
+                <form action="/manage-tables/{{ db_id }}" method="POST" enctype="multipart/form-data">
+                    <div class="upload-area">
+                        <p>Drag and drop a CSV file here</p>
+                        <p>- or -</p>
+                        <label for="dataset" class="btn btn-secondary">Upload CSV File</label>
+                        <input type="file" id="dataset" name="dataset" accept=".csv" style="display: none;" required>
+                        <p>Max 50MB, .csv files only</p>
+                    </div>
+                    <button type="submit" class="btn">Add Table</button>
+                </form>
+                <p>⚠️ Table addition is only allowed for Draft websites.</p>
+            {% else %}
+                <p>⚠️ Table addition is not allowed for {{ db_status }} websites.</p>
+            {% endif %}
+        </section>
+
+        <section class="card">
+            <h2>Actions</h2>
+            <a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a>
+            <a href="/template/{{ db_id }}" class="btn">Edit Website</a>
+            {% if db_status == "Draft" %}
+                <form action="/publish-database" method="POST" style="display: inline;">
+                    <input type="hidden" name="db_id" value="{{ db_id }}">
+                    <button type="submit" class="btn">Publish Website</button>
+                </form>
+            {% endif %}
+            {% if db_status == "Draft" %}
+                <form action="/delete-database" method="POST" style="display: inline;">
+                    <input type="hidden" name="db_id" value="{{ db_id }}">
+                    <button type="button" class="btn btn-danger" onclick="showDeleteDbModal()">Delete Website</button>
+                </form>
+            {% endif %}
+        </section>
+
+        <dialog id="deleteModal">
+            <h2>Confirm Table Deletion</h2>
+            <p>Are you sure you want to delete the table "<span id="tableName"></span>"? This action cannot be undone.</p>
+            <form id="deleteForm" action="/delete-table" method="POST">
+                <input type="hidden" name="db_id" value="{{ db_id }}">
+                <input type="hidden" name="table_name" id="deleteTableName">
+                <button type="submit" class="btn btn-danger">Confirm Delete</button>
+                <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+            </form>
+        </dialog>
+
+        <dialog id="deleteDbModal">
+            <h2>Confirm Website Deletion</h2>
+            <p>Are you sure you want to delete the website "{{ db_name }}"? This action cannot be undone.</p>
+            <form action="/delete-database" method="POST">
+                <input type="hidden" name="db_id" value="{{ db_id }}">
+                <button type="submit" class="btn btn-danger">Confirm Delete</button>
+                <button type="button" class="btn btn-secondary" onclick="closeDeleteDbModal()">Cancel</button>
+            </form>
+        </dialog>
+    </main>
+
+    <footer>
+        <div>
+            <p>Made with EDGI</p>
+            <a href="https://opendatacommons.org/licenses/odbl/">Data licensed under ODbL</a>
+        </div>
+    </footer>
+
+    <script>
+        function showDeleteModal(tableName) {
+            document.getElementById('tableName').textContent = tableName;
+            document.getElementById('deleteTableName').value = tableName;
+            document.getElementById('deleteModal').showModal();
+        }
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').close();
+        }
+        function showDeleteDbModal() {
+            document.getElementById('deleteDbModal').showModal();
+        }
+        function closeDeleteDbModal() {
+            document.getElementById('deleteDbModal').close();
+        }
+    </script>
+</body>
+</html>

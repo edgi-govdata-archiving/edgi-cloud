@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upload Interface</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-6">
+  <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+    
+    <!-- Left Column -->
+    <div class="lg:col-span-2 space-y-6">
+
+      <!-- Files Section -->
+      <div class="bg-white shadow rounded">
+        <div class="bg-blue-700 text-white px-4 py-2 font-semibold rounded-t">Files</div>
+        <div class="p-4">
+          <div class="flex justify-between text-sm text-gray-600 mb-2">
+            <div>Storage available <span class="font-semibold">1 out of 100 files</span></div>
+            <div><span class="font-semibold">3.18 MB</span> out of 50.00 GB</div>
+          </div>
+          <table class="w-full text-sm border mb-4">
+            <thead>
+              <tr class="bg-gray-100 text-left">
+                <th class="p-2">Preview</th>
+                <th class="p-2">Filename</th>
+                <th class="p-2">Size</th>
+                <th class="p-2">Progress</th>
+                <th class="p-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="p-2"><input type="radio" /></td>
+                <td class="p-2">
+                  <a href="#" class="text-blue-600 underline">test_data.csv</a><br>
+                  <span class="text-xs text-gray-500">md5:43b674...</span>
+                </td>
+                <td class="p-2">3.18 MB</td>
+                <td class="p-2 w-40">
+                  <div class="w-full bg-gray-200 rounded h-4">
+                    <div class="bg-green-500 h-4 rounded text-xs text-white text-center" style="width: 100%;">100%</div>
+                  </div>
+                </td>
+                <td class="p-2 text-right">
+                  <button title="Delete" class="text-red-600 hover:text-red-800">
+                    🗑️
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Upload area -->
+          <div class="border-dashed border-2 border-gray-300 p-6 text-center text-gray-500">
+            Drag and drop files<br><span class="text-sm">- or -</span><br>
+            <button class="mt-2 px-4 py-2 bg-blue-600 text-white rounded">Upload files</button>
+          </div>
+
+          <div class="mt-4 text-yellow-700 text-sm">
+            ⚠️ File addition, removal or modification are not allowed after you have published your upload.
+          </div>
+        </div>
+      </div>
+
+      <!-- Basic Info -->
+      <div class="bg-white shadow rounded">
+        <div class="bg-blue-700 text-white px-4 py-2 font-semibold rounded-t">Datasette database basic information</div>
+        <div class="p-4 space-y-6">
+          <!-- Title -->
+          <div>
+            <label class="block font-semibold text-sm mb-1">📄 Title <span class="text-red-500">*</span></label>
+            <input type="text" value="US Cities Water Quality" class="w-full border px-4 py-2 rounded" />
+          </div>
+          <!-- Description -->
+          <div>
+            <label class="block font-semibold text-sm mb-1">📝 Database Description</label>
+            <textarea rows="8" class="w-full border px-4 py-2 rounded">Water quality data contains an archive of documents of the cities water quality...</textarea>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column -->
+    <div class="space-y-6">
+
+      <!-- Actions -->
+      <div class="bg-white shadow rounded p-4 space-y-4">
+        <div class="flex justify-between items-center">
+          <span class="font-semibold">Draft</span>
+          <span class="text-sm text-gray-500">ℹ️</span>
+        </div>
+        <div class="flex space-x-2">
+          <button class="w-1/2 bg-gray-200 px-4 py-2 rounded">Save draft</button>
+          <button class="w-1/2 bg-gray-200 px-4 py-2 rounded">Preview</button>
+        </div>
+        <button class="w-full bg-green-600 text-white px-4 py-2 rounded">Publish</button>
+        <button class="w-full bg-blue-700 text-white px-4 py-2 rounded">Share</button>
+      </div>
+
+      <!-- Delete -->
+      <div>
+        <button class="w-full bg-red-600 text-white px-4 py-2 rounded">Delete</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
