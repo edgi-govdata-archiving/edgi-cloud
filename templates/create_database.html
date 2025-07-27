@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | Create Database</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -21,7 +21,7 @@
             </div>
             <div>
                 <a href="/dashboard" class="text-white hover:text-accent mr-4">Dashboard</a>
-                <a href="/create-database" class="text-white hover:text-accent mr-4">Create Website</a>
+                <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
                 {% if actor.role == "system_admin" %}
                     <a href="/system-admin" class="text-white hover:text-accent mr-4">System Admin</a>
                 {% endif %}
@@ -31,62 +31,152 @@
             </div>
         </div>
     </header>
+
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-4">
-            <h2 class="text-2xl font-semibold text-primary mb-4">Create New Website</h2>
-            {% if error %}
-                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
-            {% endif %}
-            {% if success %}
-                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
-            {% endif %}
-            <div class="bg-card rounded-card p-6 border border-border">
-                <form action="/create-database" method="post" enctype="multipart/form-data" class="mb-6" id="createForm">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    <div class="mb-4">
-                        <label for="db_name" class="block text-text mb-2">Website Name:</label>
-                        <input type="text" id="db_name" name="db_name" class="w-full p-2 border rounded" required>
-                        <p class="text-sm text-textlight mt-1">Enter a unique name (e.g., air_quality).</p>
+            <div class="max-w-2xl mx-auto">
+                <h2 class="text-2xl font-semibold text-primary mb-6">Create New Database</h2>
+                
+                <!-- Messages -->
+                {% if success %}
+                    <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+                        {{ success }}
                     </div>
-                    <div class="mb-4">
-                        <label for="description" class="block text-text mb-2">Description:</label>
-                        <textarea id="description" name="description" class="w-full p-2 border rounded" rows="4"></textarea>
+                {% endif %}
+                {% if error %}
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                        {{ error }}
                     </div>
-                    <div class="mb-4">
-                        <label for="icon" class="block text-text mb-2">Icon (Remixicon Class):</label>
-                        <input type="text" id="icon" name="icon" value="ri-table-line" class="w-full p-2 border rounded">
-                        <p class="text-sm text-textlight mt-1">e.g., ri-table-line, ri-leaf-line (see <a href="https://remixicon.com" class="text-accent hover:text-primary">Remixicon docs</a>).</p>
-                    </div>
-                    <div class="mb-4">
-                        <label for="tags" class="block text-text mb-2">Tags (comma-separated):</label>
-                        <input type="text" id="tags" name="tags" class="w-full p-2 border rounded">
-                        <p class="text-sm text-textlight mt-1">e.g., air, pollution, environment</p>
-                    </div>
-                    <div class="mb-4">
-                        <label for="dataset" class="block text-text mb-2">Upload Dataset (CSV or SQLite, max 50MB):</label>
-                        <input type="file" id="dataset" name="dataset" accept=".csv,.db" class="w-full p-2 border rounded" required>
-                        <p class="text-sm text-textlight mt-1">
-                            <span id="fileName">Choose file</span>
+                {% endif %}
+
+                <div class="bg-card rounded-card p-6 border border-border">
+                    <div class="mb-6">
+                        <h3 class="text-lg font-semibold text-primary mb-2">Getting Started</h3>
+                        <p class="text-gray-600 mb-4">
+                            Create a new database by providing a name and uploading your first CSV file. 
+                            You can add more tables later from the database management page.
                         </p>
+                        <div class="bg-blue-50 border border-blue-200 p-4 rounded">
+                            <h4 class="font-semibold text-blue-800 mb-2">Requirements:</h4>
+                            <ul class="text-sm text-blue-700 space-y-1">
+                                <li>• CSV files only (max 50MB per file)</li>
+                                <li>• Maximum 5 databases per user</li>
+                                <li>• Maximum 10 tables per database</li>
+                                <li>• Database names must be unique and URL-friendly</li>
+                            </ul>
+                        </div>
                     </div>
-                    <div class="flex space-x-4">
-                        <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Create Website</button>
-                        <a href="/dashboard" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Cancel</a>
+
+                    <form action="/create-database" method="post" enctype="multipart/form-data" id="create-db-form">
+                        <div class="mb-6">
+                            <label for="db_name" class="block text-sm font-medium text-gray-700 mb-2">
+                                Database Name <span class="text-red-500">*</span>
+                            </label>
+                            <input type="text" 
+                                   id="db_name" 
+                                   name="db_name" 
+                                   class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent" 
+                                   placeholder="e.g., air-quality-data"
+                                   pattern="[a-zA-Z0-9_-]+"
+                                   title="Only letters, numbers, hyphens, and underscores allowed"
+                                   required>
+                            <p class="text-sm text-gray-500 mt-1">
+                                Will be used in your website URL: <span id="url-preview" class="font-mono text-accent">{{ actor.username }}-[database-name].datasette-portal.fly.dev</span>
+                            </p>
+                        </div>
+
+                        <div class="mb-6">
+                            <label for="dataset" class="block text-sm font-medium text-gray-700 mb-2">
+                                Initial CSV File <span class="text-red-500">*</span>
+                            </label>
+                            <div class="upload-area border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-accent transition">
+                                <input type="file" name="dataset" accept=".csv" required class="file-input" id="dataset-upload">
+                                <label for="dataset-upload" class="file-label cursor-pointer">
+                                    <i class="ri-file-upload-line text-accent ri-3x mb-4"></i>
+                                    <div class="text-lg font-medium text-gray-700 mb-2">
+                                        <span id="file-name">Choose your CSV file</span>
+                                    </div>
+                                    <p class="text-sm text-gray-500">
+                                        Click to browse or drag and drop<br>
+                                        Maximum file size: 50MB
+                                    </p>
+                                </label>
+                            </div>
+                            <div id="file-info" class="mt-3 hidden">
+                                <div class="flex items-center text-sm text-gray-600">
+                                    <i class="ri-file-text-line mr-2"></i>
+                                    <span id="file-details"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Preview
+                            </label>
+                            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                <h4 class="font-semibold text-gray-700 mb-2">What happens next:</h4>
+                                <ol class="text-sm text-gray-600 space-y-2">
+                                    <li class="flex items-start">
+                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">1</span>
+                                        Your database will be created in <strong>Draft</strong> mode
+                                    </li>
+                                    <li class="flex items-start">
+                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">2</span>
+                                        CSV data will be imported as your first table
+                                    </li>
+                                    <li class="flex items-start">
+                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">3</span>
+                                        You can add more tables and customize your site
+                                    </li>
+                                    <li class="flex items-start">
+                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">4</span>
+                                        Publish when ready to make it publicly available
+                                    </li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        <div class="flex space-x-4">
+                            <button type="submit" class="bg-accent text-white px-6 py-3 rounded-lg font-semibold hover:bg-accent-dark transition flex items-center">
+                                <i class="ri-add-line mr-2"></i>
+                                Create Database
+                            </button>
+                            <a href="/dashboard" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-300 transition">
+                                Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Help Section -->
+                <div class="bg-card rounded-card p-6 border border-border mt-6">
+                    <h3 class="text-lg font-semibold text-primary mb-4">Need Help?</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <h4 class="font-semibold text-gray-700 mb-2">CSV Format Guidelines</h4>
+                            <ul class="text-sm text-gray-600 space-y-1">
+                                <li>• First row should contain column headers</li>
+                                <li>• Use UTF-8 encoding for special characters</li>
+                                <li>• Avoid empty rows or columns</li>
+                                <li>• Date format: YYYY-MM-DD recommended</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-700 mb-2">Database Naming Tips</h4>
+                            <ul class="text-sm text-gray-600 space-y-1">
+                                <li>• Use descriptive, meaningful names</li>
+                                <li>• Lowercase letters and hyphens work best</li>
+                                <li>• Avoid spaces and special characters</li>
+                                <li>• Keep it concise but clear</li>
+                            </ul>
+                        </div>
                     </div>
-                </form>
-            </div>
-        </section>
-        <section id="confirmModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
-            <div class="bg-white p-6 rounded-card shadow-lg">
-                <h3 class="text-xl font-semibold text-primary mb-4">Confirm Upload</h3>
-                <p class="text-text mb-4">Are you sure you want to create this website? Ensure your dataset is valid.</p>
-                <div class="flex space-x-4">
-                    <button id="confirmButton" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Confirm</button>
-                    <button id="cancelButton" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Cancel</button>
                 </div>
             </div>
         </section>
     </main>
+
     <footer class="bg-gray-50 border-t border-gray-100 py-8">
         <div class="container mx-auto px-4">
             <div class="flex flex-col md:flex-row justify-between items-center">
@@ -104,23 +194,127 @@
             </div>
         </div>
     </footer>
+
     <script>
-        document.getElementById('dataset').addEventListener('change', function() {
-            const fileName = this.files.length > 0 ? this.files[0].name : 'Choose file';
-            document.getElementById('fileName').textContent = fileName;
-        });
+        document.addEventListener('DOMContentLoaded', function() {
+            const dbNameInput = document.getElementById('db_name');
+            const urlPreview = document.getElementById('url-preview');
+            const fileInput = document.getElementById('dataset-upload');
+            const fileName = document.getElementById('file-name');
+            const fileInfo = document.getElementById('file-info');
+            const fileDetails = document.getElementById('file-details');
+            const form = document.getElementById('create-db-form');
 
-        document.getElementById('createForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            document.getElementById('confirmModal').classList.remove('hidden');
-        });
+            // Update URL preview as user types
+            if (dbNameInput && urlPreview) {
+                dbNameInput.addEventListener('input', function() {
+                    const dbName = this.value.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+                    if (dbName) {
+                        urlPreview.textContent = `{{ actor.username }}-${dbName}.datasette-portal.fly.dev`;
+                    } else {
+                        urlPreview.textContent = '{{ actor.username }}-[database-name].datasette-portal.fly.dev';
+                    }
+                });
+            }
 
-        document.getElementById('confirmButton').addEventListener('click', function() {
-            document.getElementById('createForm').submit();
-        });
+            // File upload handling
+            if (fileInput) {
+                fileInput.addEventListener('change', function() {
+                    if (this.files && this.files.length > 0) {
+                        const file = this.files[0];
+                        fileName.textContent = file.name;
+                        
+                        // Show file info
+                        const fileSize = (file.size / (1024 * 1024)).toFixed(2);
+                        fileDetails.textContent = `${file.name} (${fileSize} MB)`;
+                        fileInfo.classList.remove('hidden');
 
-        document.getElementById('cancelButton').addEventListener('click', function() {
-            document.getElementById('confirmModal').classList.add('hidden');
+                        // Check file size
+                        if (file.size > 50 * 1024 * 1024) {
+                            alert('File size exceeds 50MB limit. Please choose a smaller file.');
+                            this.value = '';
+                            fileName.textContent = 'Choose your CSV file';
+                            fileInfo.classList.add('hidden');
+                        }
+                    } else {
+                        fileName.textContent = 'Choose your CSV file';
+                        fileInfo.classList.add('hidden');
+                    }
+                });
+
+                // Drag and drop functionality
+                const uploadArea = document.querySelector('.upload-area');
+                
+                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                    uploadArea.addEventListener(eventName, preventDefaults, false);
+                });
+
+                function preventDefaults(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+
+                ['dragenter', 'dragover'].forEach(eventName => {
+                    uploadArea.addEventListener(eventName, highlight, false);
+                });
+
+                ['dragleave', 'drop'].forEach(eventName => {
+                    uploadArea.addEventListener(eventName, unhighlight, false);
+                });
+
+                function highlight(e) {
+                    uploadArea.classList.add('border-accent', 'bg-accent', 'bg-opacity-5');
+                }
+
+                function unhighlight(e) {
+                    uploadArea.classList.remove('border-accent', 'bg-accent', 'bg-opacity-5');
+                }
+
+                uploadArea.addEventListener('drop', handleDrop, false);
+
+                function handleDrop(e) {
+                    const dt = e.dataTransfer;
+                    const files = dt.files;
+                    
+                    if (files.length > 0) {
+                        fileInput.files = files;
+                        fileInput.dispatchEvent(new Event('change'));
+                    }
+                }
+            }
+
+            // Form validation
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    const dbName = dbNameInput.value.trim();
+                    const file = fileInput.files[0];
+
+                    if (!dbName) {
+                        e.preventDefault();
+                        alert('Please enter a database name.');
+                        dbNameInput.focus();
+                        return;
+                    }
+
+                    if (!file) {
+                        e.preventDefault();
+                        alert('Please select a CSV file.');
+                        fileInput.focus();
+                        return;
+                    }
+
+                    if (file.size > 50 * 1024 * 1024) {
+                        e.preventDefault();
+                        alert('File size exceeds 50MB limit.');
+                        return;
+                    }
+
+                    // Show loading state
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<i class="ri-loader-4-line mr-2 animate-spin"></i>Creating Database...';
+                });
+            }
         });
     </script>
 </body>

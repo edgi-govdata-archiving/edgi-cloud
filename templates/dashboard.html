@@ -20,8 +20,8 @@
                 <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
             </div>
             <div>
-                <a href="/dashboard" class="text-white hover:text-accent mr-4">Dashboard</a>
-                <a href="/create-database" class="text-white hover:text-accent mr-4">Create Website</a>
+                <a href="/create-database" class="text-white hover:text-accent mr-4">Create Database</a>
+                <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
                 {% if actor.role == "system_admin" %}
                     <a href="/system-admin" class="text-white hover:text-accent mr-4">System Admin</a>
                 {% endif %}
@@ -31,52 +31,332 @@
             </div>
         </div>
     </header>
+
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-4">
+            <!-- Welcome Header -->
+            <div class="mb-8">
+                <h1 class="text-3xl font-bold text-primary mb-2">
+                    Welcome back, {{ user_info.username | default(actor.username) }}!
+                </h1>
+                <p class="text-gray-600">Manage your environmental datasets and create interactive websites.</p>
+            </div>
+
+            <!-- Messages -->
             {% if success %}
-                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+                    <div class="flex items-center">
+                        <i class="ri-check-line mr-2"></i>
+                        {{ success }}
+                    </div>
+                </div>
             {% endif %}
             {% if error %}
-                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
-            {% endif %}
-            <h2 class="text-2xl font-semibold text-primary mb-4">Your Dashboard</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-card rounded-card p-6 border border-border">
-                    <h3 class="text-xl font-semibold text-primary mb-4">Profile</h3>
-                    <p><strong>Username:</strong> {{ user_info.username }}</p>
-                    <p><strong>Email:</strong> {{ user_info.email }}</p>
-                    <a href="/profile" class="text-accent hover:text-primary mt-2 inline-block">Edit Profile</a>
-                </div>
-                <div class="bg-card rounded-card p-6 border border-border">
-                    <h3 class="text-xl font-semibold text-primary mb-4">My Websites</h3>
-                    {% if user_databases %}
-                        <ul class="space-y-2">
-                            {% for db in user_databases %}
-                                <li class="flex justify-between items-center">
-                                    <span>{{ db.db_name }} ({{ db.status }})</span>
-                                    <a href="/template/{{ db.db_id }}" class="text-accent hover:text-primary">Edit</a>
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <p class="text-textlight">No websites created yet.</p>
-                    {% endif %}
-                    <a href="/create-database" class="text-accent hover:text-primary mt-2 inline-block">Create New Website</a>
-                </div>
-            </div>
-            <div class="bg-card rounded-card p-6 border border-border mt-6">
-                <h3 class="text-xl font-semibold text-primary mb-4">Invite User</h3>
-                <form action="/invite-user" method="post" class="mb-6">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    <div class="mb-4">
-                        <label for="invite_email" class="block text-text mb-2">Email:</label>
-                        <input type="email" id="invite_email" name="email" class="w-full p-2 border rounded" required>
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                    <div class="flex items-center">
+                        <i class="ri-error-warning-line mr-2"></i>
+                        {{ error }}
                     </div>
-                    <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Send Invite</button>
-                </form>
+                </div>
+            {% endif %}
+
+            <!-- Quick Actions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-card rounded-card p-6 border border-border hover:shadow-md transition">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-accent rounded-lg flex items-center justify-center mr-4">
+                            <i class="ri-add-line text-white ri-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-primary">Create Database</h3>
+                            <p class="text-sm text-gray-500">Start a new project</p>
+                        </div>
+                    </div>
+                    <a href="/create-database" class="btn btn-primary w-full">Create New</a>
+                </div>
+
+                <div class="bg-card rounded-card p-6 border border-border hover:shadow-md transition">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center mr-4">
+                            <i class="ri-database-2-line text-white ri-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-primary">My Databases</h3>
+                            <p class="text-sm text-gray-500">{{ user_databases|length }} databases</p>
+                        </div>
+                    </div>
+                    <a href="/manage-databases" class="btn btn-secondary w-full">Manage</a>
+                </div>
+
+                <div class="bg-card rounded-card p-6 border border-border hover:shadow-md transition">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center mr-4">
+                            <i class="ri-user-line text-white ri-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-primary">Profile</h3>
+                            <p class="text-sm text-gray-500">Account settings</p>
+                        </div>
+                    </div>
+                    <a href="/profile" class="btn btn-secondary w-full">Edit Profile</a>
+                </div>
+
+                {% if actor.role == "system_admin" %}
+                <div class="bg-card rounded-card p-6 border border-border hover:shadow-md transition">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center mr-4">
+                            <i class="ri-admin-line text-white ri-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-primary">System Admin</h3>
+                            <p class="text-sm text-gray-500">Manage portal</p>
+                        </div>
+                    </div>
+                    <a href="/system-admin" class="btn btn-secondary w-full">Admin Panel</a>
+                </div>
+                {% endif %}
             </div>
+
+            <!-- Account Overview -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- My Databases -->
+                <div class="lg:col-span-2">
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-xl font-semibold text-primary">My Databases</h2>
+                            <a href="/create-database" class="text-accent hover:text-primary text-sm font-medium">
+                                + Create New
+                            </a>
+                        </div>
+
+                        {% if user_databases %}
+                            <div class="space-y-4">
+                                {% for db in user_databases %}
+                                    <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <div class="flex items-center">
+                                                <i class="ri-database-2-line text-accent mr-3"></i>
+                                                <div>
+                                                    <h3 class="font-medium text-gray-900">{{ db.db_name }}</h3>
+                                                    <p class="text-sm text-gray-500">
+                                                        {% if db.status == "Published" %}
+                                                            <a href="{{ db.website_url }}" target="_blank" rel="noopener noreferrer" class="text-accent hover:text-primary">
+                                                                {{ db.website_url }}
+                                                            </a>
+                                                        {% else %}
+                                                            {{ db.website_url }} ({{ db.status }})
+                                                        {% endif %}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <span class="px-2 py-1 rounded-full text-xs font-medium 
+                                                    {% if db.status == 'Published' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                                                    {{ db.status }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="flex space-x-2">
+                                            <a href="/manage-databases" class="text-sm text-accent hover:text-primary">Manage</a>
+                                            {% if db.status == "Published" %}
+                                                <span class="text-gray-300">•</span>
+                                                <a href="/create-homepage/{{ db.db_id }}" class="text-sm text-accent hover:text-primary">Edit Homepage</a>
+                                                <span class="text-gray-300">•</span>
+                                                <a href="{{ db.website_url }}" target="_blank" rel="noopener noreferrer" class="text-sm text-accent hover:text-primary">
+                                                    View Live
+                                                    <i class="ri-external-link-line ml-1"></i>
+                                                </a>
+                                            {% else %}
+                                                <span class="text-gray-300">•</span>
+                                                <a href="/template/{{ db.db_id }}" class="text-sm text-accent hover:text-primary">Preview</a>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+
+                            {% if user_databases|length >= 5 %}
+                                <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                                    <p class="text-sm text-yellow-700">
+                                        <i class="ri-information-line mr-1"></i>
+                                        You've reached the maximum of 5 databases per user.
+                                    </p>
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="text-center py-8">
+                                <i class="ri-database-line text-gray-400 ri-3x mb-4"></i>
+                                <h3 class="text-lg font-medium text-gray-900 mb-2">No databases yet</h3>
+                                <p class="text-gray-600 mb-4">Create your first database to get started sharing environmental data.</p>
+                                <a href="/create-database" class="bg-accent text-white px-6 py-2 rounded-lg hover:bg-accent-dark transition">
+                                    Create Your First Database
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Account Info & Stats -->
+                <div class="space-y-6">
+                    <!-- Account Info -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4">Account Information</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-500">Username</label>
+                                <p class="text-gray-900">{{ user_info.username | default(actor.username) }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-500">Email</label>
+                                <p class="text-gray-900">{{ user_info.email | default('Not provided') }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-500">Role</label>
+                                <p class="text-gray-900">
+                                    {% if actor.role == "system_admin" %}
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                            <i class="ri-admin-line mr-1"></i>
+                                            Administrator
+                                        </span>
+                                    {% else %}
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                            <i class="ri-user-line mr-1"></i>
+                                            User
+                                        </span>
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-gray-200">
+                            <a href="/profile" class="text-accent hover:text-primary text-sm font-medium">
+                                Edit Profile →
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Usage Stats -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4">Usage Statistics</h3>
+                        <div class="space-y-4">
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center">
+                                    <i class="ri-database-2-line text-accent mr-2"></i>
+                                    <span class="text-sm text-gray-600">Databases</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-lg font-semibold text-gray-900">{{ user_databases|length }}</div>
+                                    <div class="text-xs text-gray-500">of 5 max</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center">
+                                    <i class="ri-globe-line text-green-500 mr-2"></i>
+                                    <span class="text-sm text-gray-600">Published</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-lg font-semibold text-gray-900">
+                                        {{ user_databases | selectattr("status", "equalto", "Published") | list | length }}
+                                    </div>
+                                    <div class="text-xs text-gray-500">live sites</div>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center">
+                                    <i class="ri-draft-line text-yellow-500 mr-2"></i>
+                                    <span class="text-sm text-gray-600">Drafts</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-lg font-semibold text-gray-900">
+                                        {{ user_databases | selectattr("status", "equalto", "Draft") | list | length }}
+                                    </div>
+                                    <div class="text-xs text-gray-500">in progress</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Progress Bar for Database Limit -->
+                        <div class="mt-4 pt-4 border-t border-gray-200">
+                            <div class="flex justify-between text-sm text-gray-600 mb-1">
+                                <span>Database Limit</span>
+                                <span>{{ user_databases|length }}/5</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="bg-accent h-2 rounded-full transition-all duration-300" 
+                                     style="width: {{ (user_databases|length / 5 * 100)|round }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Tips -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4">Quick Tips</h3>
+                        <div class="space-y-3 text-sm">
+                            {% if not user_databases %}
+                                <div class="flex items-start">
+                                    <i class="ri-lightbulb-line text-yellow-500 mr-2 mt-0.5"></i>
+                                    <span class="text-gray-600">Start by creating your first database with a CSV file</span>
+                                </div>
+                            {% endif %}
+                            
+                            {% if user_databases | selectattr("status", "equalto", "Draft") | list | length > 0 %}
+                                <div class="flex items-start">
+                                    <i class="ri-rocket-line text-blue-500 mr-2 mt-0.5"></i>
+                                    <span class="text-gray-600">Publish your draft databases to make them publicly accessible</span>
+                                </div>
+                            {% endif %}
+
+                            {% if user_databases | selectattr("status", "equalto", "Published") | list | length > 0 %}
+                                <div class="flex items-start">
+                                    <i class="ri-edit-line text-green-500 mr-2 mt-0.5"></i>
+                                    <span class="text-gray-600">Customize your published sites with the homepage editor</span>
+                                </div>
+                            {% endif %}
+
+                            <div class="flex items-start">
+                                <i class="ri-file-upload-line text-purple-500 mr-2 mt-0.5"></i>
+                                <span class="text-gray-600">You can add up to 10 tables per database</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity (if needed) -->
+            {% if actor.role == "system_admin" %}
+            <div class="mt-8">
+                <div class="bg-card rounded-card p-6 border border-border">
+                    <h3 class="text-lg font-semibold text-primary mb-4">Admin Quick Access</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <a href="/system-admin" class="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                            <i class="ri-admin-line text-purple-500 mr-3"></i>
+                            <div>
+                                <h4 class="font-medium text-gray-900">System Admin</h4>
+                                <p class="text-sm text-gray-500">Manage users and portal content</p>
+                            </div>
+                        </a>
+                        <a href="/system-admin#users" class="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                            <i class="ri-user-settings-line text-blue-500 mr-3"></i>
+                            <div>
+                                <h4 class="font-medium text-gray-900">User Management</h4>
+                                <p class="text-sm text-gray-500">View and manage user accounts</p>
+                            </div>
+                        </a>
+                        <a href="/system-admin#logs" class="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                            <i class="ri-file-list-line text-green-500 mr-3"></i>
+                            <div>
+                                <h4 class="font-medium text-gray-900">Activity Logs</h4>
+                                <p class="text-sm text-gray-500">Monitor system activity</p>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </section>
     </main>
+
     <footer class="bg-gray-50 border-t border-gray-100 py-8">
         <div class="container mx-auto px-4">
             <div class="flex flex-col md:flex-row justify-between items-center">
@@ -94,5 +374,25 @@
             </div>
         </div>
     </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add any dashboard-specific JavaScript here
+            
+            // Auto-refresh for admin users (optional)
+            {% if actor.role == "system_admin" %}
+                // Could add periodic refresh of stats for admin users
+            {% endif %}
+            
+            // Animate progress bar on load
+            const progressBar = document.querySelector('.bg-accent');
+            if (progressBar) {
+                progressBar.style.width = '0%';
+                setTimeout(() => {
+                    progressBar.style.width = '{{ (user_databases|length / 5 * 100)|round }}%';
+                }, 500);
+            }
+        });
+    </script>
 </body>
 </html>

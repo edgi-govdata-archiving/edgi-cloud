@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>{{ db_name }} | Homepage Editor</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Homepage Editor</div>
+            </div>
+            <div>
+                <a href="/manage-databases" class="text-white hover:text-accent mr-4">Back to Database</a>
+                <a href="{{ website_url }}" target="_blank" rel="noopener noreferrer" class="text-white hover:text-accent mr-4">
+                    View Live Site
+                    <i class="ri-external-link-line ml-1"></i>
+                </a>
+                <a href="/dashboard" class="text-white hover:text-accent mr-4">Dashboard</a>
+                <a href="/logout" class="text-white hover:text-accent">Logout</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-4">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-semibold text-primary">Edit Homepage: {{ db_name }}</h2>
+                <div class="flex items-center space-x-4">
+                    <span class="px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                        {{ db_status }}
+                    </span>
+                    <a href="{{ website_url }}" target="_blank" rel="noopener noreferrer" 
+                       class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition inline-flex items-center">
+                        Preview Live Site
+                        <i class="ri-external-link-line ml-2"></i>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Messages -->
+            {% if success %}
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+                    {{ success }}
+                </div>
+            {% endif %}
+            {% if error %}
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                    {{ error }}
+                </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Editor Panel -->
+                <div class="space-y-6">
+                    <!-- Title Section -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-text mr-2"></i>
+                            Website Title
+                        </h3>
+                        <form action="/create-homepage/{{ db_id }}" method="post">
+                            <input type="hidden" name="section" value="title">
+                            <div class="mb-4">
+                                <label for="title" class="block text-sm font-medium text-gray-700 mb-2">Title:</label>
+                                <input type="text" 
+                                       id="title" 
+                                       name="content" 
+                                       value="{{ homepage_content.title.content | default(db_name) }}" 
+                                       class="w-full p-3 border border-gray-300 rounded focus:ring-2 focus:ring-accent focus:border-accent"
+                                       placeholder="Enter your website title">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update Title</button>
+                        </form>
+                    </div>
+
+                    <!-- Description Section -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-file-text-line mr-2"></i>
+                            Description
+                        </h3>
+                        <form action="/create-homepage/{{ db_id }}" method="post">
+                            <input type="hidden" name="section" value="description">
+                            <div class="mb-4">
+                                <label for="description" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Description (supports markdown links):
+                                </label>
+                                <textarea id="description" 
+                                          name="content" 
+                                          class="w-full p-3 border border-gray-300 rounded focus:ring-2 focus:ring-accent focus:border-accent" 
+                                          rows="4"
+                                          placeholder="Describe your database and its contents...">{{ homepage_content.description.content | default('') }}</textarea>
+                                <p class="text-sm text-gray-500 mt-1">
+                                    Use [text](url) for links. Each line will be a separate paragraph.
+                                </p>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update Description</button>
+                        </form>
+                    </div>
+
+                    <!-- Header Image Section -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-image-line mr-2"></i>
+                            Header Image
+                        </h3>
+                        
+                        <!-- Current Image Preview -->
+                        {% if homepage_content.header_image.image_url %}
+                            <div class="mb-4">
+                                <p class="text-sm font-medium text-gray-700 mb-2">Current Image:</p>
+                                <div class="relative">
+                                    <img src="{{ homepage_content.header_image.image_url }}" 
+                                         alt="{{ homepage_content.header_image.alt_text | default('Header Image') }}" 
+                                         class="w-full h-32 object-cover rounded border">
+                                    {% if homepage_content.header_image.credit_url %}
+                                        <div class="mt-2 text-sm">
+                                            <a href="{{ homepage_content.header_image.credit_url }}" 
+                                               target="_blank" 
+                                               rel="noopener noreferrer" 
+                                               class="text-accent hover:text-primary">
+                                                {{ homepage_content.header_image.credit_text | default('Image Credit') }}
+                                            </a>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <form action="/create-homepage/{{ db_id }}" method="post" enctype="multipart/form-data">
+                            <input type="hidden" name="section" value="header_image">
+                            <div class="mb-4">
+                                <label for="header_image" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Upload New Image (JPG, PNG, max 5MB):
+                                </label>
+                                <div class="upload-area border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-accent transition">
+                                    <input type="file" 
+                                           id="header_image" 
+                                           name="header_image" 
+                                           accept=".jpg,.jpeg,.png" 
+                                           class="file-input">
+                                    <label for="header_image" class="file-label cursor-pointer">
+                                        <i class="ri-image-add-line text-accent ri-2x mb-2"></i>
+                                        <div class="text-sm text-gray-600">
+                                            <span id="image-file-name">Choose image file</span>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label for="alt_text" class="block text-sm font-medium text-gray-700 mb-2">Alt Text:</label>
+                                    <input type="text" 
+                                           id="alt_text" 
+                                           name="alt_text" 
+                                           value="{{ homepage_content.header_image.alt_text | default('') }}" 
+                                           class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-accent focus:border-accent"
+                                           placeholder="Describe the image for accessibility">
+                                </div>
+                                <div>
+                                    <label for="credit_text" class="block text-sm font-medium text-gray-700 mb-2">Credit Text:</label>
+                                    <input type="text" 
+                                           id="credit_text" 
+                                           name="credit_text" 
+                                           value="{{ homepage_content.header_image.credit_text | default('') }}" 
+                                           class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-accent focus:border-accent"
+                                           placeholder="Photo credit">
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <label for="credit_url" class="block text-sm font-medium text-gray-700 mb-2">Credit URL:</label>
+                                <input type="url" 
+                                       id="credit_url" 
+                                       name="credit_url" 
+                                       value="{{ homepage_content.header_image.credit_url | default('') }}" 
+                                       class="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-accent focus:border-accent"
+                                       placeholder="https://...">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update Header Image</button>
+                        </form>
+                    </div>
+
+                    <!-- Footer Section -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-layout-bottom-line mr-2"></i>
+                            Footer Content
+                        </h3>
+                        <form action="/create-homepage/{{ db_id }}" method="post">
+                            <input type="hidden" name="section" value="footer">
+                            <div class="mb-4">
+                                <label for="footer" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Footer Text (supports markdown links):
+                                </label>
+                                <textarea id="footer" 
+                                          name="content" 
+                                          class="w-full p-3 border border-gray-300 rounded focus:ring-2 focus:ring-accent focus:border-accent" 
+                                          rows="3"
+                                          placeholder="Footer content with markdown links...">{{ homepage_content.footer.content | default('Made with EDGI') }}</textarea>
+                                <p class="text-sm text-gray-500 mt-1">
+                                    Use [text](url) for links. Each line will be a separate paragraph.
+                                </p>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update Footer</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Preview Panel -->
+                <div class="lg:sticky lg:top-24 lg:h-fit">
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-eye-line mr-2"></i>
+                            Live Preview
+                        </h3>
+                        
+                        <div class="border border-gray-200 rounded-lg overflow-hidden">
+                            <!-- Preview Header -->
+                            <div class="bg-header text-white p-4">
+                                <div class="flex items-center">
+                                    <i class="ri-earth-line ri-lg mr-2"></i>
+                                    <span class="font-semibold">{{ homepage_content.title.content | default(db_name) }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Preview Hero Section -->
+                            <div class="relative">
+                                {% if homepage_content.header_image.image_url %}
+                                    <div class="h-32 bg-cover bg-center relative" style="background-image: url('{{ homepage_content.header_image.image_url }}');">
+                                        <div class="absolute inset-0 bg-black bg-opacity-40"></div>
+                                        <div class="absolute inset-0 flex items-center justify-center">
+                                            <h1 class="text-white text-xl font-bold text-center">
+                                                {{ homepage_content.title.content | default(db_name) }}
+                                            </h1>
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <div class="h-32 bg-gradient-to-r from-primary to-accent flex items-center justify-center">
+                                        <h1 class="text-white text-xl font-bold text-center">
+                                            {{ homepage_content.title.content | default(db_name) }}
+                                        </h1>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- Preview Content -->
+                            <div class="p-4">
+                                {% if homepage_content.description.content %}
+                                    <div class="text-sm text-gray-700 mb-4">
+                                        {{ homepage_content.description.content | truncate(200) }}
+                                    </div>
+                                {% endif %}
+                                
+                                <div class="bg-gray-50 p-3 rounded text-xs text-gray-500 text-center">
+                                    [Database tables and content would appear here]
+                                </div>
+                            </div>
+
+                            <!-- Preview Footer -->
+                            <div class="bg-gray-50 border-t border-gray-200 p-4">
+                                <div class="flex justify-between items-center text-xs">
+                                    <div class="text-gray-600">
+                                        {{ homepage_content.footer.content | default('Made with EDGI') | truncate(50) }}
+                                    </div>
+                                    <div>
+                                        <span class="text-accent">Data licensed under ODbL</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                            <p class="text-sm text-blue-700">
+                                <i class="ri-information-line mr-1"></i>
+                                This is a simplified preview. Visit the live site to see the full interactive experience.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        <p class="mb-4">Made with EDGI</p>
+                    </div>
+                </div>
+                <div>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // File upload handling for header image
+            const imageInput = document.getElementById('header_image');
+            const imageFileName = document.getElementById('image-file-name');
+            
+            if (imageInput && imageFileName) {
+                imageInput.addEventListener('change', function() {
+                    if (this.files && this.files.length > 0) {
+                        const file = this.files[0];
+                        imageFileName.textContent = file.name;
+                        
+                        // Check file size
+                        if (file.size > 5 * 1024 * 1024) {
+                            alert('Image size exceeds 5MB limit. Please choose a smaller file.');
+                            this.value = '';
+                            imageFileName.textContent = 'Choose image file';
+                        }
+                    } else {
+                        imageFileName.textContent = 'Choose image file';
+                    }
+                });
+            }
+
+            // Auto-save functionality (optional enhancement)
+            const forms = document.querySelectorAll('form');
+            forms.forEach(form => {
+                const inputs = form.querySelectorAll('input[type="text"], textarea');
+                inputs.forEach(input => {
+                    let timeout;
+                    input.addEventListener('input', function() {
+                        clearTimeout(timeout);
+                        // You could implement auto-save here if desired
+                        // timeout = setTimeout(() => {
+                        //     // Auto-save logic
+                        // }, 2000);
+                    });
+                });
+            });
+
+            // Form submission loading states
+            forms.forEach(form => {
+                form.addEventListener('submit', function() {
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        const originalText = submitBtn.textContent;
+                        submitBtn.innerHTML = '<i class="ri-loader-4-line animate-spin mr-2"></i>Updating...';
+                        
+                        // Re-enable after a delay (in case of errors)
+                        setTimeout(() => {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalText;
+                        }, 5000);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
