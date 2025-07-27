@@ -35,7 +35,12 @@
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-4">
             <div class="max-w-2xl mx-auto">
-                <h2 class="text-2xl font-semibold text-primary mb-6">Create New Database</h2>
+                <div class="flex items-center mb-6">
+                    <a href="/manage-databases" class="text-accent hover:text-primary mr-4">
+                        <i class="ri-arrow-left-line ri-xl"></i>
+                    </a>
+                    <h2 class="text-2xl font-semibold text-primary">Create New Database</h2>
+                </div>
                 
                 <!-- Messages -->
                 {% if success %}
@@ -51,23 +56,24 @@
 
                 <div class="bg-card rounded-card p-6 border border-border">
                     <div class="mb-6">
-                        <h3 class="text-lg font-semibold text-primary mb-2">Getting Started</h3>
+                        <h3 class="text-lg font-semibold text-primary mb-2">New Workflow</h3>
                         <p class="text-gray-600 mb-4">
-                            Create a new database by providing a name and uploading your first CSV file. 
-                            You can add more tables later from the database management page.
+                            Create an empty database first, then add tables by uploading CSV files. 
+                            This gives you more control over your data organization.
                         </p>
                         <div class="bg-blue-50 border border-blue-200 p-4 rounded">
                             <h4 class="font-semibold text-blue-800 mb-2">Requirements:</h4>
                             <ul class="text-sm text-blue-700 space-y-1">
-                                <li>• CSV files only (max 50MB per file)</li>
+                                <li>• Database names must be globally unique</li>
+                                <li>• Use lowercase letters, numbers, hyphens, and underscores</li>
                                 <li>• Maximum 5 databases per user</li>
                                 <li>• Maximum 10 tables per database</li>
-                                <li>• Database names must be unique and URL-friendly</li>
+                                <li>• Choose a descriptive, meaningful name</li>
                             </ul>
                         </div>
                     </div>
 
-                    <form action="/create-database" method="post" enctype="multipart/form-data" id="create-db-form">
+                    <form action="/create-database" method="post" id="create-db-form">
                         <div class="mb-6">
                             <label for="db_name" class="block text-sm font-medium text-gray-700 mb-2">
                                 Database Name <span class="text-red-500">*</span>
@@ -76,99 +82,124 @@
                                    id="db_name" 
                                    name="db_name" 
                                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent" 
-                                   placeholder="e.g., air-quality-data"
+                                   placeholder="e.g., air-quality-monitoring"
                                    pattern="[a-zA-Z0-9_-]+"
                                    title="Only letters, numbers, hyphens, and underscores allowed"
                                    required>
-                            <p class="text-sm text-gray-500 mt-1">
-                                Will be used in your website URL: <span id="url-preview" class="font-mono text-accent">{{ actor.username }}-[database-name].datasette-portal.fly.dev</span>
-                            </p>
-                        </div>
-
-                        <div class="mb-6">
-                            <label for="dataset" class="block text-sm font-medium text-gray-700 mb-2">
-                                Initial CSV File <span class="text-red-500">*</span>
-                            </label>
-                            <div class="upload-area border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-accent transition">
-                                <input type="file" name="dataset" accept=".csv" required class="file-input" id="dataset-upload">
-                                <label for="dataset-upload" class="file-label cursor-pointer">
-                                    <i class="ri-file-upload-line text-accent ri-3x mb-4"></i>
-                                    <div class="text-lg font-medium text-gray-700 mb-2">
-                                        <span id="file-name">Choose your CSV file</span>
-                                    </div>
-                                    <p class="text-sm text-gray-500">
-                                        Click to browse or drag and drop<br>
-                                        Maximum file size: 50MB
-                                    </p>
-                                </label>
-                            </div>
-                            <div id="file-info" class="mt-3 hidden">
-                                <div class="flex items-center text-sm text-gray-600">
-                                    <i class="ri-file-text-line mr-2"></i>
-                                    <span id="file-details"></span>
-                                </div>
+                            <div class="mt-2">
+                                <p class="text-sm text-gray-500">
+                                    Your database will be accessible at: 
+                                    <span id="url-preview" class="font-mono text-accent break-all">
+                                        {{ actor.username }}-[database-name].datasette-portal.fly.dev
+                                    </span>
+                                </p>
+                                <div id="name-validation" class="mt-1"></div>
                             </div>
                         </div>
 
                         <div class="mb-6">
                             <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Preview
+                                What happens next?
                             </label>
                             <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                                <h4 class="font-semibold text-gray-700 mb-2">What happens next:</h4>
-                                <ol class="text-sm text-gray-600 space-y-2">
+                                <ol class="text-sm text-gray-700 space-y-3">
                                     <li class="flex items-start">
-                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">1</span>
-                                        Your database will be created in <strong>Draft</strong> mode
+                                        <span class="bg-accent text-white rounded-full w-6 h-6 flex items-center justify-center text-xs mr-3 mt-0.5 flex-shrink-0">1</span>
+                                        <div>
+                                            <strong>Empty database created</strong> in <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs">Draft</span> mode
+                                            <p class="text-gray-600 text-xs mt-1">Database structure ready, no data yet</p>
+                                        </div>
                                     </li>
                                     <li class="flex items-start">
-                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">2</span>
-                                        CSV data will be imported as your first table
+                                        <span class="bg-accent text-white rounded-full w-6 h-6 flex items-center justify-center text-xs mr-3 mt-0.5 flex-shrink-0">2</span>
+                                        <div>
+                                            <strong>Add tables by uploading CSV files</strong>
+                                            <p class="text-gray-600 text-xs mt-1">Each CSV becomes a searchable table</p>
+                                        </div>
                                     </li>
                                     <li class="flex items-start">
-                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">3</span>
-                                        You can add more tables and customize your site
+                                        <span class="bg-accent text-white rounded-full w-6 h-6 flex items-center justify-center text-xs mr-3 mt-0.5 flex-shrink-0">3</span>
+                                        <div>
+                                            <strong>Customize and organize your data</strong>
+                                            <p class="text-gray-600 text-xs mt-1">Add multiple tables, test functionality</p>
+                                        </div>
                                     </li>
                                     <li class="flex items-start">
-                                        <span class="bg-accent text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-3 mt-0.5">4</span>
-                                        Publish when ready to make it publicly available
+                                        <span class="bg-accent text-white rounded-full w-6 h-6 flex items-center justify-center text-xs mr-3 mt-0.5 flex-shrink-0">4</span>
+                                        <div>
+                                            <strong>Publish when ready</strong>
+                                            <p class="text-gray-600 text-xs mt-1">Make it publicly available as a live website</p>
+                                        </div>
                                     </li>
                                 </ol>
                             </div>
                         </div>
 
                         <div class="flex space-x-4">
-                            <button type="submit" class="bg-accent text-white px-6 py-3 rounded-lg font-semibold hover:bg-accent-dark transition flex items-center">
+                            <button type="submit" class="bg-accent text-white px-6 py-3 rounded-lg font-semibold hover:bg-accent-dark transition flex items-center disabled:opacity-50 disabled:cursor-not-allowed" id="submit-btn">
                                 <i class="ri-add-line mr-2"></i>
                                 Create Database
                             </button>
-                            <a href="/dashboard" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-300 transition">
+                            <a href="/manage-databases" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-300 transition">
                                 Cancel
                             </a>
                         </div>
                     </form>
                 </div>
 
-                <!-- Help Section -->
+                <!-- Examples Section -->
                 <div class="bg-card rounded-card p-6 border border-border mt-6">
-                    <h3 class="text-lg font-semibold text-primary mb-4">Need Help?</h3>
+                    <h3 class="text-lg font-semibold text-primary mb-4">Good Database Name Examples</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-semibold text-green-700 mb-2">✅ Good Names</h4>
+                            <ul class="text-sm text-gray-600 space-y-1 font-mono">
+                                <li>• air-quality-2024</li>
+                                <li>• water-monitoring</li>
+                                <li>• biodiversity-survey</li>
+                                <li>• energy-consumption</li>
+                                <li>• soil-analysis</li>
+                            </ul>
+                        </div>
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-semibold text-red-700 mb-2">❌ Avoid These</h4>
+                            <ul class="text-sm text-gray-600 space-y-1 font-mono">
+                                <li>• my database (spaces)</li>
+                                <li>• data@2024 (special chars)</li>
+                                <li>• test123 (not descriptive)</li>
+                                <li>• Air Quality (uppercase)</li>
+                                <li>• db (too short)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Benefits Section -->
+                <div class="bg-card rounded-card p-6 border border-border mt-6">
+                    <h3 class="text-lg font-semibold text-primary mb-4">Why This New Approach?</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <h4 class="font-semibold text-gray-700 mb-2">CSV Format Guidelines</h4>
+                            <h4 class="font-semibold text-gray-700 mb-2 flex items-center">
+                                <i class="ri-lightbulb-line text-yellow-500 mr-2"></i>
+                                Better Organization
+                            </h4>
                             <ul class="text-sm text-gray-600 space-y-1">
-                                <li>• First row should contain column headers</li>
-                                <li>• Use UTF-8 encoding for special characters</li>
-                                <li>• Avoid empty rows or columns</li>
-                                <li>• Date format: YYYY-MM-DD recommended</li>
+                                <li>• Plan your database structure first</li>
+                                <li>• Add related tables systematically</li>
+                                <li>• Better data relationships</li>
+                                <li>• Cleaner URLs and naming</li>
                             </ul>
                         </div>
                         <div>
-                            <h4 class="font-semibold text-gray-700 mb-2">Database Naming Tips</h4>
+                            <h4 class="font-semibold text-gray-700 mb-2 flex items-center">
+                                <i class="ri-shield-check-line text-green-500 mr-2"></i>
+                                Global Uniqueness
+                            </h4>
                             <ul class="text-sm text-gray-600 space-y-1">
-                                <li>• Use descriptive, meaningful names</li>
-                                <li>• Lowercase letters and hyphens work best</li>
-                                <li>• Avoid spaces and special characters</li>
-                                <li>• Keep it concise but clear</li>
+                                <li>• No duplicate database names</li>
+                                <li>• Cleaner table naming system</li>
+                                <li>• Easier collaboration</li>
+                                <li>• Better discoverability</li>
                             </ul>
                         </div>
                     </div>
@@ -185,7 +216,7 @@
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
                     <div class="text-primary">
-                        <p class="mb-4">Made with EDGI</p>
+                        <p>Made with EDGI</p>
                     </div>
                 </div>
                 <div>
@@ -199,122 +230,111 @@
         document.addEventListener('DOMContentLoaded', function() {
             const dbNameInput = document.getElementById('db_name');
             const urlPreview = document.getElementById('url-preview');
-            const fileInput = document.getElementById('dataset-upload');
-            const fileName = document.getElementById('file-name');
-            const fileInfo = document.getElementById('file-info');
-            const fileDetails = document.getElementById('file-details');
+            const nameValidation = document.getElementById('name-validation');
+            const submitBtn = document.getElementById('submit-btn');
             const form = document.getElementById('create-db-form');
 
-            // Update URL preview as user types
-            if (dbNameInput && urlPreview) {
-                dbNameInput.addEventListener('input', function() {
-                    const dbName = this.value.toLowerCase().replace(/[^a-z0-9_-]/g, '');
-                    if (dbName) {
-                        urlPreview.textContent = `{{ actor.username }}-${dbName}.datasette-portal.fly.dev`;
-                    } else {
-                        urlPreview.textContent = '{{ actor.username }}-[database-name].datasette-portal.fly.dev';
-                    }
-                });
+            let validationTimeout;
+
+            // Update URL preview and validate name as user types
+            dbNameInput.addEventListener('input', function() {
+                const dbName = this.value.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+                
+                // Update URL preview
+                if (dbName) {
+                    urlPreview.textContent = `{{ actor.username }}-${dbName}.datasette-portal.fly.dev`;
+                } else {
+                    urlPreview.textContent = '{{ actor.username }}-[database-name].datasette-portal.fly.dev';
+                }
+
+                // Clear previous validation timeout
+                clearTimeout(validationTimeout);
+                nameValidation.innerHTML = '';
+                
+                if (dbName.length > 0) {
+                    // Show checking status
+                    nameValidation.innerHTML = '<p class="text-sm text-gray-500"><i class="ri-loader-4-line animate-spin mr-1"></i>Checking availability...</p>';
+                    
+                    // Validate after user stops typing
+                    validationTimeout = setTimeout(() => {
+                        validateDatabaseName(dbName);
+                    }, 500);
+                }
+            });
+
+            function validateDatabaseName(name) {
+                // Client-side validation
+                if (name.length < 3) {
+                    showValidation('Name must be at least 3 characters long', 'error');
+                    return;
+                }
+                
+                if (name.length > 50) {
+                    showValidation('Name must be less than 50 characters', 'error');
+                    return;
+                }
+                
+                if (!/^[a-z0-9_-]+$/.test(name)) {
+                    showValidation('Only lowercase letters, numbers, hyphens, and underscores allowed', 'error');
+                    return;
+                }
+
+                if (name.startsWith('-') || name.endsWith('-') || name.startsWith('_') || name.endsWith('_')) {
+                    showValidation('Name cannot start or end with hyphens or underscores', 'error');
+                    return;
+                }
+
+                // Server-side validation would happen here
+                // For now, show success for valid format
+                showValidation('Name format is valid', 'success');
             }
 
-            // File upload handling
-            if (fileInput) {
-                fileInput.addEventListener('change', function() {
-                    if (this.files && this.files.length > 0) {
-                        const file = this.files[0];
-                        fileName.textContent = file.name;
-                        
-                        // Show file info
-                        const fileSize = (file.size / (1024 * 1024)).toFixed(2);
-                        fileDetails.textContent = `${file.name} (${fileSize} MB)`;
-                        fileInfo.classList.remove('hidden');
-
-                        // Check file size
-                        if (file.size > 50 * 1024 * 1024) {
-                            alert('File size exceeds 50MB limit. Please choose a smaller file.');
-                            this.value = '';
-                            fileName.textContent = 'Choose your CSV file';
-                            fileInfo.classList.add('hidden');
-                        }
-                    } else {
-                        fileName.textContent = 'Choose your CSV file';
-                        fileInfo.classList.add('hidden');
-                    }
-                });
-
-                // Drag and drop functionality
-                const uploadArea = document.querySelector('.upload-area');
+            function showValidation(message, type) {
+                const iconClass = type === 'success' ? 'ri-check-line text-green-600' : 'ri-error-warning-line text-red-600';
+                const textClass = type === 'success' ? 'text-green-600' : 'text-red-600';
                 
-                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                    uploadArea.addEventListener(eventName, preventDefaults, false);
-                });
+                nameValidation.innerHTML = `
+                    <p class="text-sm ${textClass}">
+                        <i class="${iconClass} mr-1"></i>${message}
+                    </p>
+                `;
 
-                function preventDefaults(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-
-                ['dragenter', 'dragover'].forEach(eventName => {
-                    uploadArea.addEventListener(eventName, highlight, false);
-                });
-
-                ['dragleave', 'drop'].forEach(eventName => {
-                    uploadArea.addEventListener(eventName, unhighlight, false);
-                });
-
-                function highlight(e) {
-                    uploadArea.classList.add('border-accent', 'bg-accent', 'bg-opacity-5');
-                }
-
-                function unhighlight(e) {
-                    uploadArea.classList.remove('border-accent', 'bg-accent', 'bg-opacity-5');
-                }
-
-                uploadArea.addEventListener('drop', handleDrop, false);
-
-                function handleDrop(e) {
-                    const dt = e.dataTransfer;
-                    const files = dt.files;
-                    
-                    if (files.length > 0) {
-                        fileInput.files = files;
-                        fileInput.dispatchEvent(new Event('change'));
-                    }
-                }
+                // Enable/disable submit button
+                submitBtn.disabled = type === 'error';
             }
 
             // Form validation
-            if (form) {
-                form.addEventListener('submit', function(e) {
-                    const dbName = dbNameInput.value.trim();
-                    const file = fileInput.files[0];
+            form.addEventListener('submit', function(e) {
+                const dbName = dbNameInput.value.trim();
 
-                    if (!dbName) {
-                        e.preventDefault();
-                        alert('Please enter a database name.');
-                        dbNameInput.focus();
-                        return;
-                    }
+                if (!dbName) {
+                    e.preventDefault();
+                    alert('Please enter a database name.');
+                    dbNameInput.focus();
+                    return;
+                }
 
-                    if (!file) {
-                        e.preventDefault();
-                        alert('Please select a CSV file.');
-                        fileInput.focus();
-                        return;
-                    }
+                if (dbName.length < 3) {
+                    e.preventDefault();
+                    alert('Database name must be at least 3 characters long.');
+                    dbNameInput.focus();
+                    return;
+                }
 
-                    if (file.size > 50 * 1024 * 1024) {
-                        e.preventDefault();
-                        alert('File size exceeds 50MB limit.');
-                        return;
-                    }
+                if (!/^[a-zA-Z0-9_-]+$/.test(dbName)) {
+                    e.preventDefault();
+                    alert('Database name can only contain letters, numbers, hyphens, and underscores.');
+                    dbNameInput.focus();
+                    return;
+                }
 
-                    // Show loading state
-                    const submitBtn = form.querySelector('button[type="submit"]');
-                    submitBtn.disabled = true;
-                    submitBtn.innerHTML = '<i class="ri-loader-4-line mr-2 animate-spin"></i>Creating Database...';
-                });
-            }
+                // Show loading state
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="ri-loader-4-line mr-2 animate-spin"></i>Creating Database...';
+            });
+
+            // Focus on database name input
+            dbNameInput.focus();
         });
     </script>
 </body>

@@ -5,7 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
     <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | Register</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-    <script src="/static/js/tailwind.config.js"></script>
+    <style>
+        .bg-background { background-color: #f8fafc; }
+        .bg-header { background-color: #1e40af; }
+        .bg-card { background-color: #ffffff; }
+        .bg-accent { background-color: #059669; }
+        .bg-accent-dark { background-color: #047857; }
+        .text-primary { color: #1e40af; }
+        .text-accent { color: #059669; }
+        .text-text { color: #374151; }
+        .border-border { border-color: #e5e7eb; }
+        .rounded-card { border-radius: 0.5rem; }
+        .btn { padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; text-decoration: none; display: inline-block; transition: all 0.2s; }
+        .btn-primary { background-color: #059669; color: white; }
+        .btn-primary:hover { background-color: #047857; }
+    </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
@@ -54,7 +68,6 @@
 
                 <div class="bg-card rounded-card p-8 border border-border shadow-sm">
                     <form action="/register" method="post" id="register-form">
-                        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                         
                         <div class="mb-6">
                             <label for="username" class="block text-sm font-medium text-gray-700 mb-2">
