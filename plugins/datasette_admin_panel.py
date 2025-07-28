@@ -1176,9 +1176,7 @@ async def delete_table(datasette, request):
     if not actor:
         return Response.redirect("/login")
 
-    query_db = datasette.get_database('portal')
-    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-    portal_db = sqlite_utils.Database(db_path)
+    # Skip CSRF validation for local development
     post_vars = await request.post_vars()
     db_id = post_vars.get("db_id")
     table_name = post_vars.get("table_name")
@@ -1186,6 +1184,10 @@ async def delete_table(datasette, request):
     if not db_id or not table_name:
         return Response.redirect("/manage-databases?error=Missing database ID or table name")
 
+    query_db = datasette.get_database('portal')
+    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+    portal_db = sqlite_utils.Database(db_path)
+    
     result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
     db_info = result.first()
     if not db_info:
@@ -1215,12 +1217,14 @@ async def delete_database(datasette, request):
     if not actor:
         return Response.redirect("/login")
 
-    query_db = datasette.get_database('portal')
+    # Skip CSRF validation for local development
     post_vars = await request.post_vars()
     db_id = post_vars.get("db_id")
+    
     if not db_id:
         return Response.redirect("/manage-databases?error=Missing database ID")
 
+    query_db = datasette.get_database('portal')
     result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
     db_info = result.first()
     if not db_info:
@@ -1250,12 +1254,14 @@ async def restore_database(datasette, request):
     if not actor:
         return Response.redirect("/login")
 
-    query_db = datasette.get_database('portal')
+    # Skip CSRF validation for local development
     post_vars = await request.post_vars()
     db_id = post_vars.get("db_id")
+    
     if not db_id:
         return Response.redirect("/dashboard?error=Missing database ID")
 
+    query_db = datasette.get_database('portal')
     result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
     db_info = result.first()
     if not db_info:
@@ -1285,12 +1291,14 @@ async def archive_database(datasette, request):
     if not actor:
         return Response.redirect("/login")
 
-    query_db = datasette.get_database('portal')
+    # Skip CSRF validation for local development
     post_vars = await request.post_vars()
     db_id = post_vars.get("db_id")
+    
     if not db_id:
         return Response.redirect("/manage-databases?error=Missing database ID")
 
+    query_db = datasette.get_database('portal')
     result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
     db_info = result.first()
     if not db_info:
@@ -1320,12 +1328,14 @@ async def unarchive_database(datasette, request):
     if not actor:
         return Response.redirect("/login")
 
-    query_db = datasette.get_database('portal')
+    # Skip CSRF validation for local development
     post_vars = await request.post_vars()
     db_id = post_vars.get("db_id")
+    
     if not db_id:
         return Response.redirect("/dashboard?error=Missing database ID")
 
+    query_db = datasette.get_database('portal')
     result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
     db_info = result.first()
     if not db_info:
@@ -1355,14 +1365,17 @@ async def publish_database(datasette, request):
     if not actor:
         return Response.redirect("/login")
 
-    query_db = datasette.get_database('portal')
-    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-    portal_db = sqlite_utils.Database(db_path)
+    # Skip CSRF validation for local development
     post_vars = await request.post_vars()
     db_id = post_vars.get("db_id")
+    
     if not db_id:
         return Response.redirect("/manage-databases?error=Missing database ID")
 
+    query_db = datasette.get_database('portal')
+    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+    portal_db = sqlite_utils.Database(db_path)
+    
     result = await query_db.execute("SELECT db_name, status, website_url FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
     db_info = result.first()
     if not db_info:
