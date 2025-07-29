@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>{{ display_name }} - {{ content.title.content | default(db_name.replace('_', ' ').title()) }}</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-file-list-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">{{ display_name }} - {{ content.title.content | default(db_name.replace('_', ' ').title()) }}</div>
+            </div>
+            <div>
+                <a href="/{{ db_name }}/tables" class="text-white hover:text-accent mr-4">All Tables</a>
+                <a href="/{{ db_name }}" class="text-white hover:text-accent mr-4">Database Home</a>
+                <a href="/" class="text-white hover:text-accent">Portal Home</a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-4">
+            <!-- Breadcrumb -->
+            <nav class="flex items-center text-sm text-textlight mb-6">
+                <a href="/" class="hover:text-accent">Portal Home</a>
+                <i class="ri-arrow-right-s-line mx-2"></i>
+                <a href="/{{ db_name }}" class="hover:text-accent">{{ db_name.replace('_', ' ').title() }}</a>
+                <i class="ri-arrow-right-s-line mx-2"></i>
+                <a href="/{{ db_name }}/tables" class="hover:text-accent">Tables</a>
+                <i class="ri-arrow-right-s-line mx-2"></i>
+                <span class="text-text">{{ display_name }}</span>
+            </nav>
+
+            <!-- Table Header -->
+            <div class="bg-card rounded-card p-6 border border-border mb-6">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h1 class="text-3xl font-bold text-primary mb-2">{{ display_name }}</h1>
+                        <div class="flex items-center gap-4 text-sm text-textlight">
+                            <span><i class="ri-file-list-line mr-1"></i>{{ total_count }} records</span>
+                            <span><i class="ri-layout-column-line mr-1"></i>{{ columns|length }} columns</span>
+                            {% if search_query %}
+                                <span><i class="ri-search-line mr-1"></i>Filtered results</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <button onclick="exportData('csv')" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition text-sm">
+                            <i class="ri-download-line mr-1"></i>Export CSV
+                        </button>
+                        <button onclick="exportData('json')" class="bg-blue-500 text-white px-4 py-2 rounded-button hover:bg-blue-600 transition text-sm">
+                            <i class="ri-file-code-line mr-1"></i>Export JSON
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Search and Filters -->
+                <div class="flex flex-col md:flex-row gap-4">
+                    <div class="flex-1">
+                        <form method="get" class="flex gap-2">
+                            <div class="relative flex-1">
+                                <input type="text" name="_search" value="{{ search_query }}" placeholder="Search across all columns..." 
+                                       class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent">
+                                <i class="ri-search-line absolute left-3 top-3 text-textlight"></i>
+                            </div>
+                            <button type="submit" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition">
+                                <i class="ri-search-line mr-1"></i>Search
+                            </button>
+                            {% if search_query %}
+                                <a href="/{{ db_name }}/{{ table_name }}" class="bg-gray-500 text-white px-6 py-3 rounded-button hover:bg-gray-600 transition">
+                                    <i class="ri-close-line mr-1"></i>Clear
+                                </a>
+                            {% endif %}
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Table -->
+            <div class="bg-card rounded-card border border-border">
+                {% if rows %}
+                    <!-- Table Controls -->
+                    <div class="p-4 border-b border-border bg-gray-50">
+                        <div class="flex justify-between items-center">
+                            <div class="text-sm text-textlight">
+                                Showing {{ ((page - 1) * page_size) + 1 }} to {{ ((page - 1) * page_size) + rows|length }} of {{ total_count }} entries
+                                {% if search_query %} (filtered from total){% endif %}
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <label class="text-sm text-textlight">Show:</label>
+                                <select onchange="changePageSize(this.value)" class="px-2 py-1 border rounded text-sm">
+                                    <option value="25" {% if page_size == 25 %}selected{% endif %}>25</option>
+                                    <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
+                                    <option value="100" {% if page_size == 100 %}selected{% endif %}>100</option>
+                                    <option value="250" {% if page_size == 250 %}selected{% endif %}>250</option>
+                                </select>
+                                <span class="text-sm text-textlight">entries</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Responsive Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="bg-accent text-white">
+                                    {% for column in columns %}
+                                        <th class="text-left p-3 font-medium border-r border-white border-opacity-20 last:border-r-0">
+                                            <div class="flex items-center justify-between">
+                                                <span>{{ column }}</span>
+                                                <button onclick="sortColumn('{{ column }}')" class="text-white hover:text-gray-200 ml-2">
+                                                    <i class="ri-sort-desc text-xs"></i>
+                                                </button>
+                                            </div>
+                                        </th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in rows %}
+                                    <tr class="border-b hover:bg-gray-50 transition">
+                                        {% for column in columns %}
+                                            <td class="p-3 border-r border-gray-200 last:border-r-0">
+                                                <div class="max-w-xs overflow-hidden">
+                                                    {% set value = row[column] %}
+                                                    {% if value is none %}
+                                                        <span class="text-textlight italic">null</span>
+                                                    {% elif value|string|length > 50 %}
+                                                        <span title="{{ value }}">{{ value|string|truncate(50) }}</span>
+                                                    {% else %}
+                                                        {{ value }}
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    {% if total_pages > 1 %}
+                        <div class="p-4 border-t border-border bg-gray-50">
+                            <div class="flex justify-between items-center">
+                                <div class="text-sm text-textlight">
+                                    Page {{ page }} of {{ total_pages }}
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    {% if has_previous %}
+                                        <a href="?_page=1{% if search_query %}&_search={{ search_query }}{% endif %}&_size={{ page_size }}" 
+                                           class="px-3 py-2 bg-white border rounded hover:bg-gray-50 transition text-sm">
+                                            <i class="ri-skip-back-line"></i>
+                                        </a>
+                                        <a href="?_page={{ previous_page }}{% if search_query %}&_search={{ search_query }}{% endif %}&_size={{ page_size }}" 
+                                           class="px-3 py-2 bg-white border rounded hover:bg-gray-50 transition text-sm">
+                                            <i class="ri-arrow-left-line"></i>
+                                        </a>
+                                    {% endif %}
+
+                                    <!-- Page Numbers -->
+                                    {% set start_page = [1, page - 2]|max %}
+                                    {% set end_page = [total_pages, page + 2]|min %}
+                                    
+                                    {% for p in range(start_page, end_page + 1) %}
+                                        {% if p == page %}
+                                            <span class="px-3 py-2 bg-accent text-white rounded text-sm">{{ p }}</span>
+                                        {% else %}
+                                            <a href="?_page={{ p }}{% if search_query %}&_search={{ search_query }}{% endif %}&_size={{ page_size }}" 
+                                               class="px-3 py-2 bg-white border rounded hover:bg-gray-50 transition text-sm">{{ p }}</a>
+                                        {% endif %}
+                                    {% endfor %}
+
+                                    {% if has_next %}
+                                        <a href="?_page={{ next_page }}{% if search_query %}&_search={{ search_query }}{% endif %}&_size={{ page_size }}" 
+                                           class="px-3 py-2 bg-white border rounded hover:bg-gray-50 transition text-sm">
+                                            <i class="ri-arrow-right-line"></i>
+                                        </a>
+                                        <a href="?_page={{ total_pages }}{% if search_query %}&_search={{ search_query }}{% endif %}&_size={{ page_size }}" 
+                                           class="px-3 py-2 bg-white border rounded hover:bg-gray-50 transition text-sm">
+                                            <i class="ri-skip-forward-line"></i>
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                {% else %}
+                    <!-- Empty State -->
+                    <div class="text-center py-16">
+                        {% if search_query %}
+                            <div class="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <i class="ri-search-line text-4xl text-yellow-600"></i>
+                            </div>
+                            <h2 class="text-2xl font-semibold text-primary mb-4">No Results Found</h2>
+                            <p class="text-textlight mb-6 max-w-md mx-auto">
+                                No records match your search for "{{ search_query }}". Try adjusting your search terms.
+                            </p>
+                            <a href="/{{ db_name }}/{{ table_name }}" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                                <i class="ri-refresh-line mr-2"></i>Show All Records
+                            </a>
+                        {% else %}
+                            <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <i class="ri-file-list-line text-4xl text-textlight"></i>
+                            </div>
+                            <h2 class="text-2xl font-semibold text-primary mb-4">No Data Available</h2>
+                            <p class="text-textlight mb-6 max-w-md mx-auto">
+                                This table doesn't contain any data records yet.
+                            </p>
+                            <a href="/{{ db_name }}/tables" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                                <i class="ri-arrow-left-line mr-2"></i>View Other Tables
+                            </a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Table Information -->
+            <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-card rounded-card p-6 border border-border">
+                    <h3 class="text-lg font-semibold text-primary mb-4">
+                        <i class="ri-information-line mr-2"></i>Table Information
+                    </h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Total Records:</span>
+                            <span class="font-medium">{{ total_count }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Columns:</span>
+                            <span class="font-medium">{{ columns|length }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Current Page:</span>
+                            <span class="font-medium">{{ page }} of {{ total_pages }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Records Per Page:</span>
+                            <span class="font-medium">{{ page_size }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-card rounded-card p-6 border border-border">
+                    <h3 class="text-lg font-semibold text-primary mb-4">
+                        <i class="ri-tools-line mr-2"></i>Data Tools
+                    </h3>
+                    <div class="space-y-3">
+                        <button onclick="exportData('csv')" class="w-full flex items-center justify-between p-3 bg-green-50 rounded hover:bg-green-100 transition">
+                            <span class="flex items-center text-green-700">
+                                <i class="ri-file-excel-line mr-2"></i>Export as CSV
+                            </span>
+                            <i class="ri-download-line text-green-500"></i>
+                        </button>
+                        <button onclick="exportData('json')" class="w-full flex items-center justify-between p-3 bg-blue-50 rounded hover:bg-blue-100 transition">
+                            <span class="flex items-center text-blue-700">
+                                <i class="ri-file-code-line mr-2"></i>Export as JSON
+                            </span>
+                            <i class="ri-download-line text-blue-500"></i>
+                        </button>
+                        <button onclick="shareCurrentView()" class="w-full flex items-center justify-between p-3 bg-purple-50 rounded hover:bg-purple-100 transition">
+                            <span class="flex items-center text-purple-700">
+                                <i class="ri-share-line mr-2"></i>Share Current View
+                            </span>
+                            <i class="ri-external-link-line text-purple-500"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="{{ content.footer.icon | default('ri-earth-line') }} text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        {% for paragraph in content.footer.paragraphs | default(['Made with EDGI']) %}
+                            <p class="mb-2">{{ paragraph | safe }}</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div>
+                    <a href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" class="text-accent hover:text-primary">{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        function changePageSize(size) {
+            const url = new URL(window.location);
+            url.searchParams.set('_size', size);
+            url.searchParams.set('_page', '1'); // Reset to first page
+            window.location.href = url.toString();
+        }
+
+        function sortColumn(column) {
+            const url = new URL(window.location);
+            const currentSort = url.searchParams.get('_sort');
+            const currentOrder = url.searchParams.get('_sort_desc');
+            
+            if (currentSort === column && !currentOrder) {
+                url.searchParams.set('_sort_desc', column);
+                url.searchParams.delete('_sort');
+            } else {
+                url.searchParams.set('_sort', column);
+                url.searchParams.delete('_sort_desc');
+            }
+            
+            url.searchParams.set('_page', '1'); // Reset to first page
+            window.location.href = url.toString();
+        }
+
+        function exportData(format) {
+            const url = new URL(window.location);
+            url.pathname = url.pathname + '.' + format;
+            window.open(url.toString(), '_blank');
+        }
+
+        function shareCurrentView() {
+            if (navigator.share) {
+                navigator.share({
+                    title: '{{ display_name }} - {{ content.title.content | default(db_name.replace("_", " ").title()) }}',
+                    url: window.location.href
+                });
+            } else {
+                navigator.clipboard.writeText(window.location.href).then(() => {
+                    alert('Link copied to clipboard!');
+                });
+            }
+        }
+    </script>
+</body>
+</html>

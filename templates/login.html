@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>Login - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -20,39 +20,66 @@
                 <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
             </div>
             <div>
-                <a href="/login" class="text-white hover:text-accent mr-4">Login</a>
+                <a href="/" class="text-white hover:text-accent mr-4">Home</a>
                 <a href="/register" class="text-white hover:text-accent">Register</a>
             </div>
         </div>
     </header>
+    
     <main class="flex-grow pt-20 pb-6">
-        <section class="container mx-auto px-4 mt-4">
-            <h2 class="text-2xl font-semibold text-primary mb-4">Login</h2>
-            {% if error %}
-                <p class="text-red-500 mb-4 text-center">{{ error }}</p>
-            {% endif %}
-            {% if success %}
-                <p class="text-green-500 mb-4 text-center">{{ success }}</p>
-            {% endif %}
+        <section class="container mx-auto px-4 mt-8">
             <div class="bg-card rounded-card p-6 border border-border max-w-md mx-auto">
+                <div class="text-center mb-6">
+                    <i class="ri-user-line text-primary ri-3x mb-4"></i>
+                    <h2 class="text-2xl font-semibold text-primary">Login to Your Account</h2>
+                    <p class="text-textlight mt-2">Access your environmental databases</p>
+                </div>
+
+                {% if success %}
+                    <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+                        <p class="text-sm">{{ success }}</p>
+                    </div>
+                {% endif %}
+
+                {% if error %}
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                        <p class="text-sm">{{ error }}</p>
+                    </div>
+                {% endif %}
+
                 <form action="/login" method="post">
                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                    
                     <div class="mb-4">
-                        <label for="username" class="block text-text mb-2">Username:</label>
-                        <input type="text" id="username" name="username" class="w-full p-2 border rounded" required>
+                        <label class="block text-text mb-2 font-medium">Username:</label>
+                        <div class="relative">
+                            <input type="text" name="username" class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" required>
+                            <i class="ri-user-line absolute left-3 top-3 text-textlight"></i>
+                        </div>
                     </div>
-                    <div class="mb-4">
-                        <label for="password" class="block text-text mb-2">Password:</label>
-                        <input type="password" id="password" name="password" class="w-full p-2 border rounded" required>
+                    
+                    <div class="mb-6">
+                        <label class="block text-text mb-2 font-medium">Password:</label>
+                        <div class="relative">
+                            <input type="password" name="password" class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" required>
+                            <i class="ri-lock-line absolute left-3 top-3 text-textlight"></i>
+                        </div>
                     </div>
-                    <div class="flex space-x-4">
-                        <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-accent-dark transition">Login</button>
-                        <a href="/register" class="bg-gray-200 text-text px-4 py-2 rounded hover:bg-gray-300 transition">Register</a>
-                    </div>
+                    
+                    <button type="submit" class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
+                        <i class="ri-login-circle-line mr-2"></i>Login
+                    </button>
                 </form>
+
+                <div class="mt-6 text-center">
+                    <p class="text-textlight">Don't have an account? 
+                        <a href="/register" class="text-accent hover:text-primary font-medium">Register here</a>
+                    </p>
+                </div>
             </div>
         </section>
     </main>
+
     <footer class="bg-gray-50 border-t border-gray-100 py-8">
         <div class="container mx-auto px-4">
             <div class="flex flex-col md:flex-row justify-between items-center">
@@ -60,9 +87,11 @@
                     <div class="w-8 h-8 flex items-center justify-center mr-2">
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
-                    <div class="text-primary">
-                        <p class="mb-4">Made with EDGI</p>
-                    </div>
+                    <p class="text-primary">
+                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
+                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
+                    </p>
                 </div>
                 <div>
                     <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>

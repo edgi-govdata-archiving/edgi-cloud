@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | System Admin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>System Admin - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -15,242 +15,259 @@
         <div class="container mx-auto px-4 h-20 flex items-center justify-between">
             <div class="flex items-center">
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
-                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
+                    <i class="ri-shield-user-line text-white ri-2x" aria-hidden="true"></i>
                 </div>
-                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+                <div class="text-xl font-semibold">System Administration</div>
             </div>
-            <nav class="flex space-x-4">
-                <a href="/dashboard" class="text-white hover:text-accent">Dashboard</a>
-                <a href="/manage-databases" class="text-white hover:text-accent">Manage Databases</a>
-                <a href="/system-admin" class="text-white hover:text-accent font-semibold">System Admin</a>
-                <a href="/profile" class="text-white hover:text-accent">Profile</a>
-                <a href="/change-password" class="text-white hover:text-accent">Change Password</a>
-                <a href="/logout" class="text-white hover:text-accent">Logout</a>
-            </nav>
+            {% if actor %}
+                <div>
+                    <a href="/create-database" class="text-white hover:text-accent mr-4">Create Database</a>
+                    <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
+                    <a href="/register" class="text-white hover:text-accent mr-4">Register User</a>
+                    <a href="/change-password" class="text-white hover:text-accent mr-4">Change Password</a>
+                    <a href="/logout" class="text-white hover:text-accent">Logout</a>
+                </div>
+            {% endif %}
         </div>
     </header>
-
+    
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-4">
-            <h1 class="text-3xl font-bold text-primary mb-8">System Admin Dashboard</h1>
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-primary">System Administration</h1>
+                    <p class="text-textlight mt-2">Manage users, databases, and system activity</p>
+                </div>
+                <a href="/register" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                    <i class="ri-user-add-line mr-2"></i>Add New User
+                </a>
+            </div>
 
-            <!-- Messages -->
             {% if success %}
-                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
-                    <i class="ri-check-line mr-2"></i>{{ success }}
-                </div>
-            {% endif %}
-            {% if error %}
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-                    <i class="ri-error-warning-line mr-2"></i>{{ error }}
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+                    <p class="text-sm">{{ success }}</p>
                 </div>
             {% endif %}
 
-            <!-- Users Section -->
-            <section class="bg-card rounded-card p-6 border border-border mb-8">
-                <div class="flex items-center mb-6">
-                    <i class="ri-user-line text-primary ri-xl mr-3"></i>
-                    <h2 class="text-2xl font-semibold text-primary">Users</h2>
-                    <span class="ml-auto bg-accent text-white px-3 py-1 rounded-full text-sm">{{ users|length }} users</span>
+            {% if error %}
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                    <p class="text-sm">{{ error }}</p>
                 </div>
-                
-                {% if users %}
+            {% endif %}
+
+            <!-- System Overview -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                <div class="bg-card rounded-card p-6 border border-border text-center">
+                    <i class="ri-user-line text-3xl text-blue-500 mb-2"></i>
+                    <h3 class="text-2xl font-bold text-primary">{{ users|length }}</h3>
+                    <p class="text-textlight text-sm">Total Users</p>
+                </div>
+                <div class="bg-card rounded-card p-6 border border-border text-center">
+                    <i class="ri-database-2-line text-3xl text-green-500 mb-2"></i>
+                    <h3 class="text-2xl font-bold text-primary">{{ databases|length }}</h3>
+                    <p class="text-textlight text-sm">Active Databases</p>
+                </div>
+                <div class="bg-card rounded-card p-6 border border-border text-center">
+                    <i class="ri-eye-line text-3xl text-accent mb-2"></i>
+                    <h3 class="text-2xl font-bold text-primary">
+                        {{ databases|selectattr('status', 'equalto', 'Published')|list|length }}
+                    </h3>
+                    <p class="text-textlight text-sm">Published</p>
+                </div>
+                <div class="bg-card rounded-card p-6 border border-border text-center">
+                    <i class="ri-activity-line text-3xl text-orange-500 mb-2"></i>
+                    <h3 class="text-2xl font-bold text-primary">{{ activity_logs|length }}</h3>
+                    <p class="text-textlight text-sm">Recent Activities</p>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="bg-card rounded-card border border-border">
+                <div class="border-b border-border">
+                    <nav class="flex space-x-8 px-6">
+                        <button onclick="showTab('users')" id="users-tab" class="py-4 px-1 border-b-2 border-accent text-accent font-medium">
+                            <i class="ri-user-line mr-2"></i>Users
+                        </button>
+                        <button onclick="showTab('databases')" id="databases-tab" class="py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text">
+                            <i class="ri-database-2-line mr-2"></i>Databases
+                        </button>
+                        <button onclick="showTab('activity')" id="activity-tab" class="py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text">
+                            <i class="ri-activity-line mr-2"></i>Activity Logs
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Users Tab -->
+                <div id="users-content" class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-primary">User Management</h3>
+                        <a href="/register" class="bg-accent text-white px-4 py-2 rounded-button hover:bg-primary transition text-sm">
+                            <i class="ri-user-add-line mr-1"></i>Add User
+                        </a>
+                    </div>
+                    
                     <div class="overflow-x-auto">
-                        <table class="w-full border-collapse">
+                        <table class="w-full">
                             <thead>
-                                <tr class="bg-gray-50 border-b border-gray-200">
-                                    <th class="text-left p-4 font-semibold text-gray-700">Username</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Email</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Role</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Created At</th>
+                                <tr>
+                                    <th class="text-left p-3 bg-accent text-white">Username</th>
+                                    <th class="text-left p-3 bg-accent text-white">Email</th>
+                                    <th class="text-left p-3 bg-accent text-white">Role</th>
+                                    <th class="text-left p-3 bg-accent text-white">Created</th>
+                                    <th class="text-left p-3 bg-accent text-white">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for user in users %}
-                                    <tr class="border-b border-gray-100 hover:bg-gray-50">
-                                        <td class="p-4">
+                                    <tr class="border-b hover:bg-gray-50">
+                                        <td class="p-3">
                                             <div class="flex items-center">
-                                                <div class="w-8 h-8 bg-accent text-white rounded-full flex items-center justify-center text-sm font-medium mr-3">
-                                                    {{ user.username[0]|upper }}
+                                                <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                                                    <i class="ri-user-line text-blue-600"></i>
                                                 </div>
                                                 {{ user.username }}
                                             </div>
                                         </td>
-                                        <td class="p-4 text-gray-600">{{ user.email }}</td>
-                                        <td class="p-4">
-                                            {% if user.role == "system_admin" %}
-                                                <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-shield-user-line mr-1"></i>System Admin
-                                                </span>
-                                            {% else %}
-                                                <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-user-line mr-1"></i>System User
-                                                </span>
-                                            {% endif %}
+                                        <td class="p-3 text-textlight">{{ user.email }}</td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 rounded text-xs
+                                                {% if user.role == 'system_admin' %}bg-red-100 text-red-800{% else %}bg-blue-100 text-blue-800{% endif %}">
+                                                {{ user.role.replace('_', ' ').title() }}
+                                            </span>
                                         </td>
-                                        <td class="p-4 text-gray-600 text-sm">{{ user.created_at }}</td>
+                                        <td class="p-3 text-textlight text-sm">{{ user.created_at[:10] }}</td>
+                                        <td class="p-3">
+                                            <div class="flex gap-2">
+                                                <button class="text-blue-500 hover:text-blue-700" title="Edit">
+                                                    <i class="ri-edit-line"></i>
+                                                </button>
+                                                {% if user.role != 'system_admin' %}
+                                                    <button class="text-red-500 hover:text-red-700" title="Delete">
+                                                        <i class="ri-delete-bin-line"></i>
+                                                    </button>
+                                                {% endif %}
+                                            </div>
+                                        </td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
-                {% else %}
-                    <div class="text-center py-8 text-gray-500">
-                        <i class="ri-user-line ri-3x mb-4"></i>
-                        <p>No users found.</p>
-                    </div>
-                {% endif %}
-            </section>
-
-            <!-- Databases Section -->
-            <section class="bg-card rounded-card p-6 border border-border mb-8">
-                <div class="flex items-center mb-6">
-                    <i class="ri-database-2-line text-primary ri-xl mr-3"></i>
-                    <h2 class="text-2xl font-semibold text-primary">Databases</h2>
-                    <span class="ml-auto bg-accent text-white px-3 py-1 rounded-full text-sm">{{ databases|length }} databases</span>
                 </div>
-                
-                {% if databases %}
+
+                <!-- Databases Tab -->
+                <div id="databases-content" class="p-6 hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-primary">Database Management</h3>
+                        <div class="flex gap-2">
+                            <select class="px-3 py-2 border rounded-button text-sm">
+                                <option>All Statuses</option>
+                                <option>Published</option>
+                                <option>Draft</option>
+                            </select>
+                        </div>
+                    </div>
+                    
                     <div class="overflow-x-auto">
-                        <table class="w-full border-collapse">
+                        <table class="w-full">
                             <thead>
-                                <tr class="bg-gray-50 border-b border-gray-200">
-                                    <th class="text-left p-4 font-semibold text-gray-700">Database Name</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">User</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Status</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Website URL</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Created At</th>
+                                <tr>
+                                    <th class="text-left p-3 bg-accent text-white">Database Name</th>
+                                    <th class="text-left p-3 bg-accent text-white">Owner</th>
+                                    <th class="text-left p-3 bg-accent text-white">Status</th>
+                                    <th class="text-left p-3 bg-accent text-white">Created</th>
+                                    <th class="text-left p-3 bg-accent text-white">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for db in databases %}
-                                    <tr class="border-b border-gray-100 hover:bg-gray-50">
-                                        <td class="p-4">
+                                    <tr class="border-b hover:bg-gray-50">
+                                        <td class="p-3">
                                             <div class="flex items-center">
-                                                <i class="ri-database-line text-accent mr-2"></i>
-                                                {{ db.db_name }}
+                                                <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
+                                                    <i class="ri-database-line text-green-600"></i>
+                                                </div>
+                                                {{ db.db_name.replace('_', ' ').title() }}
                                             </div>
                                         </td>
-                                        <td class="p-4 text-gray-600">{{ db.username }}</td>
-                                        <td class="p-4">
-                                            {% if db.status == "Published" %}
-                                                <span class="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-globe-line mr-1"></i>Published
-                                                </span>
-                                            {% else %}
-                                                <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-draft-line mr-1"></i>Draft
-                                                </span>
-                                            {% endif %}
+                                        <td class="p-3 text-textlight">{{ db.username }}</td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 rounded text-xs
+                                                {% if db.status == 'Published' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                                                {{ db.status }}
+                                            </span>
                                         </td>
-                                        <td class="p-4">
-                                            {% if db.website_url and db.website_url != 'N/A' %}
-                                                <a href="https://{{ db.website_url }}" target="_blank" class="text-accent hover:text-primary text-sm font-mono">
-                                                    {{ db.website_url }}
-                                                    <i class="ri-external-link-line ml-1"></i>
-                                                </a>
-                                            {% else %}
-                                                <span class="text-gray-400 text-sm">N/A</span>
-                                            {% endif %}
+                                        <td class="p-3 text-textlight text-sm">{{ db.created_at[:10] }}</td>
+                                        <td class="p-3">
+                                            <div class="flex gap-2">
+                                                {% if db.status == 'Published' %}
+                                                    <a href="{{ db.website_url }}" class="text-green-500 hover:text-green-700" title="View Site" target="_blank">
+                                                        <i class="ri-external-link-line"></i>
+                                                    </a>
+                                                {% endif %}
+                                                <button class="text-blue-500 hover:text-blue-700" title="Manage">
+                                                    <i class="ri-settings-line"></i>
+                                                </button>
+                                                <button class="text-red-500 hover:text-red-700" title="Delete">
+                                                    <i class="ri-delete-bin-line"></i>
+                                                </button>
+                                            </div>
                                         </td>
-                                        <td class="p-4 text-gray-600 text-sm">{{ db.created_at }}</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
-                {% else %}
-                    <div class="text-center py-8 text-gray-500">
-                        <i class="ri-database-2-line ri-3x mb-4"></i>
-                        <p>No databases found.</p>
-                    </div>
-                {% endif %}
-            </section>
-
-            <!-- Activity Logs Section -->
-            <section class="bg-card rounded-card p-6 border border-border">
-                <div class="flex items-center mb-6">
-                    <i class="ri-history-line text-primary ri-xl mr-3"></i>
-                    <h2 class="text-2xl font-semibold text-primary">Activity Logs</h2>
-                    <span class="ml-auto bg-accent text-white px-3 py-1 rounded-full text-sm">Recent {{ activity_logs|length }} activities</span>
                 </div>
-                
-                {% if activity_logs %}
-                    <div class="overflow-x-auto">
-                        <table class="w-full border-collapse">
-                            <thead>
-                                <tr class="bg-gray-50 border-b border-gray-200">
-                                    <th class="text-left p-4 font-semibold text-gray-700">User ID</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Action</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Details</th>
-                                    <th class="text-left p-4 font-semibold text-gray-700">Timestamp</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for log in activity_logs %}
-                                    <tr class="border-b border-gray-100 hover:bg-gray-50">
-                                        <td class="p-4 text-gray-600 font-mono text-sm">{{ log.user_id[:8] }}...</td>
-                                        <td class="p-4">
-                                            {% if log.action == "register" %}
-                                                <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-user-add-line mr-1"></i>Register
-                                                </span>
-                                            {% elif log.action == "create_database" %}
-                                                <span class="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-database-line mr-1"></i>Create DB
-                                                </span>
-                                            {% elif log.action == "publish_database" %}
-                                                <span class="bg-purple-100 text-purple-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-globe-line mr-1"></i>Publish
-                                                </span>
-                                            {% elif log.action == "add_table" %}
-                                                <span class="bg-indigo-100 text-indigo-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-table-line mr-1"></i>Add Table
-                                                </span>
-                                            {% elif log.action == "delete_table" %}
-                                                <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-delete-bin-line mr-1"></i>Delete Table
-                                                </span>
-                                            {% elif log.action == "delete_database" %}
-                                                <span class="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-database-line mr-1"></i>Delete DB
-                                                </span>
-                                            {% elif log.action == "update_profile" %}
-                                                <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-user-settings-line mr-1"></i>Update Profile
-                                                </span>
-                                            {% elif log.action == "change_password" %}
-                                                <span class="bg-orange-100 text-orange-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-lock-line mr-1"></i>Change Password
-                                                </span>
-                                            {% elif log.action == "update_homepage" %}
-                                                <span class="bg-cyan-100 text-cyan-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-home-line mr-1"></i>Update Homepage
-                                                </span>
-                                            {% elif log.action == "update_content" %}
-                                                <span class="bg-teal-100 text-teal-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-edit-line mr-1"></i>Update Content
-                                                </span>
+
+                <!-- Activity Logs Tab -->
+                <div id="activity-content" class="p-6 hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-primary">Recent Activity</h3>
+                        <div class="flex gap-2">
+                            <select class="px-3 py-2 border rounded-button text-sm">
+                                <option>All Actions</option>
+                                <option>Login</option>
+                                <option>Create Database</option>
+                                <option>Publish Database</option>
+                                <option>Delete Database</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-3 max-h-96 overflow-y-auto">
+                        {% for log in activity_logs %}
+                            <div class="bg-gray-50 rounded-card p-4 border">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <div class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
+                                            {% if log.action == 'login' %}
+                                                <i class="ri-login-circle-line text-orange-600"></i>
+                                            {% elif log.action == 'create_database' %}
+                                                <i class="ri-database-2-line text-orange-600"></i>
+                                            {% elif log.action == 'publish_database' %}
+                                                <i class="ri-rocket-line text-orange-600"></i>
+                                            {% elif log.action == 'delete_database' %}
+                                                <i class="ri-delete-bin-line text-orange-600"></i>
                                             {% else %}
-                                                <span class="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium">
-                                                    <i class="ri-information-line mr-1"></i>{{ log.action }}
-                                                </span>
+                                                <i class="ri-activity-line text-orange-600"></i>
                                             {% endif %}
-                                        </td>
-                                        <td class="p-4 text-gray-600 text-sm">{{ log.details }}</td>
-                                        <td class="p-4 text-gray-600 text-sm">{{ log.timestamp }}</td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-text">{{ log.action.replace('_', ' ').title() }}</p>
+                                            <p class="text-sm text-textlight">{{ log.details }}</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-xs text-textlight">{{ log.timestamp[:16] }}</p>
+                                        <p class="text-xs text-textlight">User ID: {{ log.user_id[:8] }}...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
                     </div>
-                {% else %}
-                    <div class="text-center py-8 text-gray-500">
-                        <i class="ri-history-line ri-3x mb-4"></i>
-                        <p>No activity logs found.</p>
-                    </div>
-                {% endif %}
-            </section>
+                </div>
+            </div>
         </section>
     </main>
 
@@ -259,11 +276,12 @@
             <div class="flex flex-col md:flex-row justify-between items-center">
                 <div class="flex items-center mb-4 md:mb-0">
                     <div class="w-8 h-8 flex items-center justify-center mr-2">
-                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                        <i class="ri-shield-user-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
-                    <div class="text-primary">
-                        <p>Made with EDGI</p>
-                    </div>
+                    <p class="text-primary">
+                        System Administration Portal - 
+                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a>
+                    </p>
                 </div>
                 <div>
                     <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
@@ -273,10 +291,21 @@
     </footer>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Add any interactive functionality here
-            console.log('System Admin Dashboard loaded');
-        });
+        function showTab(tabName) {
+            // Hide all content divs
+            document.getElementById('users-content').classList.add('hidden');
+            document.getElementById('databases-content').classList.add('hidden');
+            document.getElementById('activity-content').classList.add('hidden');
+            
+            // Remove active state from all tabs
+            document.getElementById('users-tab').className = 'py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text';
+            document.getElementById('databases-tab').className = 'py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text';
+            document.getElementById('activity-tab').className = 'py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text';
+            
+            // Show selected content and activate tab
+            document.getElementById(tabName + '-content').classList.remove('hidden');
+            document.getElementById(tabName + '-tab').className = 'py-4 px-1 border-b-2 border-accent text-accent font-medium';
+        }
     </script>
 </body>
 </html>

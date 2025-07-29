@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | Create Homepage</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+            </div>
+            <nav class="flex space-x-4">
+                <a href="/dashboard" class="text-white hover:text-accent">Dashboard</a>
+                <a href="/manage-databases" class="text-white hover:text-accent">My Databases</a>
+                {% if actor.role == "system_admin" %}
+                    <a href="/system-admin" class="text-white hover:text-accent">System Admin</a>
+                {% endif %}
+                <a href="/profile" class="text-white hover:text-accent">Profile</a>
+                <a href="/change-password" class="text-white hover:text-accent">Change Password</a>
+                <a href="/logout" class="text-white hover:text-accent">Logout</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-4">
+            <div class="max-w-4xl mx-auto">
+                <div class="flex items-center mb-6">
+                    <a href="/manage-databases" class="text-accent hover:text-primary mr-4">
+                        <i class="ri-arrow-left-line ri-xl"></i>
+                    </a>
+                    <div>
+                        <h2 class="text-2xl font-semibold text-primary">Customize Homepage</h2>
+                        <p class="text-gray-600">{{ db_name }} - {{ website_url }}</p>
+                    </div>
+                </div>
+                
+                <!-- Messages -->
+                {% if success %}
+                    <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+                        {{ success }}
+                    </div>
+                {% endif %}
+                {% if error %}
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                        {{ error }}
+                    </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- Edit Forms -->
+                    <div class="space-y-6">
+                        <!-- Title Section -->
+                        <div class="bg-card rounded-card p-6 border border-border">
+                            <h3 class="text-lg font-semibold text-primary mb-4">Website Title</h3>
+                            <form action="/create-homepage/{{ db_id }}" method="post" class="space-y-4">
+                                <input type="hidden" name="section" value="title">
+                                <div>
+                                    <label for="title_content" class="block text-sm font-medium text-gray-700 mb-2">Title</label>
+                                    <input type="text" 
+                                           id="title_content" 
+                                           name="content" 
+                                           value="{{ homepage_content.title.content if homepage_content.title else db_name }}"
+                                           class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
+                                           placeholder="Enter website title">
+                                </div>
+                                <button type="submit" class="bg-accent text-white px-4 py-2 rounded-lg hover:bg-accent-dark transition">
+                                    Update Title
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Description Section -->
+                        <div class="bg-card rounded-card p-6 border border-border">
+                            <h3 class="text-lg font-semibold text-primary mb-4">Website Description</h3>
+                            <form action="/create-homepage/{{ db_id }}" method="post" class="space-y-4">
+                                <input type="hidden" name="section" value="description">
+                                <div>
+                                    <label for="description_content" class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                                    <textarea id="description_content" 
+                                              name="content" 
+                                              rows="4"
+                                              class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
+                                              placeholder="Describe your database and its contents">{{ homepage_content.description.content if homepage_content.description else "Environmental data dashboard." }}</textarea>
+                                </div>
+                                <button type="submit" class="bg-accent text-white px-4 py-2 rounded-lg hover:bg-accent-dark transition">
+                                    Update Description
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Header Image Section -->
+                        <div class="bg-card rounded-card p-6 border border-border">
+                            <h3 class="text-lg font-semibold text-primary mb-4">Header Image</h3>
+                            <form action="/create-homepage/{{ db_id }}" method="post" enctype="multipart/form-data" class="space-y-4">
+                                <input type="hidden" name="section" value="header_image">
+                                <div>
+                                    <label for="header_image" class="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
+                                    <input type="file" 
+                                           id="header_image" 
+                                           name="header_image" 
+                                           accept=".jpg,.jpeg,.png"
+                                           class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent">
+                                    <p class="text-sm text-gray-500 mt-1">JPG or PNG, max 5MB</p>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label for="alt_text" class="block text-sm font-medium text-gray-700 mb-2">Alt Text</label>
+                                        <input type="text" 
+                                               id="alt_text" 
+                                               name="alt_text" 
+                                               value="{{ homepage_content.header_image.alt_text if homepage_content.header_image else '' }}"
+                                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
+                                               placeholder="Image description">
+                                    </div>
+                                    <div>
+                                        <label for="credit_text" class="block text-sm font-medium text-gray-700 mb-2">Credit Text</label>
+                                        <input type="text" 
+                                               id="credit_text" 
+                                               name="credit_text" 
+                                               value="{{ homepage_content.header_image.credit_text if homepage_content.header_image else '' }}"
+                                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
+                                               placeholder="Photo credit">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="credit_url" class="block text-sm font-medium text-gray-700 mb-2">Credit URL</label>
+                                    <input type="url" 
+                                           id="credit_url" 
+                                           name="credit_url" 
+                                           value="{{ homepage_content.header_image.credit_url if homepage_content.header_image else '' }}"
+                                           class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
+                                           placeholder="https://...">
+                                </div>
+                                <button type="submit" class="bg-accent text-white px-4 py-2 rounded-lg hover:bg-accent-dark transition">
+                                    Update Header Image
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Footer Section -->
+                        <div class="bg-card rounded-card p-6 border border-border">
+                            <h3 class="text-lg font-semibold text-primary mb-4">Footer Content</h3>
+                            <form action="/create-homepage/{{ db_id }}" method="post" class="space-y-4">
+                                <input type="hidden" name="section" value="footer">
+                                <div>
+                                    <label for="footer_content" class="block text-sm font-medium text-gray-700 mb-2">Footer Text</label>
+                                    <textarea id="footer_content" 
+                                              name="content" 
+                                              rows="3"
+                                              class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-accent"
+                                              placeholder="Footer content (supports markdown links)">{{ homepage_content.footer.content if homepage_content.footer else "Made with EDGI" }}</textarea>
+                                    <p class="text-sm text-gray-500 mt-1">
+                                        Supports markdown links: [Link Text](https://example.com)
+                                    </p>
+                                </div>
+                                <button type="submit" class="bg-accent text-white px-4 py-2 rounded-lg hover:bg-accent-dark transition">
+                                    Update Footer
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Preview Panel -->
+                    <div class="space-y-6">
+                        <div class="bg-card rounded-card p-6 border border-border sticky top-24">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold text-primary">Live Preview</h3>
+                                {% if db_status == "Published" %}
+                                    <a href="https://{{ website_url }}" target="_blank" class="text-accent hover:text-primary text-sm flex items-center">
+                                        <i class="ri-external-link-line mr-1"></i>
+                                        View Live Site
+                                    </a>
+                                {% endif %}
+                            </div>
+                            
+                            <!-- Preview Content -->
+                            <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                <!-- Preview Header -->
+                                {% if homepage_content.header_image and homepage_content.header_image.image_url %}
+                                    <div class="h-32 bg-cover bg-center" style="background-image: url('{{ homepage_content.header_image.image_url }}')"></div>
+                                {% else %}
+                                    <div class="h-32 bg-gradient-to-r from-blue-500 to-green-500"></div>
+                                {% endif %}
+                                
+                                <!-- Preview Content -->
+                                <div class="p-4">
+                                    <h1 class="text-xl font-bold text-gray-900 mb-2">
+                                        {{ homepage_content.title.content if homepage_content.title else db_name }}
+                                    </h1>
+                                    <p class="text-gray-600 text-sm mb-4">
+                                        {{ homepage_content.description.content if homepage_content.description else "Environmental data dashboard." }}
+                                    </p>
+                                    
+                                    <!-- Preview Tables List -->
+                                    <div class="space-y-1">
+                                        <h2 class="font-semibold text-gray-800 text-sm">Available Data:</h2>
+                                        <p class="text-xs text-gray-500">Interactive tables will appear here</p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Preview Footer -->
+                                <div class="bg-gray-50 p-3 border-t">
+                                    <p class="text-xs text-gray-600">
+                                        {{ homepage_content.footer.content if homepage_content.footer else "Made with EDGI" }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        <p>Made with EDGI</p>
+                    </div>
+                </div>
+                <div>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Auto-save functionality could be added here
+            console.log('Homepage editor loaded');
+        });
+    </script>
+</body>
+</html>
