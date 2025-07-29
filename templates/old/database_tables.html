@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>{{ page_title }}</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">{{ content.title.content }}</div>
+            </div>
+            <nav class="flex space-x-4">
+                <a href="/{{ db_name }}/" class="text-white hover:text-accent">Home</a>
+                <a href="/{{ db_name }}/tables" class="text-white hover:text-accent font-semibold">Browse Data</a>
+                <a href="/" class="text-white hover:text-accent">Portal Home</a>
+            </nav>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-4">
+            <!-- Breadcrumb -->
+            <nav class="flex mb-6" aria-label="Breadcrumb">
+                <ol class="inline-flex items-center space-x-1 md:space-x-3">
+                    <li class="inline-flex items-center">
+                        <a href="/{{ db_name }}/" class="text-gray-700 hover:text-accent">
+                            <i class="ri-home-line mr-1"></i>
+                            {{ content.title.content }}
+                        </a>
+                    </li>
+                    <li>
+                        <div class="flex items-center">
+                            <i class="ri-arrow-right-s-line text-gray-400"></i>
+                            <span class="text-gray-500 ml-1">Data Tables</span>
+                        </div>
+                    </li>
+                </ol>
+            </nav>
+
+            <div class="flex items-center justify-between mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-primary">Data Tables</h1>
+                    <p class="text-gray-600 mt-2">Browse and explore all available datasets</p>
+                </div>
+                <div class="text-sm text-gray-500">
+                    {{ tables|length }} table{{ 's' if tables|length != 1 else '' }} available
+                </div>
+            </div>
+
+            {% if tables %}
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {% for table in tables %}
+                        <div class="bg-card rounded-card p-6 border border-border hover:shadow-lg transition group">
+                            <div class="flex items-start justify-between mb-4">
+                                <div class="flex items-center">
+                                    <div class="w-12 h-12 bg-accent text-white rounded-lg flex items-center justify-center mr-4 group-hover:bg-accent-dark transition">
+                                        <i class="ri-table-line ri-xl"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-primary group-hover:text-accent transition">
+                                            {{ table.name.replace('_', ' ').title() }}
+                                        </h3>
+                                        <p class="text-sm text-gray-500">{{ table.count|number_format }} records</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <p class="text-gray-600 text-sm mb-4">{{ table.description }}</p>
+                            
+                            <!-- Column Preview -->
+                            {% if table.columns %}
+                                <div class="mb-4">
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">Sample Columns:</h4>
+                                    <div class="flex flex-wrap gap-1">
+                                        {% for column in table.columns %}
+                                            <span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">{{ column }}</span>
+                                        {% endfor %}
+                                        {% if table.columns|length > 5 %}
+                                            <span class="text-xs text-gray-500 px-2 py-1">+{{ (table.columns|length) - 5 }} more</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                            
+                            <div class="flex space-x-2">
+                                <a href="{{ table.url }}" class="flex-1 bg-accent text-white px-4 py-2 rounded-lg text-center font-medium hover:bg-accent-dark transition">
+                                    <i class="ri-eye-line mr-1"></i>
+                                    View Data
+                                </a>
+                                <a href="{{ table.url }}.csv" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition" title="Download CSV">
+                                    <i class="ri-download-line"></i>
+                                </a>
+                                <a href="{{ table.url }}.json" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition" title="Download JSON">
+                                    <i class="ri-code-line"></i>
+                                </a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <!-- Empty State -->
+                <div class="bg-card rounded-card p-12 border border-border text-center">
+                    <i class="ri-table-line text-gray-400 ri-4x mb-6"></i>
+                    <h2 class="text-2xl font-semibold text-gray-900 mb-4">No Data Tables</h2>
+                    <p class="text-gray-600 mb-8 max-w-md mx-auto">
+                        This database doesn't contain any data tables yet. 
+                        Check back later as more data may be added.
+                    </p>
+                    <a href="/{{ db_name }}/" class="bg-accent text-white px-6 py-3 rounded-lg font-semibold hover:bg-accent-dark transition inline-flex items-center">
+                        <i class="ri-arrow-left-line mr-2"></i>
+                        Back to Homepage
+                    </a>
+                </div>
+            {% endif %}
+
+            <!-- Data Usage Information -->
+            <div class="bg-card rounded-card p-6 border border-border mt-8">
+                <h3 class="text-lg font-semibold text-primary mb-4 flex items-center">
+                    <i class="ri-information-line mr-2"></i>
+                    Using This Data
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Download Formats</h4>
+                        <ul class="text-sm text-gray-600 space-y-1">
+                            <li>• CSV - Spreadsheet compatible</li>
+                            <li>• JSON - API and web applications</li>
+                            <li>• SQL - Direct database queries</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Interactive Features</h4>
+                        <ul class="text-sm text-gray-600 space-y-1">
+                            <li>• Search and filter data</li>
+                            <li>• Sort by any column</li>
+                            <li>• Paginated browsing</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="font-semibold text-gray-700 mb-2">Data License</h4>
+                        <p class="text-sm text-gray-600">
+                            All data is licensed under the 
+                            <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">
+                                Open Database License (ODbL)
+                            </a>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        {% for paragraph in footer.paragraphs | default(['Made with EDGI']) %}
+                            <p>{{ paragraph | safe }}</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div>
+                    <a href="{{ footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" 
+                       class="text-accent hover:text-primary">
+                        {{ footer.odbl_text | default('Data licensed under ODbL') }}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Add number formatting filter
+        document.addEventListener('DOMContentLoaded', function() {
+            // Format numbers in the interface
+            document.querySelectorAll('[data-format="number"]').forEach(function(el) {
+                const num = parseInt(el.textContent);
+                el.textContent = num.toLocaleString();
+            });
+        });
+    </script>
+</body>
+</html>

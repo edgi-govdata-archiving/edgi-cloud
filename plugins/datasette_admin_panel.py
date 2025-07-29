@@ -6,14 +6,14 @@ from pathlib import Path
 from datetime import datetime
 from datasette import hookimpl
 from datasette.utils.asgi import Response
-from email.parser import BytesParser
-from email.policy import default
 import bleach
 import re
 import sqlite_utils
 import uuid
 import pandas as pd
 import os
+import base64
+from multipart import parse_form_data
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_DATABASES_PER_USER = 5
 MAX_TABLES_PER_DATABASE = 10
+STATIC_DIR = "C:/MS Data Science - WMU/EDGI/edgi-cloud/static"
 
 def sanitize_text(text):
     """Sanitize text by stripping HTML tags while preserving safe characters."""
@@ -63,12 +64,11 @@ async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
     return result.first()[0] == 0
 
 def get_actor_from_request(request):
-    """Extract actor from ds_actor cookie"""
+    """Extract actor from ds_actor cookie."""
     actor = request.scope.get("actor")
     if actor:
         return actor
     
-    # Try to get from cookies
     try:
         cookie_header = ""
         for name, value in request.scope.get('headers', []):
@@ -79,7 +79,6 @@ def get_actor_from_request(request):
         if not cookie_header:
             return None
             
-        # Parse cookies
         cookies = {}
         for cookie in cookie_header.split('; '):
             if '=' in cookie:
@@ -89,17 +88,12 @@ def get_actor_from_request(request):
         ds_actor = cookies.get("ds_actor", "")
         
         if ds_actor and ds_actor != '""' and ds_actor != "":
-            # Handle quoted cookie values
             if ds_actor.startswith('"') and ds_actor.endswith('"'):
                 ds_actor = ds_actor[1:-1]
             
-            # Handle escaped characters
             ds_actor = ds_actor.replace('\\054', ',').replace('\\"', '"')
             
-            # For local development, use simple base64 decode
-            import base64
             try:
-                # Simple base64 decode for local testing
                 decoded = base64.b64decode(ds_actor + '==').decode('utf-8')
                 actor_data = json.loads(decoded)
                 request.scope["actor"] = actor_data
@@ -115,16 +109,94 @@ def get_actor_from_request(request):
     return None
 
 def set_actor_cookie(response, datasette, actor_data):
-    """Set actor cookie on response"""
+    """Set actor cookie on response."""
     try:
-        # For local development, use simple base64 encoding
-        import base64
         encoded = base64.b64encode(json.dumps(actor_data).encode('utf-8')).decode('utf-8')
         response.set_cookie("ds_actor", encoded, httponly=True, max_age=3600, samesite="lax")
     except Exception as e:
         logger.error(f"Error setting cookie: {e}")
-        # Fallback to simple string
         response.set_cookie("ds_actor", f"user_{actor_data.get('id', '')}", httponly=True, max_age=3600, samesite="lax")
+
+async def get_database_content(datasette, db_name):
+    """Get homepage content for a database using unified admin_content table."""
+    query_db = datasette.get_database('portal')
+    content = {}
+    
+    try:
+        db_result = await query_db.execute("SELECT db_id FROM databases WHERE db_name = ?", [db_name])
+        db_row = db_result.first()
+        if not db_row:
+            logger.error(f"Database {db_name} not found")
+            return {}
+        
+        db_id = db_row['db_id']
+        
+        result = await query_db.execute("SELECT section, content FROM admin_content WHERE db_id = ?", [db_id])
+        for row in result:
+            try:
+                content[row['section']] = json.loads(row['content'])
+            except json.JSONDecodeError:
+                content[row['section']] = {'content': row['content']}
+    except Exception as e:
+        logger.error(f"Error loading admin content for {db_name}: {e}")
+    
+    if 'title' not in content:
+        content['title'] = {'content': db_name.replace('_', ' ').replace('-', ' ').title()}
+    
+    if 'description' not in content:
+        content['description'] = {'content': 'Environmental data dashboard powered by Datasette.'}
+    
+    if 'header_image' not in content:
+        content['header_image'] = {
+            'image_url': '/static/default_header.jpg',
+            'alt_text': 'Environmental Data',
+            'credit_text': 'Environmental Data Portal',
+            'credit_url': ''
+        }
+    
+    if 'footer' not in content:
+        content['footer'] = {
+            'content': 'Made with EDGI',
+            'odbl_text': 'Data licensed under ODbL',
+            'odbl_url': 'https://opendatacommons.org/licenses/odbl/',
+            'paragraphs': ['Made with EDGI']
+        }
+    
+    if 'content' in content.get('description', {}):
+        content['description']['paragraphs'] = parse_markdown_links(content['description']['content'])
+        content['info'] = {
+            'content': content['description']['content'],
+            'paragraphs': content['description']['paragraphs']
+        }
+    
+    if 'content' in content.get('footer', {}):
+        content['footer']['paragraphs'] = parse_markdown_links(content['footer']['content'])
+    
+    return content
+
+async def get_database_tables(datasette, db_name):
+    """Get list of tables for a database."""
+    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+    portal_db = sqlite_utils.Database(db_path)
+    
+    tables = []
+    prefix = f"{db_name}_"
+    
+    for table_name in portal_db.table_names():
+        if table_name.startswith(prefix):
+            display_name = table_name[len(prefix):]
+            table_info = portal_db[table_name]
+            
+            tables.append({
+                'name': display_name,
+                'full_name': table_name,
+                'url': f"/{db_name}/{display_name}",
+                'count': table_info.count,
+                'columns': list(table_info.columns_dict.keys())[:5],
+                'description': f"Data table with {table_info.count} records"
+            })
+    
+    return tables
 
 async def index_page(datasette, request):
     logger.debug(f"Index request: {request.method}")
@@ -132,25 +204,28 @@ async def index_page(datasette, request):
     db = datasette.get_database("portal")
 
     async def get_section(section_name):
-        result = await db.execute("SELECT content FROM admin_content WHERE section = ?", [section_name])
+        result = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", [section_name])
         row = result.first()
         if row:
             try:
                 content = json.loads(row["content"])
                 if section_name == "info" and 'content' in content:
                     content['paragraphs'] = parse_markdown_links(content['content'])
+                if section_name == "footer" and 'content' in content:
+                    content['paragraphs'] = parse_markdown_links(content['content'])
                 return content
             except json.JSONDecodeError as e:
                 logger.error(f"JSON decode error for section {section_name}: {str(e)}")
                 return {}
         else:
+            logger.debug(f"No content found for section {section_name} with db_id IS NULL")
             return {}
 
     content = {}
-    content['header_image'] = await get_section("header_image") or {'image_url': 'static/header.jpg', 'alt_text': '', 'credit_url': '', 'credit_text': ''}
+    content['header_image'] = await get_section("header_image") or {'image_url': '/static/default_header.jpg', 'alt_text': '', 'credit_url': '', 'credit_text': ''}
     content['info'] = await get_section("info") or {'content': 'The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.', 'paragraphs': parse_markdown_links('The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.')}
     content['title'] = await get_section("title") or {'content': 'EDGI Datasette Cloud Portal'}
-    content['description'] = {'content': 'Environmental data dashboard.'}
+    content['footer'] = await get_section("footer") or {'content': 'Made with EDGI', 'odbl_text': 'Data licensed under ODbL', 'odbl_url': 'https://opendatacommons.org/licenses/odbl/', 'paragraphs': ['Made with EDGI']}
 
     try:
         result = await db.execute("SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 6")
@@ -165,6 +240,15 @@ async def index_page(datasette, request):
     except Exception as e:
         logger.error(f"Error fetching user databases for feature_cards: {str(e)}")
         content['feature_cards'] = []
+
+    actor = get_actor_from_request(request)
+    user_databases = []
+    if actor:
+        try:
+            result = await db.execute("SELECT db_id, db_name, website_url, status FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published')", [actor.get("id")])
+            user_databases = [dict(row) for row in result]
+        except Exception as e:
+            logger.error(f"Error fetching user databases: {str(e)}")
 
     statistics_data = []
     try:
@@ -183,11 +267,9 @@ async def index_page(datasette, request):
             {"label": "Published Databases", "value": "Error", "url": ""}
         ]
 
-    actor = get_actor_from_request(request)
-
     if actor:
         try:
-            result = await db.execute("SELECT user_id, role FROM users WHERE user_id = ?", [actor.get("id")])
+            result = await db.execute("SELECT user_id, role, username, email FROM users WHERE user_id = ?", [actor.get("id")])
             user = result.first()
             if not user:
                 logger.error(f"No user found for user_id: {actor.get('id')}")
@@ -221,6 +303,7 @@ async def index_page(datasette, request):
                 "statistics": statistics_data,
                 "content": content,
                 "actor": actor,
+                "user_databases": user_databases,
                 "success": request.args.get('success'),
                 "error": request.args.get('error')
             },
@@ -232,7 +315,7 @@ async def login_page(datasette, request):
     logger.debug(f"Login request: method={request.method}")
 
     db = datasette.get_database('portal')
-    title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
+    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
     title_row = title.first()
     content = {
         'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
@@ -346,10 +429,12 @@ async def register_page(datasette, request):
     actor = get_actor_from_request(request)
 
     db = datasette.get_database('portal')
-    title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
+    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
     title_row = title.first()
-    content = {'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-               'description': {'content': 'Environmental data dashboard.'}}
+    content = {
+        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
+        'description': {'content': 'Environmental data dashboard.'}
+    }
 
     if request.method == "POST":
         post_vars = await request.post_vars()
@@ -424,317 +509,16 @@ async def register_page(datasette, request):
         )
     )
 
-# Part 2 - Profile, Dashboard, System Admin, Change Password, Logout, and Manage Databases (Complete)
-
-async def profile_page(datasette, request):
-    logger.debug(f"Profile request: method={request.method}")
-
-    actor = get_actor_from_request(request)
-
-    if not actor:
-        logger.warning("Unauthorized profile access attempt")
-        return Response.redirect("/login")
-
-    db = datasette.get_database('portal')
-    title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
-
-    try:
-        user = await db.execute("SELECT user_id, username, email FROM users WHERE user_id = ?", [actor.get("id")])
-        user_row = user.first()
-        if user_row:
-            user_info = dict(user_row)
-            logger.debug(f"User profile found: user_id={user_info['user_id']}, username={user_info['username']}")
-        else:
-            logger.error(f"No user found for user_id: {actor.get('id')}")
-            return Response.html(
-                await datasette.render_template(
-                    "profile.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "user_info": {},
-                        "error": "User profile not found"
-                    },
-                    request=request
-                )
-            )
-    except Exception as e:
-        logger.error(f"Profile query error: {str(e)}")
-        return Response.html(
-            await datasette.render_template(
-                "profile.html",
-                {
-                    "metadata": datasette.metadata(),
-                    "content": content,
-                    "actor": actor,
-                    "user_info": {},
-                    "error": f"Error loading profile: {str(e)}"
-                },
-                request=request
-            )
-        )
-
-    if request.method == "POST":
-        post_vars = await request.post_vars()
-        logger.debug(f"Profile POST vars keys: {list(post_vars.keys())}")
-        username = post_vars.get("username")
-        email = post_vars.get("email")
-        if not username or not email:
-            return Response.html(
-                await datasette.render_template(
-                    "profile.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "user_info": user_info,
-                        "error": "Username and email are required"
-                    },
-                    request=request
-                )
-            )
-        try:
-            db = datasette.get_database("portal")
-            await db.execute_write(
-                "UPDATE users SET username = ?, email = ? WHERE user_id = ?",
-                [username, email, actor.get("id")]
-            )
-            actor_data = {"id": actor.get("id"), "name": f"User {username}", "role": actor.get("role"), "username": username}
-            response = Response.redirect("/manage-databases?success=Profile updated successfully")
-            set_actor_cookie(response, datasette, actor_data)
-            request.scope["actor"] = actor_data
-            await db.execute_write(
-                "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), actor.get("id"), "update_profile", f"User {username} updated profile", datetime.utcnow()]
-            )
-            logger.debug("Profile updated for user: %s, user_id: %s", username, actor.get("id"))
-            return response
-        except Exception as e:
-            logger.error(f"Profile update error: {str(e)}")
-            return Response.html(
-                await datasette.render_template(
-                    "profile.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "user_info": user_info,
-                        "error": f"Profile update error: {str(e)}"
-                    },
-                    request=request
-                )
-            )
-
-    return Response.html(
-        await datasette.render_template(
-            "profile.html",
-            {
-                "metadata": datasette.metadata(),
-                "content": content,
-                "actor": actor,
-                "user_info": user_info,
-                "success": request.args.get('success'),
-                "error": request.args.get('error')
-            },
-            request=request
-        )
-    )
-
-async def dashboard_page(datasette, request):
-    logger.debug(f"Dashboard request: method={request.method}")
-
-    actor = get_actor_from_request(request)
-
-    if not actor:
-        logger.warning(f"Unauthorized dashboard access attempt: actor=None")
-        return Response.redirect("/login")
-
-    db = datasette.get_database('portal')
-    try:
-        result = await db.execute("SELECT user_id, username, email FROM users WHERE user_id = ?", [actor.get("id")])
-        user = result.first()
-        if not user:
-            logger.error(f"No user found for user_id: {actor.get('id')}")
-            return Response.redirect("/login?error=Authentication error")
-    except Exception as e:
-        logger.error(f"Error verifying user in dashboard_page: {str(e)}")
-        return Response.redirect("/login?error=Authentication error")
-
-    title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
-
-    user_databases = []
-    user_info = {}
-    deleted_databases = []
-    archived_databases = []
+async def logout_page(datasette, request):
+    logger.debug(f"Logout request: method={request.method}")
     
-    try:
-        # Get active databases
-        result = await db.execute("SELECT db_id, db_name, website_url, status FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published')", [actor.get("id")])
-        user_databases = [{"db_id": row["db_id"], "db_name": row["db_name"], "website_url": row["website_url"], "status": row["status"]} for row in result]
-        
-        # Get deleted databases
-        deleted_result = await db.execute("SELECT db_id, db_name, deleted_at FROM databases WHERE user_id = ? AND status = 'Deleted'", [actor.get("id")])
-        deleted_databases = [{"db_id": row["db_id"], "db_name": row["db_name"], "deleted_at": row["deleted_at"]} for row in deleted_result]
-        
-        # Get archived databases
-        archived_result = await db.execute("SELECT db_id, db_name, archived_at FROM databases WHERE user_id = ? AND status = 'Archived'", [actor.get("id")])
-        archived_databases = [{"db_id": row["db_id"], "db_name": row["db_name"], "archived_at": row["archived_at"]} for row in archived_result]
-        
-        user_result = await db.execute("SELECT username, email FROM users WHERE user_id = ?", [actor.get("id")])
-        user_row = user_result.first()
-        if user_row:
-            user_info = dict(user_row)
-            logger.debug(f"User profile found: user_id={actor.get('id')}, username={user_info['username']}")
-        else:
-            logger.error(f"No user found for user_id: {actor.get('id')}")
-            return Response.html(
-                await datasette.render_template(
-                    "dashboard.html",
-                    {
-                        "page_title": content['title'].get('content', "EDGI Datasette Cloud Portal") + " | Dashboard",
-                        "content": content,
-                        "actor": actor,
-                        "user_databases": user_databases,
-                        "deleted_databases": deleted_databases,
-                        "archived_databases": archived_databases,
-                        "user_info": {},
-                        "error": "User profile not found"
-                    },
-                    request=request
-                )
-            )
-    except Exception as e:
-        logger.error(f"Dashboard query error: {str(e)}")
-        return Response.html(
-            await datasette.render_template(
-                "dashboard.html",
-                {
-                    "page_title": content['title'].get('content', "EDGI Datasette Cloud Portal") + " | Dashboard",
-                    "content": content,
-                    "actor": actor,
-                    "user_databases": user_databases,
-                    "deleted_databases": deleted_databases,
-                    "archived_databases": archived_databases,
-                    "user_info": {},
-                    "error": f"Error loading dashboard: {str(e)}"
-                },
-                request=request
-            )
-        )
-
-    logger.debug(f"Rendering dashboard with data: content={content}, user_databases={user_databases}")
-
-    return Response.html(
-        await datasette.render_template(
-            "dashboard.html",
-            {
-                "page_title": content['title'].get('content', "EDGI Datasette Cloud Portal") + " | Dashboard",
-                "content": content,
-                "actor": actor,
-                "user_databases": user_databases,
-                "deleted_databases": deleted_databases,
-                "archived_databases": archived_databases,
-                "user_info": user_info,
-                "success": request.args.get('success'),
-                "error": request.args.get('error')
-            },
-            request=request
-        )
-    )
-
-async def system_admin_page(datasette, request):
-    logger.debug(f"System Admin request: method={request.method}")
-
-    actor = get_actor_from_request(request)
-
-    if not actor:
-        logger.warning(f"Unauthorized system admin access attempt: actor=None")
-        response = Response.redirect("/login?error=Session expired or invalid")
-        response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-        return response
-
-    db = datasette.get_database('portal')
-    try:
-        result = await db.execute("SELECT user_id, role FROM users WHERE user_id = ?", [actor.get("id")])
-        user = result.first()
-        if not user:
-            logger.error(f"No user found for user_id: {actor.get('id')}")
-            response = Response.redirect("/login?error=User not found")
-            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-            return response
-        if user["role"] != "system_admin":
-            logger.warning(f"Invalid role for user_id={actor.get('id')}: role={user['role']}")
-            response = Response.redirect("/login?error=Unauthorized access")
-            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-            return response
-    except Exception as e:
-        logger.error(f"Error verifying user in system_admin_page: {str(e)}")
-        response = Response.redirect("/login?error=Authentication error")
-        response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-        return response
-
-    title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
-
-    try:
-        users = await db.execute("SELECT user_id, username, email, role, created_at FROM users")
-        users_list = [dict(row) for row in users]
-        databases = await db.execute("SELECT d.db_id, d.db_name, d.website_url, d.status, d.created_at, u.username FROM databases d JOIN users u ON d.user_id = u.user_id WHERE d.status != 'Deleted'")
-        databases_list = [dict(row) for row in databases]
-        logs = await db.execute("SELECT log_id, user_id, action, details, timestamp FROM activity_logs ORDER BY timestamp DESC LIMIT 100")
-        logs_list = [dict(row) for row in logs]
-    except Exception as e:
-        logger.error(f"System admin query error: {str(e)}")
-        return Response.html(
-            await datasette.render_template(
-                'system_admin.html',
-                {
-                    'content': content,
-                    'metadata': datasette.metadata(),
-                    'actor': actor,
-                    'users': [],
-                    'databases': [],
-                    'activity_logs': [],
-                    'error': f"Error loading system admin data: {str(e)}"
-                },
-                request=request
-            )
-        )
-
-    return Response.html(
-        await datasette.render_template(
-            'system_admin.html',
-            {
-                'content': content,
-                'metadata': datasette.metadata(),
-                'actor': actor,
-                'users': users_list,
-                'databases': databases_list,
-                'activity_logs': logs_list,
-                'success': request.args.get('success'),
-                'error': request.args.get('error')
-            },
-            request=request
-        )
-    )
+    response = Response.redirect("/login")
+    response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+    logger.debug("Cleared ds_actor cookie")
+    return response
 
 async def change_password_page(datasette, request):
-    logger.debug(f"Change Password request: method={request.method}")
+    logger.debug(f"Change Password request: {request.method}")
 
     actor = get_actor_from_request(request)
 
@@ -743,7 +527,7 @@ async def change_password_page(datasette, request):
         return Response.redirect("/login")
 
     db = datasette.get_database('portal')
-    title = await db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
+    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
     title_row = title.first()
     content = {
         'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
@@ -757,7 +541,6 @@ async def change_password_page(datasette, request):
         new_password = post_vars.get("new_password")
         confirm_password = post_vars.get("confirm_password")
         username = actor.get("username")
-
         if not current_password or not new_password or new_password != confirm_password:
             return Response.html(
                 await datasette.render_template(
@@ -826,14 +609,6 @@ async def change_password_page(datasette, request):
         )
     )
 
-async def logout_page(datasette, request):
-    logger.debug(f"Logout request: method={request.method}")
-    
-    response = Response.redirect("/login")
-    response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-    logger.debug("Cleared ds_actor cookie")
-    return response
-
 async def manage_databases(datasette, request):
     logger.debug(f"Manage Databases request: method={request.method}")
 
@@ -858,11 +633,10 @@ async def manage_databases(datasette, request):
         logger.error(f"Error verifying user in manage_databases: {str(e)}")
         return Response.redirect("/login?error=Authentication error")
 
-    # Get user's active databases (not deleted)
     result = await query_db.execute("SELECT db_id, db_name, status, website_url FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published')", [actor.get("id")])
     user_databases = [dict(row) for row in result]
     
-    title = await query_db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
+    title = await query_db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
     title_row = title.first()
     content = {
         'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
@@ -870,17 +644,15 @@ async def manage_databases(datasette, request):
         'footer': {'content': 'Made with EDGI', 'odbl_text': 'Data licensed under ODbL', 'odbl_url': 'https://opendatacommons.org/licenses/odbl/', 'paragraphs': ['Made with EDGI']}
     }
 
-    # Load tables for each database
     databases_with_tables = []
     for db_info in user_databases:
         db_name = db_info["db_name"]
         total_size = 0
         tables = []
         try:
-            # New table naming: {database_name}_{table_name}
             prefix = f"{db_name}_"
             for name in portal_db.table_names():
-                if name.startswith(prefix) and name != f"{db_name}_admin_content":
+                if name.startswith(prefix):
                     table_size = portal_db[name].count * 0.001
                     total_size += table_size
                     display_name = name[len(prefix):]
@@ -898,7 +670,8 @@ async def manage_databases(datasette, request):
         databases_with_tables.append({
             **db_info,
             'tables': tables,
-            'total_size': total_size
+            'total_size': total_size,
+            'website_url': f"/{db_name}/"
         })
 
     return Response.html(
@@ -915,8 +688,6 @@ async def manage_databases(datasette, request):
             request=request
         )
     )
-
-# Part 3 - Database Operations and Routes (Simplified Cookie Handling)
 
 async def create_database(datasette, request):
     logger.debug(f"Create Database request: method={request.method}")
@@ -940,7 +711,7 @@ async def create_database(datasette, request):
         logger.error(f"Error verifying user in create_database: {str(e)}")
         return Response.redirect("/login?error=Authentication error")
 
-    title = await query_db.execute("SELECT content FROM admin_content WHERE section = ?", ["title"])
+    title = await query_db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
     title_row = title.first()
     content = {
         'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
@@ -948,10 +719,25 @@ async def create_database(datasette, request):
     }
 
     if request.method == "POST":
-        post_vars = await request.post_vars()
-        db_name = post_vars.get("db_name", "").strip()
-        logger.debug(f"Create database: db_name={db_name}")
-
+        content_type = request.headers.get('content-type', '').lower()
+        db_name = None
+        table_name = None
+        csv_file = None
+        
+        if 'multipart/form-data' in content_type:
+            boundary = content_type.split('boundary=')[1]
+            body = await request.body()
+            if len(body) > MAX_FILE_SIZE:
+                return Response.text("File too large", status=400)
+            form_data = parse_form_data(body, boundary=boundary.encode())
+            
+            db_name = form_data.get('db_name').value if 'db_name' in form_data else None
+            table_name = form_data.get('table_name').value if 'table_name' in form_data else None
+            csv_file = form_data.get('csv_file') if 'csv_file' in form_data else None
+        else:
+            post_vars = await request.post_vars()
+            db_name = post_vars.get("db_name", "").strip()
+        
         if not db_name:
             return Response.html(
                 await datasette.render_template(
@@ -966,7 +752,6 @@ async def create_database(datasette, request):
                 )
             )
 
-        # Check database name uniqueness
         is_unique = await check_database_name_unique(datasette, db_name)
         if not is_unique:
             return Response.html(
@@ -985,7 +770,6 @@ async def create_database(datasette, request):
         username = actor.get("username")
         user_id = actor.get("id")
         
-        # Check user database limit
         result = await query_db.execute("SELECT COUNT(*) FROM databases WHERE user_id = ? AND status != 'Deleted'", [user_id])
         db_count = result.first()[0]
         if db_count >= MAX_DATABASES_PER_USER:
@@ -1004,37 +788,75 @@ async def create_database(datasette, request):
 
         try:
             db_id = str(uuid.uuid4())
-            website_url = f"{username}-{db_name}.datasette-portal.fly.dev"
+            scheme = request.scheme
+            host = request.headers.get('host', 'localhost:8001')
+            website_url = f"{scheme}://{host}/{db_name}/"
             
-            # Create database record without any tables initially
             await query_db.execute_write(
                 "INSERT INTO databases (db_id, user_id, db_name, website_url, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 [db_id, user_id, db_name, website_url, "Draft", datetime.utcnow()]
             )
             
-            # Create admin content table for this database
-            db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-            portal_db = sqlite_utils.Database(db_path)
-            portal_db.create_table(f"{db_name}_admin_content", {
-                "section": str,
-                "content": str,
-                "updated_at": str,
-                "updated_by": str
-            }, pk="section", if_not_exists=True)
+            default_content = [
+                ("title", {"content": db_name}),
+                ("description", {"content": "Environmental data dashboard powered by Datasette."}),
+                ("header_image", {
+                    "image_url": f"/static/{db_id}_header.jpg",
+                    "alt_text": "Environmental Data",
+                    "credit_text": "Environmental Data Portal",
+                    "credit_url": ""
+                }),
+                ("footer", {
+                    "content": "Made with EDGI",
+                    "odbl_text": "Data licensed under ODbL",
+                    "odbl_url": "https://opendatacommons.org/licenses/odbl/",
+                    "paragraphs": ["Made with EDGI"]
+                })
+            ]
             
-            portal_db[f"{db_name}_admin_content"].upsert({
-                "section": "title",
-                "content": json.dumps({"content": db_name}),
-                "updated_at": datetime.utcnow().isoformat(),
-                "updated_by": username
-            }, pk="section")
+            # Copy default_header.jpg to db-specific header
+            default_header_path = os.path.join(STATIC_DIR, "default_header.jpg")
+            db_header_path = os.path.join(STATIC_DIR, f"{db_id}_header.jpg")
+            if os.path.exists(default_header_path):
+                with open(default_header_path, 'rb') as src, open(db_header_path, 'wb') as dst:
+                    dst.write(src.read())
             
-            portal_db[f"{db_name}_admin_content"].upsert({
-                "section": "footer",
-                "content": json.dumps({"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}),
-                "updated_at": datetime.utcnow().isoformat(),
-                "updated_by": username
-            }, pk="section")
+            for section, content_data in default_content:
+                await query_db.execute_write(
+                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [db_id, section, json.dumps(content_data), datetime.utcnow().isoformat(), username]
+                )
+
+            if table_name and csv_file and csv_file.filename.endswith('.csv'):
+                db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+                portal_db = sqlite_utils.Database(db_path)
+                full_table_name = f"{db_name}_{table_name}"
+                
+                if full_table_name in portal_db.table_names():
+                    await query_db.execute_write(
+                        "DELETE FROM databases WHERE db_id = ?",
+                        [db_id]
+                    )
+                    return Response.html(
+                        await datasette.render_template(
+                            "create_database.html",
+                            {
+                                "metadata": datasette.metadata(),
+                                "content": content,
+                                "actor": actor,
+                                "error": f"Table {table_name} already exists"
+                            },
+                            request=request
+                        )
+                    )
+                
+                df = pd.read_csv(io.BytesIO(csv_file.value))
+                portal_db[full_table_name].insert_all(df.to_dict('records'), replace=True)
+                
+                await query_db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [str(uuid.uuid4()), user_id, "upload_csv", f"Uploaded CSV to table {table_name} in {db_name}", datetime.utcnow()]
+                )
 
             await query_db.execute_write(
                 "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
@@ -1071,369 +893,557 @@ async def create_database(datasette, request):
         )
     )
 
-async def add_table(datasette, request):
-    logger.debug(f"Add Table request: method={request.method}")
+async def system_admin_page(datasette, request):
+    logger.debug(f"System Admin request: method={request.method}")
 
     actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login?error=Session expired or invalid")
 
-    query_db = datasette.get_database('portal')
-    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-    portal_db = sqlite_utils.Database(db_path)
-    
+    if not actor:
+        logger.warning(f"Unauthorized system admin access attempt: actor=None")
+        response = Response.redirect("/login?error=Session expired or invalid")
+        response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+        return response
+
+    db = datasette.get_database('portal')
     try:
-        result = await query_db.execute("SELECT user_id, username FROM users WHERE user_id = ?", [actor.get("id")])
+        result = await db.execute("SELECT user_id, role FROM users WHERE user_id = ?", [actor.get("id")])
         user = result.first()
         if not user:
-            return Response.redirect("/login?error=User not found")
+            logger.error(f"No user found for user_id: {actor.get('id')}")
+            response = Response.redirect("/login?error=User not found")
+            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+            return response
+        if user["role"] != "system_admin":
+            logger.warning(f"Invalid role for user_id={actor.get('id')}: role={user['role']}")
+            response = Response.redirect("/login?error=Unauthorized access")
+            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+            return response
     except Exception as e:
-        logger.error(f"Error verifying user in add_table: {str(e)}")
-        return Response.redirect("/login?error=Authentication error")
+        logger.error(f"Error verifying user in system_admin_page: {str(e)}")
+        response = Response.redirect("/login?error=Authentication error")
+        response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
+        return response
 
-    post_vars = await request.post_vars()
-    db_id = post_vars.get("db_id")
-    result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-    db_info = result.first()
-    if not db_info or db_info["status"] not in ["Draft", "Published"]:
-        return Response.redirect("/manage-databases?error=Invalid or inaccessible database")
+    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
+    title_row = title.first()
+    content = {
+        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
+        'description': {'content': 'Environmental data dashboard.'}
+    }
 
-    db_name = db_info["db_name"]
-    
     try:
-        body = await request.post_body()
-        content_type = request.headers.get('content-type', '')
-        boundary = None
-        if 'boundary=' in content_type.lower():
-            boundary = content_type.split('boundary=')[-1].split(';')[0].strip().encode('utf-8')
-        if not boundary:
-            logger.error("No boundary found in Content-Type header")
-            return Response.json({'error': 'Invalid multipart form data: missing boundary'}, status=400)
-
-        headers = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', [])}
-        headers['content-type'] = content_type
-        msg = BytesParser(policy=default).parsebytes(b'\r\n'.join([f'{k}: {v}'.encode('utf-8') for k, v in headers.items()]) + b'\r\n\r\n' + body)
-        
-        forms = {}
-        files = {}
-        for part in msg.iter_parts():
-            if not part.is_multipart():
-                content_disposition = part.get('Content-Disposition', '')
-                if content_disposition:
-                    disposition_params = {}
-                    for param in content_disposition.split(';'):
-                        param = param.strip()
-                        if '=' in param:
-                            key, value = param.split('=', 1)
-                            disposition_params[key.strip()] = value.strip().strip('"')
-                    field_name = disposition_params.get('name')
-                    filename = disposition_params.get('filename')
-                    if field_name:
-                        if filename:
-                            files[field_name] = {
-                                'filename': filename,
-                                'content': part.get_payload(decode=True)
-                            }
-                        else:
-                            forms[field_name] = [part.get_payload(decode=True).decode('utf-8')]
-
-        if files.get('dataset'):
-            file = files['dataset']
-            if len(file['content']) > MAX_FILE_SIZE:
-                logger.error("File exceeds 50MB limit")
-                return Response.redirect("/manage-databases?error=File exceeds 50MB limit")
-
-            ext = Path(file['filename']).suffix.lower()
-            if ext != '.csv':
-                logger.error(f"Invalid file extension: {ext}")
-                return Response.redirect("/manage-databases?error=Only .csv files allowed")
-
-            # Check table count limit
-            table_count = sum(1 for name in portal_db.table_names() if name.startswith(f"{db_name}_") and name != f"{db_name}_admin_content")
-            if table_count >= MAX_TABLES_PER_DATABASE:
-                logger.error(f"Maximum {MAX_TABLES_PER_DATABASE} tables per database reached")
-                return Response.redirect(f"/manage-databases?error=Maximum {MAX_TABLES_PER_DATABASE} tables per database reached")
-
-            # New table naming: {database_name}_{table_name}
-            table_name = f"{db_name}_{Path(file['filename']).stem.lower().replace(' ', '_')}"
-            df = pd.read_csv(io.BytesIO(file['content']))
-            columns = {col: str for col in df.columns}
-            portal_db.create_table(table_name, columns, if_not_exists=True)
-            portal_db[table_name].insert_all(df.to_dict('records'), ignore=True)
-            
-            await query_db.execute_write(
-                "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), actor.get("id"), "add_table", f"Added table {Path(file['filename']).stem} to database {db_name}", datetime.utcnow()]
+        users = await db.execute("SELECT user_id, username, email, role, created_at FROM users")
+        users_list = [dict(row) for row in users]
+        databases = await db.execute("SELECT d.db_id, d.db_name, d.website_url, d.status, d.created_at, u.username FROM databases d JOIN users u ON d.user_id = u.user_id WHERE d.status != 'Deleted'")
+        databases_list = [dict(row) for row in databases]
+        logs = await db.execute("SELECT log_id, user_id, action, details, timestamp FROM activity_logs ORDER BY timestamp DESC LIMIT 100")
+        logs_list = [dict(row) for row in logs]
+    except Exception as e:
+        logger.error(f"System admin query error: {str(e)}")
+        return Response.html(
+            await datasette.render_template(
+                'system_admin.html',
+                {
+                    'content': content,
+                    'metadata': datasette.metadata(),
+                    'actor': actor,
+                    'users': [],
+                    'databases': [],
+                    'activity_logs': [],
+                    'error': f"Error loading system admin data: {str(e)}"
+                },
+                request=request
             )
-            return Response.redirect("/manage-databases?success=Table added successfully")
-        return Response.redirect("/manage-databases?error=No file uploaded")
-    except Exception as e:
-        logger.error(f"Add table error: {str(e)}")
-        return Response.redirect(f"/manage-databases?error=Add table error: {str(e)}")
-
-async def delete_table(datasette, request):
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login")
-
-    # Skip CSRF validation for local development
-    post_vars = await request.post_vars()
-    db_id = post_vars.get("db_id")
-    table_name = post_vars.get("table_name")
-    
-    if not db_id or not table_name:
-        return Response.redirect("/manage-databases?error=Missing database ID or table name")
-
-    query_db = datasette.get_database('portal')
-    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-    portal_db = sqlite_utils.Database(db_path)
-    
-    result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-    db_info = result.first()
-    if not db_info:
-        return Response.redirect("/manage-databases?error=Invalid or unauthorized database")
-    if db_info["status"] not in ["Draft", "Published"]:
-        return Response.redirect(f"/manage-databases?error=Cannot delete tables from this database")
-
-    # New table naming: {database_name}_{table_name}
-    full_table_name = f"{db_info['db_name']}_{table_name}"
-    try:
-        if full_table_name in portal_db.table_names():
-            portal_db[full_table_name].drop()
-            await query_db.execute_write(
-                "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), actor.get("id"), "delete_table", f"Deleted table {table_name} from database {db_info['db_name']}", datetime.utcnow()]
-            )
-            logger.debug(f"Table {full_table_name} deleted from db_id: {db_id}")
-            return Response.redirect(f"/manage-databases?success=Table deleted successfully")
-        else:
-            return Response.redirect(f"/manage-databases?error=Table not found")
-    except Exception as e:
-        logger.error(f"Delete table error: {str(e)}")
-        return Response.redirect(f"/manage-databases?error=Delete table error: {str(e)}")
-
-async def delete_database(datasette, request):
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login")
-
-    # Skip CSRF validation for local development
-    post_vars = await request.post_vars()
-    db_id = post_vars.get("db_id")
-    
-    if not db_id:
-        return Response.redirect("/manage-databases?error=Missing database ID")
-
-    query_db = datasette.get_database('portal')
-    result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-    db_info = result.first()
-    if not db_info:
-        return Response.redirect("/manage-databases?error=Invalid or unauthorized database")
-    if db_info["status"] not in ["Draft", "Published"]:
-        return Response.redirect(f"/manage-databases?error=Cannot delete this database")
-
-    db_name = db_info["db_name"]
-    try:
-        # Soft delete: change status to 'Deleted' instead of permanently deleting
-        await query_db.execute_write(
-            "UPDATE databases SET status = 'Deleted', deleted_at = ? WHERE db_id = ?",
-            [datetime.utcnow().isoformat(), db_id]
         )
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [str(uuid.uuid4()), actor.get("id"), "delete_database", f"Deleted database {db_name}", datetime.utcnow()]
+
+    return Response.html(
+        await datasette.render_template(
+            'system_admin.html',
+            {
+                'content': content,
+                'metadata': datasette.metadata(),
+                'actor': actor,
+                'users': users_list,
+                'databases': databases_list,
+                'activity_logs': logs_list,
+                'success': request.args.get('success'),
+                'error': request.args.get('error')
+            },
+            request=request
         )
-        logger.debug(f"Database soft deleted: db_id={db_id}")
-        return Response.redirect("/manage-databases?success=Database moved to recycle bin")
-    except Exception as e:
-        logger.error(f"Delete database error: {str(e)}")
-        return Response.redirect(f"/manage-databases?error=Delete database error: {str(e)}")
-
-async def restore_database(datasette, request):
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login")
-
-    # Skip CSRF validation for local development
-    post_vars = await request.post_vars()
-    db_id = post_vars.get("db_id")
-    
-    if not db_id:
-        return Response.redirect("/dashboard?error=Missing database ID")
-
-    query_db = datasette.get_database('portal')
-    result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-    db_info = result.first()
-    if not db_info:
-        return Response.redirect("/dashboard?error=Invalid or unauthorized database")
-    if db_info["status"] != "Deleted":
-        return Response.redirect(f"/dashboard?error=Database is not in recycle bin")
-
-    db_name = db_info["db_name"]
-    try:
-        # Restore database: change status back to 'Draft'
-        await query_db.execute_write(
-            "UPDATE databases SET status = 'Draft', deleted_at = NULL WHERE db_id = ?",
-            [db_id]
-        )
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [str(uuid.uuid4()), actor.get("id"), "restore_database", f"Restored database {db_name}", datetime.utcnow()]
-        )
-        logger.debug(f"Database restored: db_id={db_id}")
-        return Response.redirect("/dashboard?success=Database restored successfully")
-    except Exception as e:
-        logger.error(f"Restore database error: {str(e)}")
-        return Response.redirect(f"/dashboard?error=Restore database error: {str(e)}")
-
-async def archive_database(datasette, request):
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login")
-
-    # Skip CSRF validation for local development
-    post_vars = await request.post_vars()
-    db_id = post_vars.get("db_id")
-    
-    if not db_id:
-        return Response.redirect("/manage-databases?error=Missing database ID")
-
-    query_db = datasette.get_database('portal')
-    result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-    db_info = result.first()
-    if not db_info:
-        return Response.redirect("/manage-databases?error=Invalid or unauthorized database")
-    if db_info["status"] not in ["Draft", "Published"]:
-        return Response.redirect(f"/manage-databases?error=Cannot archive this database")
-
-    db_name = db_info["db_name"]
-    try:
-        # Archive database: change status to 'Archived'
-        await query_db.execute_write(
-            "UPDATE databases SET status = 'Archived', archived_at = ? WHERE db_id = ?",
-            [datetime.utcnow().isoformat(), db_id]
-        )
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [str(uuid.uuid4()), actor.get("id"), "archive_database", f"Archived database {db_name}", datetime.utcnow()]
-        )
-        logger.debug(f"Database archived: db_id={db_id}")
-        return Response.redirect("/manage-databases?success=Database archived successfully")
-    except Exception as e:
-        logger.error(f"Archive database error: {str(e)}")
-        return Response.redirect(f"/manage-databases?error=Archive database error: {str(e)}")
-
-async def unarchive_database(datasette, request):
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login")
-
-    # Skip CSRF validation for local development
-    post_vars = await request.post_vars()
-    db_id = post_vars.get("db_id")
-    
-    if not db_id:
-        return Response.redirect("/dashboard?error=Missing database ID")
-
-    query_db = datasette.get_database('portal')
-    result = await query_db.execute("SELECT db_name, status FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-    db_info = result.first()
-    if not db_info:
-        return Response.redirect("/dashboard?error=Invalid or unauthorized database")
-    if db_info["status"] != "Archived":
-        return Response.redirect(f"/dashboard?error=Database is not archived")
-
-    db_name = db_info["db_name"]
-    try:
-        # Unarchive database: change status back to 'Draft'
-        await query_db.execute_write(
-            "UPDATE databases SET status = 'Draft', archived_at = NULL WHERE db_id = ?",
-            [db_id]
-        )
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [str(uuid.uuid4()), actor.get("id"), "unarchive_database", f"Unarchived database {db_name}", datetime.utcnow()]
-        )
-        logger.debug(f"Database unarchived: db_id={db_id}")
-        return Response.redirect("/dashboard?success=Database unarchived successfully")
-    except Exception as e:
-        logger.error(f"Unarchive database error: {str(e)}")
-        return Response.redirect(f"/dashboard?error=Unarchive database error: {str(e)}")
+    )
 
 async def publish_database(datasette, request):
+    logger.debug(f"Publish Database request: method={request.method}, path={request.path}")
+
     actor = get_actor_from_request(request)
     if not actor:
-        return Response.redirect("/login")
+        logger.warning(f"Unauthorized publish database attempt: actor=None")
+        return Response.redirect("/login?error=Session expired or invalid")
 
-    # Skip CSRF validation for local development
-    post_vars = await request.post_vars()
-    db_id = post_vars.get("db_id")
+    path_parts = request.path.strip('/').split('/')
+    db_name = path_parts[0]
     
-    if not db_id:
-        return Response.redirect("/manage-databases?error=Missing database ID")
-
     query_db = datasette.get_database('portal')
-    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-    portal_db = sqlite_utils.Database(db_path)
-    
-    result = await query_db.execute("SELECT db_name, status, website_url FROM databases WHERE db_id = ? AND user_id = ?", [db_id, actor.get("id")])
-    db_info = result.first()
-    if not db_info:
-        return Response.redirect("/manage-databases?error=Invalid or unauthorized database")
-    if db_info["status"] != "Draft":
-        return Response.redirect(f"/manage-databases?error=Database already published or not in Draft status")
-
-    username = actor.get("username")
     try:
-        portal_db["web_content"].insert(
-            {"db_id": db_id, "section": "title", "content": json.dumps({"content": db_info["db_name"]}), "updated_at": datetime.utcnow().isoformat(), "updated_by": username},
-            pk=("db_id", "section"), ignore=True
+        result = await query_db.execute(
+            "SELECT db_id, user_id FROM databases WHERE db_name = ? AND user_id = ?",
+            [db_name, actor.get("id")]
         )
-        portal_db["web_content"].insert(
-            {"db_id": db_id, "section": "description", "content": json.dumps({"content": "Environmental data dashboard."}), "updated_at": datetime.utcnow().isoformat(), "updated_by": username},
-            pk=("db_id", "section"), ignore=True
-        )
-        portal_db["web_content"].insert(
-            {"db_id": db_id, "section": "footer", "content": json.dumps({"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}), "updated_at": datetime.utcnow().isoformat(), "updated_by": username},
-            pk=("db_id", "section"), ignore=True
-        )
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found or you do not have permission", status=404)
+        
         await query_db.execute_write(
-            "UPDATE databases SET status = 'Published' WHERE db_id = ?",
-            [db_id]
+            "UPDATE databases SET status = 'Published' WHERE db_name = ?",
+            [db_name]
         )
         await query_db.execute_write(
             "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [str(uuid.uuid4()), actor.get("id"), "publish_database", f"Published database {db_info['db_name']}", datetime.utcnow()]
+            [str(uuid.uuid4()), actor.get("id"), "publish_database", f"Published database {db_name}", datetime.utcnow()]
         )
-        logger.debug(f"Database published: db_id={db_id}, url={db_info['website_url']}")
-        return Response.redirect(f"/manage-databases?success=Database published successfully")
+        
+        return Response.redirect(f"/manage-databases?success=Database '{db_name}' published successfully")
     except Exception as e:
-        logger.error(f"Publish database error: {str(e)}")
-        return Response.redirect(f"/manage-databases?error=Publish database error: {str(e)}")
+        logger.error(f"Error publishing database {db_name}: {str(e)}")
+        return Response.text(f"Error publishing database: {str(e)}", status=500)
 
-# Routes and startup with simplified cookie handling
-from datasette import hookimpl
+async def database_homepage(datasette, request):
+    logger.debug(f"Database homepage request: method={request.method}, path={request.path}")
+
+    path_parts = request.path.strip('/').split('/')
+    if not path_parts or not path_parts[0]:
+        return Response.text("Not found", status=404)
+    
+    db_name = path_parts[0]
+    
+    query_db = datasette.get_database('portal')
+    try:
+        result = await query_db.execute(
+            "SELECT db_id, db_name, status, user_id FROM databases WHERE db_name = ?",
+            [db_name]
+        )
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found", status=404)
+        
+        actor = get_actor_from_request(request)
+        if db_info['status'] != 'Published' and (not actor or actor['id'] != db_info['user_id']):
+            return Response.text("Database not found or not published", status=404)
+    except Exception as e:
+        logger.error(f"Error checking database {db_name}: {e}")
+        return Response.text("Database error", status=500)
+    
+    try:
+        content = await get_database_content(datasette, db_name)
+        tables = await get_database_tables(datasette, db_name)
+        
+        if content['title']['content'] == db_name and content['description']['content'] == 'Environmental data dashboard powered by Datasette.':
+            return Response.html(
+                await datasette.render_template(
+                    "database.html",
+                    {
+                        "database": db_name,
+                        "tables": tables,
+                        "metadata": datasette.metadata(db_name)
+                    },
+                    request=request
+                )
+            )
+        
+        feature_cards = [
+            {
+                'title': table['name'].replace('_', ' ').title(),
+                'description': table['description'],
+                'url': table['url'],
+                'icon': 'ri-table-line'
+            } for table in tables[:6]
+        ]
+        
+        statistics = [
+            {
+                'label': 'Data Tables',
+                'value': len(tables),
+                'url': f'/{db_name}/tables'
+            },
+            {
+                'label': 'Total Records',
+                'value': sum(table['count'] for table in tables),
+                'url': f'/{db_name}/tables'
+            },
+            {
+                'label': 'Data Fields',
+                'value': sum(len(table['columns']) for table in tables),
+                'url': f'/{db_name}/tables'
+            }
+        ]
+        
+        return Response.html(
+            await datasette.render_template(
+                "database_homepage.html",
+                {
+                    "page_title": content['title']['content'] + " | Environmental Data",
+                    "content": content,
+                    "header_image": content['header_image'],
+                    "info": content['info'],
+                    "feature_cards": feature_cards,
+                    "statistics": statistics,
+                    "footer": content['footer'],
+                    "db_name": db_name,
+                    "tables": tables
+                },
+                request=request
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Error rendering database homepage for {db_name}: {e}")
+        return Response.text("Error loading database homepage", status=500)
+
+async def database_tables_view(datasette, request):
+    logger.debug(f"Database tables view request: method={request.method}, path={request.path}")
+
+    path_parts = request.path.strip('/').split('/')
+    if len(path_parts) < 2 or path_parts[1] != 'tables':
+        return Response.text("Not found", status=404)
+    
+    db_name = path_parts[0]
+    
+    query_db = datasette.get_database('portal')
+    try:
+        result = await query_db.execute(
+            "SELECT db_name, status, user_id FROM databases WHERE db_name = ?",
+            [db_name]
+        )
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found", status=404)
+        
+        actor = get_actor_from_request(request)
+        if db_info['status'] != 'Published' and (not actor or actor['id'] != db_info['user_id']):
+            return Response.text("Database not found or not published", status=404)
+    except Exception as e:
+        logger.error(f"Error checking database {db_name}: {e}")
+        return Response.text("Database error", status=500)
+    
+    try:
+        content = await get_database_content(datasette, db_name)
+        tables = await get_database_tables(datasette, db_name)
+        
+        return Response.html(
+            await datasette.render_template(
+                "database_tables.html",
+                {
+                    "page_title": f"Tables - {content['title']['content']}",
+                    "content": content,
+                    "db_name": db_name,
+                    "tables": tables,
+                    "footer": content['footer']
+                },
+                request=request
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Error rendering tables view for {db_name}: {e}")
+        return Response.text("Error loading tables view", status=500)
+
+async def database_table_view(datasette, request):
+    logger.debug(f"Database table view request: method={request.method}, path={request.path}")
+
+    path_parts = request.path.strip('/').split('/')
+    if len(path_parts) < 2:
+        return Response.text("Not found", status=404)
+    
+    db_name = path_parts[0]
+    table_name = path_parts[1]
+    
+    query_db = datasette.get_database('portal')
+    try:
+        result = await query_db.execute(
+            "SELECT db_name, status, user_id FROM databases WHERE db_name = ?",
+            [db_name]
+        )
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found", status=404)
+        
+        actor = get_actor_from_request(request)
+        if db_info['status'] != 'Published' and (not actor or actor['id'] != db_info['user_id']):
+            return Response.text("Database not found or not published", status=404)
+    except Exception as e:
+        logger.error(f"Error checking database {db_name}: {e}")
+        return Response.text("Database error", status=500)
+    
+    db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+    portal_db = sqlite_utils.Database(db_path)
+    full_table_name = f"{db_name}_{table_name}"
+    
+    if full_table_name not in portal_db.table_names():
+        return Response.text("Table not found", status=404)
+    
+    try:
+        page = int(request.args.get('_page', 1))
+        page_size = int(request.args.get('_size', 100))
+        offset = (page - 1) * page_size
+        
+        total_count = portal_db[full_table_name].count
+        
+        search_query = request.args.get('_search', '')
+        where_clause = None
+        params = []
+        
+        if search_query:
+            columns = list(portal_db[full_table_name].columns_dict.keys())
+            text_conditions = []
+            for col in columns:
+                text_conditions.append(f"CAST([{col}] AS TEXT) LIKE ?")
+                params.append(f"%{search_query}%")
+            where_clause = f"({' OR '.join(text_conditions)})"
+        
+        if where_clause:
+            rows = list(portal_db.query(
+                f"SELECT * FROM [{full_table_name}] WHERE {where_clause} LIMIT ? OFFSET ?",
+                params + [page_size, offset]
+            ))
+            count_result = portal_db.query(
+                f"SELECT COUNT(*) as count FROM [{full_table_name}] WHERE {where_clause}",
+                params
+            )
+            total_count = list(count_result)[0]['count']
+        else:
+            rows = list(portal_db[full_table_name].rows_where(limit=page_size, offset=offset))
+        
+        columns = list(portal_db[full_table_name].columns_dict.keys())
+        
+        total_pages = (total_count + page_size - 1) // page_size
+        has_previous = page > 1
+        has_next = page < total_pages
+        
+        content = await get_database_content(datasette, db_name)
+        
+        return Response.html(
+            await datasette.render_template(
+                "table.html",
+                {
+                    "database": db_name,
+                    "table": table_name,
+                    "full_table_name": full_table_name,
+                    "columns": columns,
+                    "rows": rows,
+                    "total_count": total_count,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages,
+                    "has_previous": has_previous,
+                    "has_next": has_next,
+                    "previous_page": page - 1 if has_previous else None,
+                    "next_page": page + 1 if has_next else None,
+                    "search_query": search_query,
+                    "metadata": datasette.metadata(db_name),
+                    "content": content
+                },
+                request=request
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Error rendering table {table_name} for database {db_name}: {str(e)}")
+        return Response.text(f"Error loading table: {str(e)}", status=500)
+
+async def edit_content(datasette, request):
+    logger.debug(f"Edit Content request: method={request.method}, path={request.path}")
+
+    path_parts = request.path.strip('/').split('/')
+    db_id = path_parts[1]
+    
+    query_db = datasette.get_database('portal')
+    try:
+        result = await query_db.execute("SELECT db_name, status, user_id FROM databases WHERE db_id = ?", [db_id])
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found", status=404)
+        
+        actor = get_actor_from_request(request)
+        if not actor or actor['id'] != db_info['user_id']:
+            return Response.text("Permission denied", status=403)
+    except Exception as e:
+        logger.error(f"Error checking database for db_id {db_id}: {e}")
+        return Response.text("Database error", status=500)
+    
+    db_name = db_info['db_name']
+    db_status = db_info['status']
+    
+    content = await get_database_content(datasette, db_name)
+    
+    if request.method == "POST":
+        content_type = request.headers.get('content-type', '').lower()
+        if 'multipart/form-data' in content_type:
+            boundary = content_type.split('boundary=')[1]
+            body = await request.body()
+            if len(body) > MAX_FILE_SIZE:
+                return Response.text("File too large", status=400)
+            form_data = parse_form_data(body, boundary=boundary.encode())
+            
+            new_content = content.get('header_image', {})
+            
+            if 'image' in form_data and form_data['image'].filename:
+                filename = form_data['image'].filename
+                ext = Path(filename).suffix.lower()
+                if ext in ALLOWED_EXTENSIONS:
+                    image_filename = f"{db_id}_header{ext}"
+                    os.makedirs(STATIC_DIR, exist_ok=True)
+                    with open(os.path.join(STATIC_DIR, image_filename), 'wb') as f:
+                        f.write(form_data['image'].value)
+                    new_content['image_url'] = f"/static/{image_filename}"
+            
+            if 'alt_text' in form_data:
+                new_content['alt_text'] = form_data['alt_text'].value
+            if 'credit_text' in form_data:
+                new_content['credit_text'] = form_data['credit_text'].value
+            if 'credit_url' in form_data:
+                new_content['credit_url'] = form_data['credit_url'].value
+            
+            await query_db.execute_write(
+                "UPDATE admin_content SET content = ?, updated_at = ?, updated_by = ? WHERE db_id = ? AND section = 'header_image'",
+                [json.dumps(new_content), datetime.utcnow().isoformat(), actor['username'], db_id]
+            )
+            return Response.redirect(f"{request.path}?success=Header image updated")
+        else:
+            post_vars = await request.post_vars()
+            
+            if 'title' in post_vars:
+                new_content = {"content": post_vars['title']}
+                await query_db.execute_write(
+                    "UPDATE admin_content SET content = ?, updated_at = ?, updated_by = ? WHERE db_id = ? AND section = 'title'",
+                    [json.dumps(new_content), datetime.utcnow().isoformat(), actor['username'], db_id]
+                )
+                return Response.redirect(f"{request.path}?success=Title updated")
+            
+            if 'description' in post_vars:
+                new_content = {
+                    "content": post_vars['description'],
+                    "paragraphs": parse_markdown_links(post_vars['description'])
+                }
+                await query_db.execute_write(
+                    "UPDATE admin_content SET content = ?, updated_at = ?, updated_by = ? WHERE db_id = ? AND section = 'description'",
+                    [json.dumps(new_content), datetime.utcnow().isoformat(), actor['username'], db_id]
+                )
+                return Response.redirect(f"{request.path}?success=Description updated")
+            
+            if 'footer' in post_vars:
+                new_content = {
+                    "content": post_vars['footer'],
+                    "odbl_text": "Data licensed under ODbL",
+                    "odbl_url": "https://opendatacommons.org/licenses/odbl/",
+                    "paragraphs": parse_markdown_links(post_vars['footer'])
+                }
+                await query_db.execute_write(
+                    "UPDATE admin_content SET content = ?, updated_at = ?, updated_by = ? WHERE db_id = ? AND section = 'footer'",
+                    [json.dumps(new_content), datetime.utcnow().isoformat(), actor['username'], db_id]
+                )
+                return Response.redirect(f"{request.path}?success=Footer updated")
+    
+    return Response.html(
+        await datasette.render_template(
+            "template.html",
+            {
+                "db_name": db_name,
+                "db_status": db_status,
+                "content": content,
+                "success": request.args.get('success'),
+                "error": request.args.get('error')
+            },
+            request=request
+        )
+    )
+
+async def upload_csv(datasette, request):
+    logger.debug(f"Upload CSV request: method={request.method}, path={request.path}")
+
+    path_parts = request.path.strip('/').split('/')
+    db_name = path_parts[0]
+    
+    query_db = datasette.get_database('portal')
+    try:
+        result = await query_db.execute(
+            "SELECT db_id, user_id FROM databases WHERE db_name = ?",
+            [db_name]
+        )
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found", status=404)
+        
+        actor = get_actor_from_request(request)
+        if not actor or actor['id'] != db_info['user_id']:
+            return Response.text("Permission denied", status=403)
+    except Exception as e:
+        logger.error(f"Error checking database {db_name}: {e}")
+        return Response.text("Database error", status=500)
+    
+    if request.method == "POST":
+        content_type = request.headers.get('content-type', '').lower()
+        if 'multipart/form-data' in content_type:
+            boundary = content_type.split('boundary=')[1]
+            body = await request.body()
+            if len(body) > MAX_FILE_SIZE:
+                return Response.text("File too large", status=400)
+            form_data = parse_form_data(body, boundary=boundary.encode())
+            
+            table_name = form_data.get('table_name').value if 'table_name' in form_data else None
+            csv_file = form_data.get('csv_file') if 'csv_file' in form_data else None
+            
+            if table_name and csv_file and csv_file.filename.endswith('.csv'):
+                db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+                portal_db = sqlite_utils.Database(db_path)
+                full_table_name = f"{db_name}_{table_name}"
+                
+                if full_table_name in portal_db.table_names():
+                    return Response.text(f"Table {table_name} already exists", status=400)
+                
+                table_count = sum(1 for name in portal_db.table_names() if name.startswith(f"{db_name}_"))
+                if table_count >= MAX_TABLES_PER_DATABASE:
+                    return Response.text(f"Maximum {MAX_TABLES_PER_DATABASE} tables per database reached", status=400)
+                
+                df = pd.read_csv(io.BytesIO(csv_file.value))
+                portal_db[full_table_name].insert_all(df.to_dict('records'), replace=True)
+                
+                await query_db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [str(uuid.uuid4()), actor['id'], "upload_csv", f"Uploaded CSV to table {table_name} in {db_name}", datetime.utcnow()]
+                )
+                
+                return Response.redirect(f"/manage-databases?success=CSV uploaded successfully as table {table_name}")
+            else:
+                return Response.text("Invalid table name or CSV file", status=400)
+    
+    return Response.html(
+        await datasette.render_template(
+            "upload_csv.html",
+            {
+                "db_name": db_name
+            },
+            request=request
+        )
+    )
 
 @hookimpl
 def register_routes():
     return [
-        (r'^/create-database$', create_database),
-        (r'^/manage-databases$', manage_databases),
-        (r'^/add-table$', add_table),
-        (r'^/delete-table$', delete_table),
-        (r'^/publish-database$', publish_database),
-        (r'^/delete-database$', delete_database),
-        (r'^/restore-database$', restore_database),
-        (r'^/archive-database$', archive_database),
-        (r'^/unarchive-database$', unarchive_database),
         (r'^/$', index_page),
         (r'^/login$', login_page),
         (r'^/register$', register_page),
-        (r'^/profile$', profile_page),
-        (r'^/dashboard$', dashboard_page),
-        (r'^/system-admin$', system_admin_page),
-        (r'^/change-password$', change_password_page),
         (r'^/logout$', logout_page),
+        (r'^/change-password$', change_password_page),
+        (r'^/create-database$', create_database),
+        (r'^/manage-databases$', manage_databases),
+        (r'^/system-admin$', system_admin_page),
+        (r'^/([^/]+)$', database_homepage),
+        (r'^/([^/]+)/tables$', database_tables_view),
+        (r'^/([^/]+)/([^/]+)$', database_table_view),
+        (r'^/edit-content/(.+)$', edit_content),
+        (r'^/([^/]+)/upload-csv$', upload_csv),
+        (r'^/([^/]+)/publish$', publish_database),
     ]
 
 @hookimpl
@@ -1443,7 +1453,6 @@ def startup(datasette):
         portal_db = sqlite_utils.Database(db_path)
         query_db = datasette.get_database('portal')
         
-        # Create tables with updated schema
         portal_db.create_table("users", {
             "user_id": str,
             "username": str,
@@ -1458,31 +1467,12 @@ def startup(datasette):
             "user_id": str,
             "db_name": str,
             "website_url": str,
-            "status": str,  # 'Draft', 'Published', 'Deleted', 'Archived'
+            "status": str,
             "created_at": str,
-            "deleted_at": str,
-            "archived_at": str
+            "deleted_at": str
         }, pk="db_id", if_not_exists=True)
 
-        # Add new columns if they don't exist
-        try:
-            await query_db.execute("ALTER TABLE databases ADD COLUMN deleted_at TEXT")
-        except:
-            pass  # Column already exists
-        
-        try:
-            await query_db.execute("ALTER TABLE databases ADD COLUMN archived_at TEXT")
-        except:
-            pass  # Column already exists
-
         portal_db.create_table("admin_content", {
-            "section": str,
-            "content": str,
-            "updated_at": str,
-            "updated_by": str
-        }, pk="section", if_not_exists=True)
-
-        portal_db.create_table("web_content", {
             "db_id": str,
             "section": str,
             "content": str,
@@ -1499,20 +1489,28 @@ def startup(datasette):
         }, pk="log_id", if_not_exists=True)
 
         try:
+            await query_db.execute("ALTER TABLE databases ADD COLUMN deleted_at TEXT")
+        except:
+            pass
+
+        try:
             await query_db.execute_write(
-                "INSERT OR IGNORE INTO admin_content (section, content, updated_at, updated_by) VALUES (?, ?, ?, ?)",
-                ["title", json.dumps({"content": "EDGI Datasette Cloud Portal"}), datetime.utcnow().isoformat(), "system"]
+                "INSERT OR IGNORE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                [None, "title", json.dumps({"content": "EDGI Datasette Cloud Portal"}), datetime.utcnow().isoformat(), "system"]
             )
             await query_db.execute_write(
-                "INSERT OR IGNORE INTO admin_content (section, content, updated_at, updated_by) VALUES (?, ?, ?, ?)",
-                ["header_image", json.dumps({"image_url": "static/header.jpg", "alt_text": "", "credit_url": "", "credit_text": ""}), datetime.utcnow().isoformat(), "system"]
+                "INSERT OR IGNORE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                [None, "header_image", json.dumps({"image_url": "/static/default_header.jpg", "alt_text": "", "credit_url": "", "credit_text": ""}), datetime.utcnow().isoformat(), "system"]
             )
             await query_db.execute_write(
-                "INSERT OR IGNORE INTO admin_content (section, content, updated_at, updated_by) VALUES (?, ?, ?, ?)",
-                ["info", json.dumps({"content": "The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.", "paragraphs": parse_markdown_links("The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.")}), datetime.utcnow().isoformat(), "system"]
+                "INSERT OR IGNORE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                [None, "info", json.dumps({"content": "The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites."}), datetime.utcnow().isoformat(), "system"]
+            )
+            await query_db.execute_write(
+                "INSERT OR IGNORE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                [None, "footer", json.dumps({"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}), datetime.utcnow().isoformat(), "system"]
             )
         except Exception as e:
             logger.error(f"Error initializing admin_content: {str(e)}")
 
     return inner
-

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>{{ content.title.content | default(db_name.replace('_', ' ').title()) }} | Environmental Data</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-database-2-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">{{ content.title.content | default(db_name.replace('_', ' ').title()) }}</div>
+            </div>
+            <div>
+                <a href="/{{ db_name }}/tables" class="text-white hover:text-accent mr-4">Browse Tables</a>
+                <a href="/" class="text-white hover:text-accent">Portal Home</a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <!-- Hero Section with Header Image -->
+        <section class="mt-4">
+            <div class="map-container relative">
+                <img src="{{ content.header_image.image_url | default('/static/header.jpg') }}" alt="{{ content.header_image.alt_text | default('Environmental Data') }}" class="map-image">
+                {% if content.header_image.credit_url %}
+                    <div class="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
+                        <a href="{{ content.header_image.credit_url }}" target="_blank" rel="noopener noreferrer" class="text-white hover:text-accent">
+                            {{ content.header_image.credit_text | default('Image Credit') }}
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Database Information -->
+        <section class="container mx-auto px-4 mt-4">
+            <div class="bg-card rounded-card p-6 border border-border">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h1 class="text-3xl font-bold text-primary mb-2">{{ content.title.content | default(db_name.replace('_', ' ').title()) }}</h1>
+                        <div class="flex items-center gap-4 text-sm text-textlight">
+                            <span><i class="ri-database-line mr-1"></i>Environmental Database</span>
+                            <span><i class="ri-table-line mr-1"></i>{{ tables|length }} Tables</span>
+                            <span><i class="ri-file-list-line mr-1"></i>{{ statistics[1].value }} Total Records</span>
+                        </div>
+                    </div>
+                    <a href="/{{ db_name }}/tables" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                        <i class="ri-table-line mr-2"></i>Browse Data Tables
+                    </a>
+                </div>
+
+                <!-- Description -->
+                {% for paragraph in content.info.paragraphs | default(["Environmental data dashboard powered by Datasette."]) %}
+                    <p class="text-text mb-4">{{ paragraph | safe }}</p>
+                {% endfor %}
+
+                <!-- Data Tables Grid -->
+                {% if feature_cards %}
+                    <h2 class="text-2xl font-semibold text-primary mt-8 mb-6">Available Data Tables</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {% for card in feature_cards %}
+                            <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-lg font-semibold text-accent group-hover:text-primary">
+                                        <i class="{{ card.icon }} mr-2"></i>{{ card.title }}
+                                    </h3>
+                                    <i class="ri-arrow-right-line text-textlight group-hover:text-accent"></i>
+                                </div>
+                                <p class="text-textlight text-sm">{{ card.description }}</p>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded-card">
+                        <i class="ri-table-line text-4xl text-textlight mb-2"></i>
+                        <p class="text-textlight">No data tables available in this database.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Statistics Section -->
+        <section class="container mx-auto px-4 mt-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {% for stat in statistics %}
+                    <div class="bg-accent rounded-card p-6 text-center text-white">
+                        <h3 class="text-4xl font-bold mb-2">{{ stat.value }}</h3>
+                        <p class="text-white">{{ stat.label }}</p>
+                        {% if stat.url %}
+                            <a href="{{ stat.url }}" class="inline-block mt-3 text-white hover:text-gray-200 text-sm">
+                                <i class="ri-arrow-right-line mr-1"></i>Explore
+                            </a>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- Quick Access Section -->
+        <section class="container mx-auto px-4 mt-6">
+            <div class="bg-card rounded-card p-6 border border-border">
+                <h2 class="text-xl font-semibold text-primary mb-4">
+                    <i class="ri-rocket-line mr-2"></i>Quick Access
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <a href="/{{ db_name }}/tables" class="flex items-center p-4 bg-blue-50 rounded-card hover:bg-blue-100 transition">
+                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4">
+                            <i class="ri-table-line text-white ri-lg"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-blue-800">Browse All Tables</h3>
+                            <p class="text-blue-600 text-sm">View all available data tables</p>
+                        </div>
+                    </a>
+                    
+                    <div class="flex items-center p-4 bg-green-50 rounded-card">
+                        <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center mr-4">
+                            <i class="ri-download-line text-white ri-lg"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-green-800">Export Data</h3>
+                            <p class="text-green-600 text-sm">Download in CSV, JSON formats</p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center p-4 bg-purple-50 rounded-card">
+                        <div class="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center mr-4">
+                            <i class="ri-code-line text-white ri-lg"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-semibold text-purple-800">API Access</h3>
+                            <p class="text-purple-600 text-sm">Programmatic data access</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Data Sources & Usage -->
+        <section class="container mx-auto px-4 mt-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-card rounded-card p-6 border border-border">
+                    <h3 class="text-lg font-semibold text-primary mb-4">
+                        <i class="ri-information-line mr-2"></i>About This Dataset
+                    </h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Database Type:</span>
+                            <span class="font-medium">Environmental Data</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Data Tables:</span>
+                            <span class="font-medium">{{ tables|length }} tables</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Total Records:</span>
+                            <span class="font-medium">{{ statistics[1].value if statistics|length > 1 else 'N/A' }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-textlight">Last Updated:</span>
+                            <span class="font-medium">Recently</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-card rounded-card p-6 border border-border">
+                    <h3 class="text-lg font-semibold text-primary mb-4">
+                        <i class="ri-question-line mr-2"></i>How to Use This Data
+                    </h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex items-start">
+                            <i class="ri-search-line text-accent mr-2 mt-1"></i>
+                            <span>Use the search function to find specific records</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-filter-line text-accent mr-2 mt-1"></i>
+                            <span>Apply filters to narrow down your results</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-download-line text-accent mr-2 mt-1"></i>
+                            <span>Export data in various formats for analysis</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-share-line text-accent mr-2 mt-1"></i>
+                            <span>Share direct links to specific data views</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="{{ content.footer.icon | default('ri-earth-line') }} text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        {% for paragraph in content.footer.paragraphs | default(['Made with EDGI']) %}
+                            <p class="mb-2">{{ paragraph | safe }}</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div>
+                    <a href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" class="text-accent hover:text-primary">{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

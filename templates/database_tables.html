@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>Data Tables - {{ content.title.content | default(db_name.replace('_', ' ').title()) }}</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-table-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Data Tables - {{ content.title.content | default(db_name.replace('_', ' ').title()) }}</div>
+            </div>
+            <div>
+                <a href="/{{ db_name }}" class="text-white hover:text-accent mr-4">Database Home</a>
+                <a href="/" class="text-white hover:text-accent">Portal Home</a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-4">
+            <!-- Breadcrumb -->
+            <nav class="flex items-center text-sm text-textlight mb-6">
+                <a href="/" class="hover:text-accent">Portal Home</a>
+                <i class="ri-arrow-right-s-line mx-2"></i>
+                <a href="/{{ db_name }}" class="hover:text-accent">{{ db_name.replace('_', ' ').title() }}</a>
+                <i class="ri-arrow-right-s-line mx-2"></i>
+                <span class="text-text">Data Tables</span>
+            </nav>
+
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-primary">Data Tables</h1>
+                    <p class="text-textlight mt-2">Browse and explore {{ tables|length }} data tables in this database</p>
+                </div>
+                <a href="/{{ db_name }}" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                    <i class="ri-home-line mr-2"></i>Database Home
+                </a>
+            </div>
+
+            <!-- Tables Grid -->
+            {% if tables %}
+                <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {% for table in tables %}
+                        <div class="bg-card rounded-card border border-border hover:shadow-md transition">
+                            <!-- Table Header -->
+                            <div class="p-6 border-b border-border">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-xl font-semibold text-primary">{{ table.name.replace('_', ' ').title() }}</h3>
+                                    <div class="flex items-center gap-2">
+                                        <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                            {{ table.count }} records
+                                        </span>
+                                    </div>
+                                </div>
+                                <p class="text-textlight text-sm">{{ table.description }}</p>
+                            </div>
+
+                            <!-- Table Preview -->
+                            <div class="p-4">
+                                <h4 class="font-medium text-text mb-3">
+                                    <i class="ri-file-list-line mr-2"></i>Column Preview
+                                </h4>
+                                <div class="space-y-2">
+                                    {% for column in table.columns %}
+                                        <div class="flex items-center text-sm">
+                                            <i class="ri-arrow-right-s-line text-textlight mr-1"></i>
+                                            <span class="text-accent font-medium">{{ column }}</span>
+                                        </div>
+                                    {% endfor %}
+                                    {% if table.columns|length > 5 %}
+                                        <div class="text-textlight text-xs">
+                                            ... and {{ (table.columns|length) - 5 }} more columns
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Table Actions -->
+                            <div class="p-4 bg-gray-50 border-t border-border">
+                                <div class="flex justify-between items-center">
+                                    <div class="text-xs text-textlight">
+                                        Last updated: Recently
+                                    </div>
+                                    <a href="{{ table.url }}" class="bg-accent text-white px-4 py-2 rounded-button hover:bg-primary transition text-sm font-medium">
+                                        <i class="ri-eye-line mr-1"></i>View Data
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Summary Stats -->
+                <div class="mt-8 bg-card rounded-card p-6 border border-border">
+                    <h2 class="text-xl font-semibold text-primary mb-4">
+                        <i class="ri-bar-chart-line mr-2"></i>Database Summary
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-accent mb-2">{{ tables|length }}</div>
+                            <div class="text-textlight text-sm">Total Tables</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-green-500 mb-2">
+                                {{ tables|sum(attribute='count') }}
+                            </div>
+                            <div class="text-textlight text-sm">Total Records</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-blue-500 mb-2">
+                                {{ tables|sum(attribute='columns'|length) if tables else 0 }}
+                            </div>
+                            <div class="text-textlight text-sm">Total Columns</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-purple-500 mb-2">
+                                {% set total_size = 0 %}
+                                {% for table in tables %}
+                                    {% set total_size = total_size + (table.count * 0.001) %}
+                                {% endfor %}
+                                {{ "%.1f"|format(total_size) }}KB
+                            </div>
+                            <div class="text-textlight text-sm">Estimated Size</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Usage Instructions -->
+                <div class="mt-6 bg-blue-50 border border-blue-200 rounded-card p-6">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                        <i class="ri-information-line mr-2"></i>How to Use These Tables
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-blue-700">
+                        <div class="space-y-3">
+                            <div class="flex items-start">
+                                <i class="ri-mouse-line text-blue-500 mr-2 mt-1"></i>
+                                <span>Click "View Data" to explore any table</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-search-line text-blue-500 mr-2 mt-1"></i>
+                                <span>Use search and filters to find specific data</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-sort-desc text-blue-500 mr-2 mt-1"></i>
+                                <span>Sort columns by clicking on headers</span>
+                            </div>
+                        </div>
+                        <div class="space-y-3">
+                            <div class="flex items-start">
+                                <i class="ri-download-line text-blue-500 mr-2 mt-1"></i>
+                                <span>Export data in CSV, JSON, or other formats</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-share-line text-blue-500 mr-2 mt-1"></i>
+                                <span>Share direct links to filtered views</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-code-line text-blue-500 mr-2 mt-1"></i>
+                                <span>Access data programmatically via API</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            {% else %}
+                <!-- Empty State -->
+                <div class="text-center py-16">
+                    <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="ri-table-line text-4xl text-textlight"></i>
+                    </div>
+                    <h2 class="text-2xl font-semibold text-primary mb-4">No Data Tables Available</h2>
+                    <p class="text-textlight mb-6 max-w-md mx-auto">
+                        This database doesn't contain any data tables yet. Tables will appear here once data is added to the database.
+                    </p>
+                    <a href="/{{ db_name }}" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                        <i class="ri-arrow-left-line mr-2"></i>Return to Database Home
+                    </a>
+                </div>
+            {% endif %}
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="{{ content.footer.icon | default('ri-earth-line') }} text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        {% for paragraph in content.footer.paragraphs | default(['Made with EDGI']) %}
+                            <p class="mb-2">{{ paragraph | safe }}</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div>
+                    <a href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" class="text-accent hover:text-primary">{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

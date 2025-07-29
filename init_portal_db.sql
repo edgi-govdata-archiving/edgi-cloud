@@ -1,5 +1,7 @@
--- Portal Database Setup Script
--- Run this to create portal.db with test data
+-- Portal Database Setup Script (Updated for Separation)
+-- Creates portal.db with test data
+-- Uses admin_content for global portal content (db_id = NULL, editable by system_admin)
+-- New web_content for user database-specific content (db_id FK to databases, editable by user)
 
 -- Create Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -11,28 +13,29 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL
 );
 
--- Create Databases table with new schema
+-- Create Databases table
 CREATE TABLE IF NOT EXISTS databases (
     db_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     db_name TEXT UNIQUE NOT NULL,
     website_url TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('Draft', 'Published', 'Deleted', 'Archived')),
+    status TEXT NOT NULL CHECK (status IN ('Draft', 'Published', 'Deleted')),
     created_at TEXT NOT NULL,
     deleted_at TEXT,
-    archived_at TEXT,
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
--- Create Admin Content table
+-- Create Admin Content Table (global portal content only, db_id = NULL)
 CREATE TABLE IF NOT EXISTS admin_content (
-    section TEXT PRIMARY KEY,
+    db_id TEXT CHECK (db_id IS NULL),  -- Must be NULL for global content
+    section TEXT NOT NULL,
     content TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    updated_by TEXT NOT NULL
+    updated_by TEXT NOT NULL,
+    PRIMARY KEY (db_id, section)  -- Composite PK allows NULL db_id
 );
 
--- Create Web Content table
+-- Create Web Content Table (user database-specific content)
 CREATE TABLE IF NOT EXISTS web_content (
     db_id TEXT NOT NULL,
     section TEXT NOT NULL,
@@ -40,7 +43,7 @@ CREATE TABLE IF NOT EXISTS web_content (
     updated_at TEXT NOT NULL,
     updated_by TEXT NOT NULL,
     PRIMARY KEY (db_id, section),
-    FOREIGN KEY (db_id) REFERENCES databases(db_id)
+    FOREIGN KEY (db_id) REFERENCES databases(db_id) ON DELETE CASCADE
 );
 
 -- Create Activity Logs table
@@ -55,50 +58,60 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 
 -- Insert test users
 -- Password for all users is "123456"
--- Hash generated with bcrypt: $2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdqxJkB.6WsLQ6G
+-- Hash: $2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdqxJkB.6WsLQ6G
 INSERT INTO users (user_id, username, password_hash, role, email, created_at) VALUES 
 ('7a9db897-a52c-4ea9-a618-33779d516d92', 'user1', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdqxJkB.6WsLQ6G', 'system_user', 'user1@example.com', '2024-01-15 10:30:00'),
 ('8b2ec998-b63d-5fb0-b719-44880e627e03', 'user2', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdqxJkB.6WsLQ6G', 'system_user', 'user2@example.com', '2024-01-16 11:45:00'),
 ('9c3fd099-c74e-6gc1-c81a-55991f738f14', 'admin', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdqxJkB.6WsLQ6G', 'system_admin', 'admin@example.com', '2024-01-10 09:00:00'),
 ('ad4fe19a-d85f-7hd2-d92b-666a20849025', 'user3', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdqxJkB.6WsLQ6G', 'system_user', 'user3@example.com', '2024-01-20 14:20:00');
 
--- Insert test databases with different statuses
-INSERT INTO databases (db_id, user_id, db_name, website_url, status, created_at, deleted_at, archived_at) VALUES 
+-- Insert test databases (removed archived status)
+INSERT INTO databases (db_id, user_id, db_name, website_url, status, created_at, deleted_at) VALUES 
 -- User1 databases
-('d1e2f3a4-5678-9012-b345-c678d9012345', '7a9db897-a52c-4ea9-a618-33779d516d92', 'air_quality', 'user1-air_quality.datasette-portal.fly.dev', 'Draft', '2024-01-15 11:00:00', NULL, NULL),
-('d1e2f3a4-5678-9012-b345-c678d9012346', '7a9db897-a52c-4ea9-a618-33779d516d92', 'water_quality', 'user1-water_quality.datasette-portal.fly.dev', 'Published', '2024-01-16 12:00:00', NULL, NULL),
-('0fd26236-867d-4bac-8e07-56015069fba2', '7a9db897-a52c-4ea9-a618-33779d516d92', 'soil_data', 'user1-soil_data.datasette-portal.fly.dev', 'Deleted', '2024-01-17 13:00:00', '2024-01-25 10:00:00', NULL),
-('1ae37347-978e-5cbd-9f18-67126170gcb3', '7a9db897-a52c-4ea9-a618-33779d516d92', 'climate_archive', 'user1-climate_archive.datasette-portal.fly.dev', 'Archived', '2024-01-18 14:00:00', NULL, '2024-01-26 11:00:00'),
+('d1e2f3a4-5678-9012-b345-c678d9012345', '7a9db897-a52c-4ea9-a618-33779d516d92', 'air_quality', '/air_quality/', 'Draft', '2024-01-15 11:00:00', NULL),
+('d1e2f3a4-5678-9012-b345-c678d9012346', '7a9db897-a52c-4ea9-a618-33779d516d92', 'water_quality', '/water_quality/', 'Published', '2024-01-16 12:00:00', NULL),
+('0fd26236-867d-4bac-8e07-56015069fba2', '7a9db897-a52c-4ea9-a618-33779d516d92', 'soil_data', '/soil_data/', 'Deleted', '2024-01-17 13:00:00', '2024-01-25 10:00:00'),
 
 -- User2 databases  
-('e2f3a4b5-6789-0123-c456-d789e0123456', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'biodiversity', 'user2-biodiversity.datasette-portal.fly.dev', 'Published', '2024-01-17 15:00:00', NULL, NULL),
-('f3a4b5c6-7890-1234-d567-e890f1234567', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'emissions', 'user2-emissions.datasette-portal.fly.dev', 'Draft', '2024-01-18 16:00:00', NULL, NULL),
+('e2f3a4b5-6789-0123-c456-d789e0123456', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'biodiversity', '/biodiversity/', 'Published', '2024-01-17 15:00:00', NULL),
+('f3a4b5c6-7890-1234-d567-e890f1234567', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'emissions', '/emissions/', 'Draft', '2024-01-18 16:00:00', NULL),
 
 -- User3 databases
-('a4b5c6d7-8901-2345-e678-f901a2345678', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'energy_consumption', 'user3-energy_consumption.datasette-portal.fly.dev', 'Published', '2024-01-20 17:00:00', NULL, NULL);
+('a4b5c6d7-8901-2345-e678-f901a2345678', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'energy_consumption', '/energy_consumption/', 'Published', '2024-01-20 17:00:00', NULL);
 
--- Insert admin content
-INSERT INTO admin_content (section, content, updated_at, updated_by) VALUES 
-('title', '{"content": "EDGI Datasette Cloud Portal"}', '2024-01-10 09:00:00', 'system'),
-('header_image', '{"image_url": "static/header.jpg", "alt_text": "EDGI Portal Header", "credit_url": "", "credit_text": ""}', '2024-01-10 09:00:00', 'system'),
-('info', '{"content": "The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites. Upload your CSV data and create beautiful, searchable databases.", "paragraphs": ["The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.", "Upload your CSV data and create beautiful, searchable databases."]}', '2024-01-10 09:00:00', 'system');
+-- Insert portal-wide admin content (db_id = NULL)
+INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES 
+(NULL, 'title', '{"content": "EDGI Datasette Cloud Portal"}', '2024-01-10 09:00:00', 'system'),
+(NULL, 'header_image', '{"image_url": "/static/header.jpg", "alt_text": "EDGI Portal Header", "credit_url": "", "credit_text": ""}', '2024-01-10 09:00:00', 'system'),
+(NULL, 'info', '{"content": "The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites. Upload your CSV data and create beautiful, searchable databases.", "paragraphs": ["The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.", "Upload your CSV data and create beautiful, searchable databases."]}', '2024-01-10 09:00:00', 'system');
 
--- Insert web content for published databases
+-- Insert database-specific web content
+-- Air Quality database content (Draft)
 INSERT INTO web_content (db_id, section, content, updated_at, updated_by) VALUES 
--- Water quality database content
-('d1e2f3a4-5678-9012-b345-c678d9012346', 'title', '{"content": "Water Quality Monitoring Data"}', '2024-01-16 12:30:00', 'user1'),
-('d1e2f3a4-5678-9012-b345-c678d9012346', 'description', '{"content": "Comprehensive water quality measurements from monitoring stations across the region, including pH, dissolved oxygen, temperature, and pollutant levels."}', '2024-01-16 12:30:00', 'user1'),
-('d1e2f3a4-5678-9012-b345-c678d9012346', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-16 12:30:00', 'user1'),
+('d1e2f3a4-5678-9012-b345-c678d9012345', 'title', '{"content": "Air Quality Monitoring"}', '2024-01-15 11:00:00', 'user1'),
+('d1e2f3a4-5678-9012-b345-c678d9012345', 'description', '{"content": "Real-time air quality monitoring data from stations across the region."}', '2024-01-15 11:00:00', 'user1'),
+('d1e2f3a4-5678-9012-b345-c678d9012345', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-15 11:00:00', 'user1'),
 
--- Biodiversity database content
-('e2f3a4b5-6789-0123-c456-d789e0123456', 'title', '{"content": "Regional Biodiversity Survey"}', '2024-01-17 15:30:00', 'user2'),
-('e2f3a4b5-6789-0123-c456-d789e0123456', 'description', '{"content": "Species observation data from biodiversity surveys conducted in protected areas and urban environments."}', '2024-01-17 15:30:00', 'user2'),
-('e2f3a4b5-6789-0123-c456-d789e0123456', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-17 15:30:00', 'user2'),
+-- Water Quality database content (Published)
+('d1e2f3a4-5678-9012-b345-c678d9012346', 'title', '{"content": "Water Quality Monitoring Data"}', '2024-01-16 12:00:00', 'user1'),
+('d1e2f3a4-5678-9012-b345-c678d9012346', 'description', '{"content": "Comprehensive water quality measurements from monitoring stations across the region, including pH, dissolved oxygen, temperature, and pollutant levels."}', '2024-01-16 12:00:00', 'user1'),
+('d1e2f3a4-5678-9012-b345-c678d9012346', 'header_image', '{"image_url": "/static/header.jpg", "alt_text": "Water Quality Monitoring", "credit_text": "Environmental Data Portal", "credit_url": ""}', '2024-01-16 12:00:00', 'user1'),
+('d1e2f3a4-5678-9012-b345-c678d9012346', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-16 12:00:00', 'user1'),
 
--- Energy consumption database content
-('a4b5c6d7-8901-2345-e678-f901a2345678', 'title', '{"content": "Municipal Energy Consumption Analysis"}', '2024-01-20 17:30:00', 'user3'),
-('a4b5c6d7-8901-2345-e678-f901a2345678', 'description', '{"content": "Monthly energy consumption data by sector including residential, commercial, and industrial usage patterns."}', '2024-01-20 17:30:00', 'user3'),
-('a4b5c6d7-8901-2345-e678-f901a2345678', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-20 17:30:00', 'user3');
+-- Biodiversity database content (Published)
+('e2f3a4b5-6789-0123-c456-d789e0123456', 'title', '{"content": "Regional Biodiversity Survey"}', '2024-01-17 15:00:00', 'user2'),
+('e2f3a4b5-6789-0123-c456-d789e0123456', 'description', '{"content": "Species observation data from biodiversity surveys conducted in protected areas and urban environments."}', '2024-01-17 15:00:00', 'user2'),
+('e2f3a4b5-6789-0123-c456-d789e0123456', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-17 15:00:00', 'user2'),
+
+-- Energy Consumption database content (Published)
+('a4b5c6d7-8901-2345-e678-f901a2345678', 'title', '{"content": "Municipal Energy Consumption Analysis"}', '2024-01-20 17:00:00', 'user3'),
+('a4b5c6d7-8901-2345-e678-f901a2345678', 'description', '{"content": "Monthly energy consumption data by sector including residential, commercial, and industrial usage patterns."}', '2024-01-20 17:00:00', 'user3'),
+('a4b5c6d7-8901-2345-e678-f901a2345678', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-20 17:00:00', 'user3'),
+
+-- Emissions database content (Draft)
+('f3a4b5c6-7890-1234-d567-e890f1234567', 'title', '{"content": "Emissions Monitoring"}', '2024-01-18 16:00:00', 'user2'),
+('f3a4b5c6-7890-1234-d567-e890f1234567', 'description', '{"content": "CO2 and greenhouse gas emissions monitoring from various facilities."}', '2024-01-18 16:00:00', 'user2'),
+('f3a4b5c6-7890-1234-d567-e890f1234567', 'footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-18 16:00:00', 'user2');
 
 -- Insert activity logs
 INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES 
@@ -116,14 +129,12 @@ INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES
 ('log012', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'publish_database', 'Published database biodiversity', '2024-01-17 15:30:00'),
 ('log013', '7a9db897-a52c-4ea9-a618-33779d516d92', 'create_database', 'Created database soil_data', '2024-01-17 13:00:00'),
 ('log014', '7a9db897-a52c-4ea9-a618-33779d516d92', 'delete_database', 'Deleted database soil_data', '2024-01-25 10:00:00'),
-('log015', '7a9db897-a52c-4ea9-a618-33779d516d92', 'create_database', 'Created database climate_archive', '2024-01-18 14:00:00'),
-('log016', '7a9db897-a52c-4ea9-a618-33779d516d92', 'archive_database', 'Archived database climate_archive', '2024-01-26 11:00:00'),
-('log017', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'register', 'User user3 registered', '2024-01-20 14:20:00'),
-('log018', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'create_database', 'Created database energy_consumption', '2024-01-20 17:00:00'),
-('log019', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'add_table', 'Added table monthly_usage to database energy_consumption', '2024-01-20 17:15:00'),
-('log020', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'publish_database', 'Published database energy_consumption', '2024-01-20 17:30:00'),
-('log021', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'create_database', 'Created database emissions', '2024-01-18 16:00:00'),
-('log022', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'add_table', 'Added table co2_measurements to database emissions', '2024-01-18 16:15:00');
+('log015', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'register', 'User user3 registered', '2024-01-20 14:20:00'),
+('log016', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'create_database', 'Created database energy_consumption', '2024-01-20 17:00:00'),
+('log017', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'add_table', 'Added table monthly_usage to database energy_consumption', '2024-01-20 17:15:00'),
+('log018', 'ad4fe19a-d85f-7hd2-d92b-666a20849025', 'publish_database', 'Published database energy_consumption', '2024-01-20 17:30:00'),
+('log019', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'create_database', 'Created database emissions', '2024-01-18 16:00:00'),
+('log020', '8b2ec998-b63d-5fb0-b719-44880e627e03', 'add_table', 'Added table co2_measurements to database emissions', '2024-01-18 16:15:00');
 
 -- Create sample data tables for testing
 -- Air Quality Database Tables (Draft)
@@ -238,60 +249,3 @@ INSERT INTO emissions_co2_measurements VALUES
 (1, 'Kalamazoo Power Plant', '2024-01-15', 245.8, 12.3, 'Power Generation', 42.3100, -85.5900),
 (2, 'Industrial Complex A', '2024-01-15', 156.2, 8.7, 'Manufacturing', 42.3400, -85.6000),
 (3, 'Waste Treatment Facility', '2024-01-15', 89.5, 25.1, 'Waste Management', 42.2800, -85.5600);
-
--- Create admin content tables for databases
-CREATE TABLE IF NOT EXISTS air_quality_admin_content (
-    section TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    updated_by TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS water_quality_admin_content (
-    section TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    updated_by TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS biodiversity_admin_content (
-    section TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    updated_by TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS energy_consumption_admin_content (
-    section TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    updated_by TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS emissions_admin_content (
-    section TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    updated_by TEXT NOT NULL
-);
-
--- Insert admin content for each database
-INSERT INTO air_quality_admin_content VALUES 
-('title', '{"content": "Air Quality Monitoring"}', '2024-01-15 11:00:00', 'user1'),
-('footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-15 11:00:00', 'user1');
-
-INSERT INTO water_quality_admin_content VALUES 
-('title', '{"content": "Water Quality Monitoring Data"}', '2024-01-16 12:00:00', 'user1'),
-('footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-16 12:00:00', 'user1');
-
-INSERT INTO biodiversity_admin_content VALUES 
-('title', '{"content": "Regional Biodiversity Survey"}', '2024-01-17 15:00:00', 'user2'),
-('footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-17 15:00:00', 'user2');
-
-INSERT INTO energy_consumption_admin_content VALUES 
-('title', '{"content": "Municipal Energy Consumption Analysis"}', '2024-01-20 17:00:00', 'user3'),
-('footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-20 17:00:00', 'user3');
-
-INSERT INTO emissions_admin_content VALUES 
-('title', '{"content": "Emissions Monitoring"}', '2024-01-18 16:00:00', 'user2'),
-('footer', '{"content": "Made with EDGI", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with EDGI"]}', '2024-01-18 16:00:00', 'user2');

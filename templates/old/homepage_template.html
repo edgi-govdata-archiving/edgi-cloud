@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>{{ page_title }}</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">{{ content.title.content }}</div>
+            </div>
+            <nav class="flex space-x-4">
+                <a href="/{{ db_name }}/" class="text-white hover:text-accent font-semibold">Home</a>
+                <a href="/{{ db_name }}/tables" class="text-white hover:text-accent">Browse Data</a>
+                <a href="/" class="text-white hover:text-accent">Portal Home</a>
+            </nav>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <!-- Header Image Section -->
+        <section class="mt-4">
+            <div class="map-container relative">
+                <img src="{{ content.header_image.image_url | default('/static/header.jpg') }}" 
+                     alt="{{ content.header_image.alt_text | default('Environmental Data') }}" 
+                     class="map-image">
+                {% if content.header_image.credit_url %}
+                    <div class="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
+                        <a href="{{ content.header_image.credit_url }}" target="_blank" rel="noopener noreferrer" class="text-white hover:text-accent">
+                            {{ content.header_image.credit_text | default('Environmental Data Portal') }}
+                        </a>
+                    </div>
+                {% elif content.header_image.credit_text %}
+                    <div class="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
+                        {{ content.header_image.credit_text }}
+                    </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- About Section -->
+        <section class="container mx-auto px-4 mt-4">
+            <div class="bg-card rounded-card p-6 border border-border">
+                <h2 class="text-2xl font-semibold text-primary mb-4">About {{ content.title.content }}</h2>
+                {% for paragraph in info.paragraphs | default([content.description.content]) %}
+                    <p class="text-text mb-4">{{ paragraph | safe }}</p>
+                {% endfor %}
+                
+                <!-- Featured Data Tables -->
+                {% if feature_cards %}
+                    <div class="mt-6">
+                        <h3 class="text-lg font-semibold text-primary mb-4">Featured Data Tables</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {% for card in feature_cards %}
+                                <a href="{{ card.url }}" class="bg-white p-4 rounded-card border border-gray-200 hover:shadow-lg transition group">
+                                    <h4 class="text-md font-semibold text-accent mb-2 flex items-center group-hover:text-primary">
+                                        <i class="{{ card.icon }} text-accent mr-2 group-hover:text-primary"></i> 
+                                        {{ card.title }}
+                                    </h4>
+                                    <p class="text-textlight text-sm">{{ card.description }}</p>
+                                </a>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="mt-6 text-center">
+                            <a href="/{{ db_name }}/tables" class="bg-accent text-white px-6 py-3 rounded-lg font-semibold hover:bg-accent-dark transition inline-flex items-center">
+                                <i class="ri-table-line mr-2"></i>
+                                Browse All Data Tables
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Statistics Section -->
+        {% if statistics %}
+            <section class="container mx-auto px-4 mt-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {% for stat in statistics %}
+                        <a href="{{ stat.url }}" class="bg-accent rounded-card p-6 text-center hover:bg-opacity-90 transition text-white">
+                            <h2 class="text-4xl font-bold mb-2">{{ stat.value }}</h2>
+                            <p class="text-white">{{ stat.label }}</p>
+                        </a>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+
+        <!-- Quick Access Section -->
+        <section class="container mx-auto px-4 mt-6">
+            <div class="bg-card rounded-card p-6 border border-border">
+                <h3 class="text-lg font-semibold text-primary mb-4">Quick Access</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <a href="/{{ db_name }}/tables" class="flex items-center p-4 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 transition group">
+                        <div class="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center mr-4 group-hover:bg-blue-700 transition">
+                            <i class="ri-table-line text-white ri-xl"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-900">Browse Data Tables</h4>
+                            <p class="text-sm text-gray-600">Explore all available datasets</p>
+                        </div>
+                    </a>
+                    
+                    <a href="/{{ db_name }}/tables" class="flex items-center p-4 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition group">
+                        <div class="w-12 h-12 bg-green-600 rounded-lg flex items-center justify-center mr-4 group-hover:bg-green-700 transition">
+                            <i class="ri-download-line text-white ri-xl"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-900">Download Data</h4>
+                            <p class="text-sm text-gray-600">Export data in multiple formats</p>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        {% for paragraph in footer.paragraphs | default(['Made with EDGI']) %}
+                            <p>{{ paragraph | safe }}</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div>
+                    <a href="{{ footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" 
+                       class="text-accent hover:text-primary">
+                        {{ footer.odbl_text | default('Data licensed under ODbL') }}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
