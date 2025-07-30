@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upload CSV - {{ database_title }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+</head>
+<body class="h-full flex flex-col">
+
+  <!-- Top Bar -->
+  <header class="bg-[#24688f] text-white p-4 flex justify-between items-center">
+    <span class="text-lg font-semibold">Upload CSV to {{ database_title }}</span>
+    <div class="flex items-center space-x-2">
+      <span class="font-semibold">{{ actor.username if actor else "Guest" }}</span>
+      <a href="/manage-databases" class="text-white hover:text-gray-200">
+        <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-grow p-8 max-w-5xl mx-auto bg-white">
+    <h1 class="text-3xl font-bold text-gray-900 mb-2">Upload CSV</h1>
+    <p class="text-gray-600 mb-6">Adding data to: <strong>{{ database_title }}</strong></p>
+
+    <!-- Success/Error Messages -->
+    {% if request.args.get('success') %}
+      <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+        <div class="flex">
+          <i class="ri-check-circle-line text-green-400 mr-3 mt-1"></i>
+          <div>
+            <h3 class="text-lg font-medium text-green-800">Success!</h3>
+            <p class="mt-1 text-green-700">{{ request.args.get('success') }}</p>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if request.args.get('error') %}
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+        <div class="flex">
+          <i class="ri-error-warning-line text-red-400 mr-3 mt-1"></i>
+          <div>
+            <h3 class="text-lg font-medium text-red-800">Upload Error</h3>
+            <p class="mt-1 text-red-700">{{ request.args.get('error') }}</p>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="space-y-6">
+      <!-- CSRF token MUST be first -->
+      <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+      <!-- Hidden database field -->
+      <input type="hidden" name="database" value="{{ database_name }}">
+
+      <!-- File Upload -->
+      <div class="mb-4">
+        <label class="block text-sm font-bold text-gray-700 mb-2">
+          <i class="ri-file-upload-line mr-1"></i>CSV File
+        </label>
+        <div class="border-2 border-dashed border-gray-400 rounded-lg p-12 text-center mb-4" id="drop-zone">
+          <input type="file" name="csv_file" accept=".csv" required 
+                 class="hidden" id="csv-file-input">
+          <label for="csv-file-input" class="cursor-pointer">
+            <i class="ri-upload-cloud-line text-4xl text-gray-400 mb-2 block"></i>
+            <span class="text-lg italic text-gray-600">Click to select CSV file or drag and drop</span>
+          </label>
+        </div>
+        <div id="file-info" class="hidden bg-blue-50 border border-blue-200 rounded p-3">
+          <i class="ri-file-line text-blue-600 mr-2"></i>
+          <span id="file-name" class="text-blue-800"></span>
+          <span id="file-size" class="text-blue-600 text-sm ml-2"></span>
+        </div>
+      </div>
+
+      <!-- Table Name -->
+      <div class="mb-4">
+        <label for="table-name" class="block text-sm font-bold text-gray-700 mb-2">
+          <i class="ri-table-line mr-1"></i>Table Name
+        </label>
+        <input id="table-name" name="table-name" type="text"
+               class="mt-1 block w-full border border-gray-300 rounded shadow-sm p-2"
+               placeholder="Enter table name (optional - will use filename if empty)"
+               pattern="^[a-zA-Z0-9_]*$">
+        <p class="mt-1 text-sm text-gray-500">Use letters, numbers, and underscores only. Leave empty to use filename.</p>
+      </div>
+
+      <!-- Upload Options -->
+      <div class="bg-gray-50 rounded-lg p-4 mb-4">
+        <h3 class="text-sm font-bold text-gray-700 mb-3">Upload Options</h3>
+        <div class="space-y-2">
+          <label class="flex items-center">
+            <input type="checkbox" name="replace_table" value="1" class="mr-2">
+            <span class="text-sm">Replace table if it already exists</span>
+          </label>
+          <label class="flex items-center">
+            <input type="checkbox" name="detect_types" value="1" checked class="mr-2">
+            <span class="text-sm">Auto-detect column types (INTEGER, REAL, TEXT)</span>
+          </label>
+        </div>
+      </div>
+
+      <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 flex items-center">
+        <i class="ri-upload-line mr-2"></i>Upload CSV File
+      </button>
+    </form>
+
+    <!-- Help Section -->
+    <div class="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
+      <h3 class="text-lg font-semibold text-blue-800 mb-4">
+        <i class="ri-question-line mr-2"></i>Upload Guidelines
+      </h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-700">
+        <div class="space-y-2">
+          <div class="flex items-start">
+            <i class="ri-check-line mt-0.5 mr-2 text-green-600"></i>
+            <span>CSV files up to 10MB are supported</span>
+          </div>
+          <div class="flex items-start">
+            <i class="ri-check-line mt-0.5 mr-2 text-green-600"></i>
+            <span>First row should contain column headers</span>
+          </div>
+          <div class="flex items-start">
+            <i class="ri-check-line mt-0.5 mr-2 text-green-600"></i>
+            <span>Data types are automatically detected</span>
+          </div>
+        </div>
+        <div class="space-y-2">
+          <div class="flex items-start">
+            <i class="ri-information-line mt-0.5 mr-2 text-blue-600"></i>
+            <span>Tables can be updated by uploading again</span>
+          </div>
+          <div class="flex items-start">
+            <i class="ri-information-line mt-0.5 mr-2 text-blue-600"></i>
+            <span>Special characters in headers will be cleaned</span>
+          </div>
+          <div class="flex items-start">
+            <i class="ri-information-line mt-0.5 mr-2 text-blue-600"></i>
+            <span>Large files may take a moment to process</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Database Info -->
+    <div class="mt-8 bg-gray-50 border border-gray-200 rounded-lg p-6">
+      <h3 class="text-lg font-semibold text-gray-800 mb-4">
+        <i class="ri-information-line mr-2"></i>Database Information
+      </h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div>
+          <span class="text-gray-600">Database Name:</span>
+          <span class="font-medium ml-2">{{ database_name }}</span>
+        </div>
+        <div>
+          <span class="text-gray-600">Owner:</span>
+          <span class="font-medium ml-2">{{ actor.username }}</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t text-sm text-gray-500 p-4 text-left">
+    Powered by <a href="https://datasette.io" class="text-blue-600 underline">Datasette</a>
+  </footer>
+
+  <script>
+    // File input handling
+    const fileInput = document.getElementById('csv-file-input');
+    const fileInfo = document.getElementById('file-info');
+    const fileName = document.getElementById('file-name');
+    const fileSize = document.getElementById('file-size');
+    const tableNameInput = document.getElementById('table-name');
+    const dropZone = document.getElementById('drop-zone');
+
+    fileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        fileName.textContent = file.name;
+        fileSize.textContent = `(${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+        fileInfo.classList.remove('hidden');
+        
+        // Auto-suggest table name from filename
+        if (!tableNameInput.value) {
+          const suggestedName = file.name
+            .replace('.csv', '')
+            .replace(/[^a-zA-Z0-9_]/g, '_')
+            .toLowerCase();
+          tableNameInput.value = suggestedName;
+        }
+      } else {
+        fileInfo.classList.add('hidden');
+      }
+    });
+
+    // Drag and drop handling
+    dropZone.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      this.classList.add('border-blue-400', 'bg-blue-50');
+    });
+    
+    dropZone.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      this.classList.remove('border-blue-400', 'bg-blue-50');
+    });
+    
+    dropZone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      this.classList.remove('border-blue-400', 'bg-blue-50');
+      
+      const files = e.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith('.csv')) {
+        fileInput.files = files;
+        fileInput.dispatchEvent(new Event('change'));
+      }
+    });
+
+    // Form validation
+    document.querySelector('form').addEventListener('submit', function(e) {
+      const fileInput = document.getElementById('csv-file-input');
+      if (!fileInput.files.length) {
+        e.preventDefault();
+        alert('Please select a CSV file to upload.');
+        return false;
+      }
+      
+      // Show loading state
+      const submitButton = this.querySelector('button[type="submit"]');
+      const originalText = submitButton.innerHTML;
+      submitButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Uploading...';
+      submitButton.disabled = true;
+    });
+  </script>
+
+</body>
+</html>
