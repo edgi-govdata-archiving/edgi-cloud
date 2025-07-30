@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>Delete Table - {{ table_name }} | EDGI Portal</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-delete-bin-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Delete Table</div>
+            </div>
+            <div>
+                <a href="/manage-databases" class="text-white hover:text-accent">
+                    <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+                </a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-6">
+            <div class="max-w-2xl mx-auto">
+                <!-- Warning Card -->
+                <div class="bg-red-50 border border-red-200 rounded-card p-6 mb-6">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mr-4">
+                            <i class="ri-alert-line text-red-600 ri-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold text-red-800">Confirm Table Deletion</h1>
+                            <p class="text-red-600">This action cannot be undone</p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded border border-red-200 p-4">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-3">
+                            You are about to delete:
+                        </h2>
+                        
+                        <div class="space-y-3">
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Database:</span>
+                                <span class="font-medium">{{ db_name.replace('_', ' ').title() }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Table:</span>
+                                <span class="font-medium text-red-600">{{ table_name.replace('_', ' ').title() }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Records:</span>
+                                <span class="font-medium">{{ "{:,}".format(row_count) }} rows</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Columns:</span>
+                                <span class="font-medium">{{ column_count }} columns</span>
+                            </div>
+                        </div>
+                        
+                        {% if columns %}
+                            <div class="mt-4 pt-3 border-t border-gray-200">
+                                <span class="text-sm text-gray-600">Sample columns:</span>
+                                <div class="mt-1 flex flex-wrap gap-2">
+                                    {% for column in columns %}
+                                        <span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">{{ column }}</span>
+                                    {% endfor %}
+                                    {% if column_count > 5 %}
+                                        <span class="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded">+{{ column_count - 5 }} more</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="bg-card rounded-card p-6 border border-border">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">What happens when you delete this table?</h3>
+                    
+                    <div class="space-y-3 mb-6">
+                        <div class="flex items-start text-sm">
+                            <i class="ri-close-circle-line text-red-500 mr-2 mt-0.5"></i>
+                            <span>All {{ "{:,}".format(row_count) }} records will be permanently deleted</span>
+                        </div>
+                        <div class="flex items-start text-sm">
+                            <i class="ri-close-circle-line text-red-500 mr-2 mt-0.5"></i>
+                            <span>The table structure and all data will be lost</span>
+                        </div>
+                        <div class="flex items-start text-sm">
+                            <i class="ri-close-circle-line text-red-500 mr-2 mt-0.5"></i>
+                            <span>Any links to this table will no longer work</span>
+                        </div>
+                        <div class="flex items-start text-sm">
+                            <i class="ri-information-line text-blue-500 mr-2 mt-0.5"></i>
+                            <span>You can re-upload the data later if you have the CSV file</span>
+                        </div>
+                    </div>
+
+                    <!-- Confirmation Input -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Type the table name <strong>{{ table_name }}</strong> to confirm deletion:
+                        </label>
+                        <input type="text" id="confirmation-input" 
+                               class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                               placeholder="Enter table name exactly">
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <form method="post" class="flex-1" onsubmit="return confirmDeletion(event)">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <button type="submit" id="delete-button" disabled
+                                    class="w-full bg-red-600 text-white py-3 px-4 rounded-button hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition font-medium">
+                                <i class="ri-delete-bin-line mr-2"></i>Delete Table Permanently
+                            </button>
+                        </form>
+                        
+                        <div class="flex-1">
+                            <a href="/manage-databases" 
+                               class="w-full bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium block">
+                                <i class="ri-close-line mr-2"></i>Cancel
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="mt-6 pt-6 border-t border-gray-200">
+                        <h4 class="text-sm font-medium text-gray-700 mb-3">Before you delete, consider:</h4>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="/{{ db_name }}/{{ table_name }}" target="_blank"
+                               class="text-blue-600 hover:text-blue-800 text-sm flex items-center">
+                                <i class="ri-eye-line mr-1"></i>View table data
+                            </a>
+                            <a href="/{{ db_name }}/{{ table_name }}.csv" target="_blank"
+                               class="text-green-600 hover:text-green-800 text-sm flex items-center">
+                                <i class="ri-download-line mr-1"></i>Download as CSV
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <p class="text-primary">
+                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
+                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
+                    </p>
+                </div>
+                <div>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const confirmationInput = document.getElementById('confirmation-input');
+        const deleteButton = document.getElementById('delete-button');
+        const requiredTableName = '{{ table_name }}';
+
+        // Enable delete button only when correct table name is entered
+        confirmationInput.addEventListener('input', function() {
+            const isMatch = this.value.trim() === requiredTableName;
+            deleteButton.disabled = !isMatch;
+            
+            if (isMatch) {
+                deleteButton.classList.remove('bg-gray-400');
+                deleteButton.classList.add('bg-red-600', 'hover:bg-red-700');
+            } else {
+                deleteButton.classList.add('bg-gray-400');
+                deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+            }
+        });
+
+        // Final confirmation before deletion
+        function confirmDeletion(event) {
+            if (confirmationInput.value.trim() !== requiredTableName) {
+                event.preventDefault();
+                alert('Please enter the exact table name to confirm deletion.');
+                return false;
+            }
+            
+            const finalConfirm = confirm(
+                `Are you absolutely sure you want to delete the table "${requiredTableName}"?\n\n` +
+                `This will permanently delete {{ "{:,}".format(row_count) }} records and cannot be undone.`
+            );
+            
+            if (!finalConfirm) {
+                event.preventDefault();
+                return false;
+            }
+            
+            // Show loading state
+            deleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Deleting...';
+            deleteButton.disabled = true;
+            
+            return true;
+        }
+
+        // Focus on confirmation input
+        confirmationInput.focus();
+    </script>
+</body>
+</html>

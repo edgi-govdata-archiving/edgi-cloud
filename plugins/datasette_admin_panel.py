@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import io
 import json
 import bcrypt
@@ -7,25 +6,23 @@ from pathlib import Path
 from datetime import datetime
 from datasette import hookimpl
 from datasette.utils.asgi import Response
+
 from datasette.database import Database
 import bleach
 import re
 import sqlite_utils
 import uuid
-import pandas as pd
 import os
 import base64
-from multipart import parse_form_data
 from email.parser import BytesParser
 from email.policy import default
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv'}
+ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv','.txt'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_DATABASES_PER_USER = 5
-MAX_TABLES_PER_DATABASE = 10
 STATIC_DIR = "C:/MS Data Science - WMU/EDGI/edgi-cloud/static"
 DATA_DIR = "C:/MS Data Science - WMU/EDGI/edgi-cloud/data"
 
@@ -932,55 +929,156 @@ async def create_database(datasette, request):
         )
     )
 
-async def delete_table(datasette, request):
-    """Delete a table from a database."""
-    logger.debug(f"Delete Table request: method={request.method}, path={request.path}")
+async def delete_table(request, datasette):
+    #Delete a table from user's database
+    actor = request.actor
     
-    actor = get_actor_from_request(request)
+    # Check if user is authenticated
     if not actor:
-        return Response.json({"success": False, "message": "Authentication required"}, status=401)
+        return Response.redirect("/login")
     
+    # Extract parameters from URL path
     path_parts = request.path.strip('/').split('/')
-    if len(path_parts) < 3:
-        return Response.json({"success": False, "message": "Invalid URL format"}, status=400)
+    if len(path_parts) >= 3 and path_parts[0] == 'delete-table':
+        db_name = path_parts[1]
+        table_name = path_parts[2]
+    else:
+        return Response.redirect("/manage-databases?error=Invalid URL format")
     
-    db_name = path_parts[1]  # /delete-table/{db_name}/{table_name}
-    table_name = path_parts[2]
+    logger.debug(f"Delete table request: db_name={db_name}, table_name={table_name}")
     
-    query_db = datasette.get_database('portal')
-    try:
-        # Verify user owns this database
-        result = await query_db.execute(
-            "SELECT db_id, user_id, file_path FROM databases WHERE db_name = ? AND user_id = ?",
-            [db_name, actor.get("id")]
+    # Verify user owns the database
+    if not await user_owns_database(datasette, actor["id"], db_name):
+        return Response(
+            "Access denied: You don't have permission to delete tables from this database",
+            status=403
         )
-        db_info = result.first()
-        if not db_info:
-            return Response.json({"success": False, "message": "Database not found or permission denied"}, status=403)
-        
-        db_path = db_info['file_path']
-        if not db_path or not os.path.exists(db_path):
-            return Response.json({"success": False, "message": "Database file not found"}, status=404)
-        
-        # Delete the table using sqlite_utils
-        user_db = sqlite_utils.Database(db_path)
-        if table_name in user_db.table_names():
-            user_db[table_name].drop()
+    
+    # Handle POST request (actual deletion)
+    if request.method == "POST":
+        try:
+            # Get form data to check for CSRF token
+            post_vars = await request.post_vars()
+            logger.debug(f"POST vars: {list(post_vars.keys())}")
+
+            # Get the target database
+            target_db = datasette.get_database(db_name)
+
+            # Check if table exists
+            tables = await target_db.table_names()
+            if table_name not in tables:
+                return Response.redirect(
+                    f"/manage-databases?error=Table '{table_name}' not found in database '{db_name}'"
+                )
+                        
+            # Delete the table
+            await target_db.execute_write(f"DROP TABLE [{table_name}]")
+            logger.debug(f"Successfully deleted table {table_name} from {db_name}")
             
-            # Log the action
-            await query_db.execute_write(
-                "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), actor.get("id"), "delete_table", f"Deleted table {table_name} from {db_name}", datetime.utcnow()]
+            return Response.redirect(
+                f"/manage-databases?success=Table '{table_name}' deleted successfully from '{db_name}'"
             )
             
-            return Response.json({"success": True, "message": f"Table {table_name} deleted successfully"})
-        else:
-            return Response.json({"success": False, "message": "Table not found"}, status=404)
+        except Exception as e:
+            logger.error(f"Error deleting table {table_name} from {db_name}: {e}")
+            return Response.redirect(
+                f"/manage-databases?error=Failed to delete table: {str(e)}"
+            )
+    
+    # Handle GET request (show confirmation page)
+    else:
+        try:
+            target_db = datasette.get_database(db_name)
             
-    except Exception as e:
-        logger.error(f"Error deleting table {table_name} from {db_name}: {str(e)}")
-        return Response.json({"success": False, "message": f"Error deleting table: {str(e)}"}, status=500)
+            # Get table information
+            table_info = await target_db.execute(
+                f"SELECT COUNT(*) as row_count FROM [{table_name}]"
+            )
+            row_count = table_info.rows[0][0] if table_info.rows else 0
+            
+            # Get column information
+            columns_info = await target_db.execute(f"PRAGMA table_info([{table_name}])")
+            columns = [row[1] for row in columns_info.rows]  # column names
+            
+            return Response.html(
+                await datasette.render_template(
+                    "delete_table_confirm.html",
+                    {
+                        "db_name": db_name,
+                        "table_name": table_name,
+                        "row_count": row_count,
+                        "column_count": len(columns),
+                        "columns": columns[:5]  # Show first 5 columns
+                    },
+                    request=request
+                )
+            )
+            
+        except Exception as e:
+            logger.error(f"Error accessing table information for {table_name}: {e}")
+            return Response.redirect(
+                f"/manage-databases?error=Error accessing table information: {str(e)}"
+            )
 
+async def delete_table_ajax(request, datasette):
+    """AJAX endpoint for table deletion"""
+    if request.method != "POST":
+        return Response.json({"error": "Method not allowed"}, status=405)
+    
+    actor = request.actor
+    if not actor:
+        return Response.json({"error": "Authentication required"}, status=401)
+    
+    try:
+        # Parse JSON body
+        import json
+        body = await request.post_body()
+        data = json.loads(body.decode('utf-8'))
+        
+        db_name = data.get('db_name')
+        table_name = data.get('table_name')
+        
+        if not db_name or not table_name:
+            return Response.json({"error": "Missing db_name or table_name"}, status=400)
+        
+        # Verify ownership
+        if not await user_owns_database(datasette, actor["id"], db_name):
+            return Response.json({"error": "Access denied"}, status=403)
+        
+        # Get target database
+        target_db = datasette.get_database(db_name)
+        if not target_db:
+            return Response.json({"error": f"Database '{db_name}' not found"}, status=404)
+        
+        # Check if table exists
+        tables = await target_db.table_names()
+        if table_name not in tables:
+            return Response.json({"error": f"Table '{table_name}' not found"}, status=404)
+        
+        # Delete the table
+        await target_db.execute_write(f"DROP TABLE [{table_name}]")
+        
+        # Log the deletion
+        portal_db = datasette.get_database("portal")
+        await portal_db.execute_write(
+            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+            [
+                str(uuid.uuid4()),
+                actor["id"],
+                "delete_table",
+                f"Deleted table {table_name} from {db_name}",
+                datetime.utcnow().isoformat()
+            ]
+        )
+        
+        return Response.json({
+            "success": True,
+            "message": f"Table '{table_name}' deleted successfully from '{db_name}'"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in delete_table_ajax: {e}")
+        return Response.json({"error": f"Failed to delete table: {str(e)}"}, status=500)
 
 async def system_admin_page(datasette, request):
     logger.debug(f"System Admin request: method={request.method}")
@@ -1630,6 +1728,69 @@ async def serve_database_image(datasette, request):
         logger.error(f"Traceback: {traceback.format_exc()}")
         return Response.text("Internal server error", status=500)
 
+async def diagnose_database_structure(datasette):
+    """Diagnose the current database structure"""
+    try:
+        print("=== DATABASE STRUCTURE DIAGNOSIS ===")
+        
+        # Check available databases
+        print(f"Available databases: {list(datasette.databases.keys())}")
+        
+        # Check portal.db structure
+        if "portal" in datasette.databases:
+            portal_db = datasette.get_database("portal")
+            tables = await portal_db.table_names()
+            print(f"Portal.db tables: {tables}")
+            
+            # Check users table
+            if 'users' in tables:
+                users_result = await portal_db.execute("SELECT COUNT(*) FROM users")
+                print(f"Users count: {users_result.rows[0][0]}")
+                
+                # Show sample users
+                sample_users = await portal_db.execute("SELECT user_id, username, role FROM users LIMIT 3")
+                print(f"Sample users: {sample_users.rows}")
+            
+            # Check databases table
+            if 'databases' in tables:
+                db_result = await portal_db.execute("SELECT COUNT(*) FROM databases")
+                print(f"Databases count: {db_result.rows[0][0]}")
+                
+                # Show sample databases
+                sample_dbs = await portal_db.execute("SELECT db_name, user_id, status FROM databases LIMIT 5")
+                print(f"Sample databases: {sample_dbs.rows}")
+            else:
+                print("WARNING: No 'databases' table found in portal.db")
+        
+        print("=== END DIAGNOSIS ===")
+        
+    except Exception as e:
+        print(f"ERROR in diagnosis: {e}")
+        import traceback
+        print(f"TRACEBACK: {traceback.format_exc()}")
+
+async def user_owns_database(datasette, user_id, db_name):
+    """Check if a user owns a specific database using portal.db"""
+    try:
+        logger.debug(f"Checking ownership for user_id={user_id}, db_name={db_name}")
+        
+        # Use portal.db (the main database)
+        portal_db = datasette.get_database("portal")
+        logger.debug(f"Successfully got portal database")
+        
+        # Execute the ownership query
+        result = await portal_db.execute(
+            "SELECT 1 FROM databases WHERE db_name = ? AND user_id = ?",
+            [db_name, user_id]
+        )
+        logger.debug(f"Ownership query result: {result.rows}")
+        
+        return len(result.rows) > 0
+        
+    except Exception as e:
+        logger.error(f"Database ownership check failed: {e}")
+        return False
+
 @hookimpl
 def register_routes():
     """Register routes including static file serving for database images."""
@@ -1648,15 +1809,12 @@ def register_routes():
         # Database management with /db/ prefix
         (r"^/edit-content/([^/]+)$", edit_content),
         (r"^/delete-table/([^/]+)/([^/]+)$", delete_table),
-        # CRITICAL: This route must be registered
+        (r"^/delete-table-ajax$", delete_table_ajax),  # Add this line
         (r"^/static/data/[^/]+/[^/]+$", serve_database_image),
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/create-homepage$", create_homepage),
         (r"^/db/([^/]+)/homepage$", database_homepage),
-        (r"^/-/upload-csvs$", upload_csvs_restricted),
-
     ]
-
 
 @hookimpl
 def actor_from_request(datasette, request):
@@ -1724,6 +1882,11 @@ def permission_allowed(datasette, actor, action, resource):
 
 @hookimpl
 def startup(datasette):
+    async def run_diagnosis():
+        await diagnose_database_structure(datasette)
+    import asyncio
+    asyncio.create_task(run_diagnosis())
+
     async def inner():
         ensure_data_directories()
         db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
