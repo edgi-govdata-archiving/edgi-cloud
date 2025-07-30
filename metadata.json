@@ -3,8 +3,8 @@
   "description": "Metadata from EPA's Clean Air Markets Program Data (CAMPD) emissions database.",
   "license": "ODbL",
   "license_url": "https://opendatacommons.org/licenses/odbl/",
-  "source": "EPA Clean Air Markets Program Data (CAMPD)",
-  "source_url": "https://campd.epa.gov/",
+  "source": "EDGI Cloud Portal",
+  "source_url": "https://edgi.org/",
   "databases": {
     "CAMPD": {
       "tables": {

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upload CSV</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full flex flex-col">
+
+  <!-- Top Bar -->
+  <header class="bg-[#24688f] text-white p-4 flex justify-between items-center">
+    <span class="text-lg font-semibold">home</span>
+    <div class="flex items-center space-x-2">
+      <span class="font-semibold">admin2</span>
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-grow p-8 max-w-5xl mx-auto bg-white">
+    <h1 class="text-3xl font-bold text-gray-900 mb-6">Upload CSV</h1>
+
+    <div class="mb-4">
+      <label for="database" class="block text-sm font-bold text-gray-700">Database</label>
+      <select id="database" name="database" class="mt-1 block w-64 border border-gray-300 rounded shadow-sm">
+        <option>soil</option>
+        <option>water_quality</option>
+        <option>air_quality</option>
+        <option>soil_quality</option>
+        <option>city_airpolution</option>
+        <!-- Add more options dynamically -->
+      </select>
+    </div>
+
+    <div class="border-2 border-dashed border-gray-400 rounded-lg p-12 text-center mb-4 text-lg italic text-gray-600">
+      Select a file to upload or drag and drop one here
+    </div>
+
+    <div class="mb-4">
+      <label for="table-name" class="block text-sm font-bold text-gray-700">Table name</label>
+      <input id="table-name" name="table-name" type="text"
+             class="mt-1 block w-full border border-gray-300 rounded shadow-sm p-2"
+             placeholder="">
+    </div>
+
+    <button class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">Upload file</button>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t text-sm text-gray-500 p-4 text-left">
+    Powered by <a href="https://datasette.io" class="text-blue-600 underline">Datasette</a>
+  </footer>
+
+</body>
+</html>

@@ -16,6 +16,8 @@ import pandas as pd
 import os
 import base64
 from multipart import parse_form_data
+from email.parser import BytesParser
+from email.policy import default
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -140,17 +142,17 @@ async def get_database_content(datasette, db_name):
     if 'description' not in content:
         content['description'] = {'content': 'Environmental data dashboard powered by Datasette.'}
     
-    # FIXED: Proper header image handling
+    # FIXED: Proper header image handling with correct paths
     if 'header_image' not in content:
         db_result = await query_db.execute("SELECT db_id FROM databases WHERE db_name = ?", [db_name])
         db_row = db_result.first()
         if db_row:
             db_id = db_row['db_id']
-            # Check if custom header exists
+            # Check if custom header exists in the correct location
             custom_header_path = os.path.join(DATA_DIR, db_id, 'header.jpg')
             if os.path.exists(custom_header_path):
                 content['header_image'] = {
-                    'image_url': f'/static/data/{db_id}/header.jpg',
+                    'image_url': f'/static/data/{db_id}/header.jpg',  # Use our custom route
                     'alt_text': 'Environmental Data',
                     'credit_text': 'Environmental Data Portal',
                     'credit_url': ''
@@ -886,14 +888,13 @@ async def create_database(datasette, request):
                 [db_id, user_id, db_name, website_url, "Draft", datetime.utcnow(), db_path]
             )
             
-            # FIXED: Register database with Datasette immediately
+            # CRITICAL: Register database with Datasette immediately (even for drafts)
             try:
                 db_instance = Database(datasette, path=db_path, is_mutable=True)
                 datasette.add_database(db_instance, name=db_name)
-                logger.debug(f"Successfully registered new database: {db_name}")
+                logger.debug(f"Successfully registered new database: {db_name} (Draft)")
             except Exception as reg_error:
                 logger.error(f"Error registering new database {db_name}: {reg_error}")
-                # Continue anyway - database can be registered later
 
             # Log activity
             await query_db.execute_write(
@@ -902,7 +903,7 @@ async def create_database(datasette, request):
             )
             
             logger.debug(f"Database created: {db_name}, website_url={website_url}, file_path={db_path}")
-            return Response.redirect(f"/manage-databases?success=Database '{db_name}' created successfully. Use /{db_name}/-/upload-csvs to add data tables.")
+            return Response.redirect(f"/manage-databases?success=Database '{db_name}' created successfully.")
 
         except Exception as e:
             logger.error(f"Create database error: {str(e)}")
@@ -1354,7 +1355,7 @@ async def create_homepage(datasette, request):
         return Response.text(f"Error creating homepage: {str(e)}", status=500)
 
 async def edit_content(datasette, request):
-    """Enhanced content editor with proper image handling."""
+    """Enhanced content editor with proper image handling using email.parser approach."""
     logger.debug(f"Edit Content request: method={request.method}, path={request.path}")
 
     path_parts = request.path.strip('/').split('/')
@@ -1385,40 +1386,89 @@ async def edit_content(datasette, request):
     if request.method == "POST":
         content_type = request.headers.get('content-type', '').lower()
         if 'multipart/form-data' in content_type:
-            # Handle image upload
+            # Handle image upload using email.parser approach (like in CAMPD project)
             try:
-                boundary = content_type.split('boundary=')[1]
-                body = await request.body()
+                body = await request.post_body()
+                
                 if len(body) > MAX_FILE_SIZE:
                     return Response.text("File too large", status=400)
                 
-                form_data = parse_form_data(body, boundary=boundary.encode())
+                # Parse the content-type header to get boundary
+                boundary = None
+                if 'boundary=' in content_type:
+                    boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
+                
+                if not boundary:
+                    logger.error("No boundary found in Content-Type header")
+                    return Response.redirect(f"{request.path}?error=Invalid form data")
+                
+                # Create headers for email parser
+                headers = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', [])}
+                headers['content-type'] = request.headers.get('content-type', '')
+                
+                # Parse using email parser
+                header_bytes = b'\r\n'.join([f'{k}: {v}'.encode('utf-8') for k, v in headers.items()]) + b'\r\n\r\n'
+                msg = BytesParser(policy=default).parsebytes(header_bytes + body)
+                
+                forms = {}
+                files = {}
+                
+                # Extract form data and files
+                for part in msg.iter_parts():
+                    if not part.is_multipart():
+                        content_disposition = part.get('Content-Disposition', '')
+                        if content_disposition:
+                            disposition_params = {}
+                            for param in content_disposition.split(';'):
+                                param = param.strip()
+                                if '=' in param:
+                                    key, value = param.split('=', 1)
+                                    disposition_params[key.strip()] = value.strip().strip('"')
+                            
+                            field_name = disposition_params.get('name')
+                            filename = disposition_params.get('filename')
+                            
+                            if field_name:
+                                if filename:
+                                    files[field_name] = {
+                                        'filename': filename,
+                                        'content': part.get_payload(decode=True)
+                                    }
+                                else:
+                                    forms[field_name] = [part.get_payload(decode=True).decode('utf-8')]
+                
+                logger.debug(f"Parsed forms: {forms}")
+                logger.debug(f"Parsed files: {files}")
                 
                 new_content = content.get('header_image', {})
                 
-                if 'image' in form_data and form_data['image'].filename:
-                    filename = form_data['image'].filename
+                # Handle image upload
+                if 'image' in files and files['image']['content']:
+                    file = files['image']
+                    filename = file['filename']
                     ext = Path(filename).suffix.lower()
+                    
                     if ext in ['.jpg', '.jpeg', '.png']:
-                        # Create database-specific directory
+                        # Create database-specific directory under data/db_id
                         db_data_dir = os.path.join(DATA_DIR, db_id)
                         os.makedirs(db_data_dir, exist_ok=True)
                         
                         # Save image as header.jpg in database directory
                         image_path = os.path.join(db_data_dir, 'header.jpg')
                         with open(image_path, 'wb') as f:
-                            f.write(form_data['image'].value)
+                            f.write(file['content'])
                         
-                        # Update content with new image URL
+                        # Update content with correct image URL
                         new_content['image_url'] = f"/static/data/{db_id}/header.jpg"
+                        logger.debug(f"Saved image to {image_path}, URL: {new_content['image_url']}")
                 
-                # Update other fields
-                if 'alt_text' in form_data:
-                    new_content['alt_text'] = form_data['alt_text'].value.decode('utf-8') if isinstance(form_data['alt_text'].value, bytes) else form_data['alt_text'].value
-                if 'credit_text' in form_data:
-                    new_content['credit_text'] = form_data['credit_text'].value.decode('utf-8') if isinstance(form_data['credit_text'].value, bytes) else form_data['credit_text'].value
-                if 'credit_url' in form_data:
-                    new_content['credit_url'] = form_data['credit_url'].value.decode('utf-8') if isinstance(form_data['credit_url'].value, bytes) else form_data['credit_url'].value
+                # Update other fields from forms
+                if 'alt_text' in forms:
+                    new_content['alt_text'] = forms['alt_text'][0]
+                if 'credit_text' in forms:
+                    new_content['credit_text'] = forms['credit_text'][0]
+                if 'credit_url' in forms:
+                    new_content['credit_url'] = forms['credit_url'][0]
                 
                 # Save to database
                 await query_db.execute_write(
@@ -1429,7 +1479,9 @@ async def edit_content(datasette, request):
                 
             except Exception as e:
                 logger.error(f"Error handling image upload: {e}")
-                return Response.redirect(f"{request.path}?error=Error uploading image")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                return Response.redirect(f"{request.path}?error=Error uploading image: {str(e)}")
         else:
             # Handle text form data
             post_vars = await request.post_vars()
@@ -1472,6 +1524,7 @@ async def edit_content(datasette, request):
             {
                 "db_name": db_name,
                 "db_status": db_status,
+                "db": {"db_name": db_name, "status": db_status},  # Add db object for template compatibility
                 "content": content,
                 "actor": actor,
                 "success": request.args.get('success'),
@@ -1480,7 +1533,7 @@ async def edit_content(datasette, request):
             request=request
         )
     )
-
+    
 def ensure_data_directories():
     """Ensure required directories exist."""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -1502,59 +1555,84 @@ def ensure_data_directories():
                 f.write(b'')
     logger.info(f"Ensured data directories exist: {DATA_DIR}, {STATIC_DIR}")
 
+async def serve_database_image(datasette, request):
+    """Serve database-specific images by extracting parameters from URL path."""
+    try:
+        # Extract db_id and filename from the URL path
+        # URL format: /static/data/db_id/filename
+        path_parts = request.path.strip('/').split('/')
+        
+        if len(path_parts) < 4 or path_parts[0] != 'static' or path_parts[1] != 'data':
+            logger.error(f"Invalid URL format: {request.path}")
+            return Response.text("Not found", status=404)
+        
+        db_id = path_parts[2]
+        filename = path_parts[3]
+        
+        logger.debug(f"Serving image: db_id={db_id}, filename={filename}")
+        
+        # Security: only allow specific image files
+        if filename not in ['header.jpg', 'header.png']:
+            logger.error(f"Invalid filename requested: {filename}")
+            return Response.text("Not found", status=404)
+        
+        # Check if the database exists and user has access
+        query_db = datasette.get_database('portal')
+        db_result = await query_db.execute("SELECT status FROM databases WHERE db_id = ?", [db_id])
+        db_info = db_result.first()
+        
+        if not db_info:
+            logger.error(f"Database not found for db_id: {db_id}")
+            return Response.text("Not found", status=404)
+        
+        # For published databases, allow public access
+        # For draft databases, check ownership
+        if db_info['status'] != 'Published':
+            actor = get_actor_from_request(request)
+            if not actor:
+                logger.error(f"No actor for private database: {db_id}")
+                return Response.text("Not found", status=404)
+            
+            owner_result = await query_db.execute(
+                "SELECT user_id FROM databases WHERE db_id = ? AND user_id = ?", 
+                [db_id, actor.get('id')]
+            )
+            if not owner_result.first():
+                logger.error(f"User {actor.get('id')} not owner of database {db_id}")
+                return Response.text("Not found", status=404)
+        
+        # Serve the file
+        file_path = os.path.join(DATA_DIR, db_id, filename)
+        logger.debug(f"Looking for file at: {file_path}")
+        
+        if os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            content_type = 'image/jpeg' if filename.endswith('.jpg') else 'image/png'
+            logger.debug(f"Serving {len(content)} bytes as {content_type}")
+            
+            return Response(
+                content, 
+                content_type=content_type,
+                headers={
+                    'Cache-Control': 'public, max-age=3600',  # Cache for 1 hour
+                    'Content-Length': str(len(content))
+                }
+            )
+        else:
+            logger.error(f"File not found: {file_path}")
+            return Response.text("Not found", status=404)
+        
+    except Exception as e:
+        logger.error(f"Error serving image: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return Response.text("Internal server error", status=500)
+
 @hookimpl
 def register_routes():
     """Register routes including static file serving for database images."""
-    async def serve_database_image(datasette, request, db_id, filename):
-        """Serve database-specific images with proper parameter handling."""
-        try:
-            # Security: only allow specific image files
-            if filename not in ['header.jpg', 'header.png']:
-                return Response.text("Not found", status=404)
-            
-            # Check if the database exists and user has access
-            query_db = datasette.get_database('portal')
-            db_result = await query_db.execute("SELECT status FROM databases WHERE db_id = ?", [db_id])
-            db_info = db_result.first()
-            
-            if not db_info:
-                return Response.text("Not found", status=404)
-            
-            # For published databases, allow public access
-            # For draft databases, check ownership
-            if db_info['status'] != 'Published':
-                actor = get_actor_from_request(request)
-                if not actor:
-                    return Response.text("Not found", status=404)
-                
-                owner_result = await query_db.execute(
-                    "SELECT user_id FROM databases WHERE db_id = ? AND user_id = ?", 
-                    [db_id, actor.get('id')]
-                )
-                if not owner_result.first():
-                    return Response.text("Not found", status=404)
-            
-            # Serve the file
-            file_path = os.path.join(DATA_DIR, db_id, filename)
-            if os.path.exists(file_path):
-                with open(file_path, 'rb') as f:
-                    content = f.read()
-                
-                content_type = 'image/jpeg' if filename.endswith('.jpg') else 'image/png'
-                return Response(
-                    content, 
-                    content_type=content_type,
-                    headers={
-                        'Cache-Control': 'public, max-age=3600',  # Cache for 1 hour
-                        'Content-Length': str(len(content))
-                    }
-                )
-            
-            return Response.text("Not found", status=404)
-            
-        except Exception as e:
-            logger.error(f"Error serving image {filename} for {db_id}: {e}")
-            return Response.text("Internal server error", status=500)
     
     return [
         # System routes
@@ -1570,35 +1648,15 @@ def register_routes():
         # Database management with /db/ prefix
         (r"^/edit-content/([^/]+)$", edit_content),
         (r"^/delete-table/([^/]+)/([^/]+)$", delete_table),
-        (r"^/static/data/([^/]+)/([^/]+)$", serve_database_image),
+        # CRITICAL: This route must be registered
+        (r"^/static/data/[^/]+/[^/]+$", serve_database_image),
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/create-homepage$", create_homepage),
         (r"^/db/([^/]+)/homepage$", database_homepage),
-        
-        # IMPORTANT: NO routes matching /{db_name}/ or /{db_name}/-/
+        (r"^/-/upload-csvs$", upload_csvs_restricted),
+
     ]
 
-@hookimpl
-def permission_allowed(datasette, actor, action, resource):
-    """Grant upload-csvs permission to authenticated users for their own databases."""
-    if action == "upload-csvs":
-        # Allow authenticated users to upload CSVs
-        if actor:
-            return True
-        return False
-    return None
-
-@hookimpl
-def permission_allowed(datasette, actor, action, resource):
-    """Grant upload-csvs permission to authenticated users for their own databases."""
-    if action == "upload-csvs":
-        # Allow authenticated users to upload CSVs
-        if actor:
-            return True
-        return False
-    return None
-
-# Add these hooks to your datasette_admin_panel.py file
 
 @hookimpl
 def actor_from_request(datasette, request):
@@ -1615,9 +1673,10 @@ def actor_from_request(datasette, request):
 
 @hookimpl
 def permission_allowed(datasette, actor, action, resource):
-    """Grant upload-csvs permission to authenticated users."""
+    """Grant permissions and control database access."""
+    
+    # Handle CSV upload permissions
     if action == "upload-csvs":
-        # Allow any authenticated user to upload CSVs
         if actor and actor.get("id"):
             logger.debug(f"Granting upload-csvs permission to actor: {actor}")
             return True
@@ -1625,11 +1684,43 @@ def permission_allowed(datasette, actor, action, resource):
             logger.debug(f"Denying upload-csvs permission - no actor or no actor ID: {actor}")
             return False
     
+    # Handle database view permissions for draft databases
+    if action == "view-database" and resource:
+        # Allow access to portal database for everyone
+        if resource == "portal":
+            return True
+            
+        # For other databases, check if it's a draft and if user owns it
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            query_db = datasette.get_database('portal')
+            
+            # Check database status and ownership
+            result = loop.run_until_complete(
+                query_db.execute("SELECT status, user_id FROM databases WHERE db_name = ?", [resource])
+            )
+            db_info = result.first()
+            
+            if db_info:
+                # Published databases are public
+                if db_info['status'] == 'Published':
+                    return True
+                
+                # Draft databases only accessible to owners
+                if db_info['status'] == 'Draft':
+                    if actor and actor.get('id') == db_info['user_id']:
+                        return True
+                    else:
+                        return False
+            
+        except Exception as e:
+            logger.error(f"Error checking database permissions for {resource}: {e}")
+            # Fall back to default behavior
+            return None
+    
     # Let other plugins handle other permissions
     return None
-
-# Also update your metadata.json to remove conflicting permission settings
-# Remove the permissions block from metadata.json since we're handling it in code
 
 @hookimpl
 def startup(datasette):
@@ -1711,7 +1802,7 @@ def startup(datasette):
                 )
             
             # Register all published databases with Datasette
-            result = await query_db.execute("SELECT db_name, file_path FROM databases WHERE status = 'Published'")
+            result = await query_db.execute("SELECT db_name, file_path, status FROM databases WHERE status IN ('Published', 'Draft')")
             registered_count = 0
             for row in result:
                 if row['file_path'] and os.path.exists(row['file_path']):
@@ -1719,7 +1810,7 @@ def startup(datasette):
                         user_db = Database(datasette, path=row['file_path'], is_mutable=True)
                         datasette.add_database(user_db, name=row['db_name'])
                         registered_count += 1
-                        logger.debug(f"Registered database: {row['db_name']}")
+                        logger.debug(f"Registered database: {row['db_name']} (status: {row['status']})")
                     except Exception as reg_error:
                         logger.error(f"Error registering database {row['db_name']}: {reg_error}")
             

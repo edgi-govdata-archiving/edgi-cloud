@@ -34,7 +34,7 @@
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-6">
             <!-- Header -->
-            <div class="flex justify-between items-center mb-6">
+            <div class="flex justify-between items-center mb-6 w-[90%] mx-auto mt-1">
                 <div>
                     <h1 class="text-3xl font-bold text-primary">Customize Database Homepage</h1>
                     <p class="text-textlight mt-2">
@@ -47,7 +47,7 @@
                 </div>
                 <div class="flex gap-3">
                     {% if db_status == 'Published' %}
-                        <a href="/{{ db_name }}/" target="_blank" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition text-sm">
+                        <a href="/db/{{ db_name }}/homepage" target="_blank" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition text-sm">
                             <i class="ri-external-link-line mr-1"></i>View Live Site
                         </a>
                     {% endif %}
@@ -69,7 +69,8 @@
                 </div>
             {% endif %}
 
-            <div class="grid grid-cols-1 lg:grid-cols-1">
+            <div class="grid grid-cols-1 lg:grid-cols-1 w-[80%] mx-auto mt-1">
+
                 <!-- Left Column - Edit Forms -->
                 <div class="space-y-6">
                     
