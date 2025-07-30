@@ -3,100 +3,262 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Template Editor - {{ db_name }}</title>
+    <title>Customize {{ db_name.replace('_', ' ').title() }} - EDGI Portal</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
 </head>
-<body>
-    <header>
-        <nav>
-            <ul>
-                <li><a href="/dashboard">Dashboard</a></li>
-                <li><a href="/manage-databases">Manage Databases</a></li>
-                {% if actor.role == "system_admin" %}
-                    <li><a href="/system-admin">System Admin</a></li>
-                {% endif %}
-                <li><a href="/change-password">Change Password</a></li>
-                <li><a href="/logout">Logout</a></li>
-            </ul>
-        </nav>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-palette-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Customize {{ db_name.replace('_', ' ').title() }}</div>
+            </div>
+            {% if actor %}
+                <div>
+                    <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
+                    {% if actor.role == "system_admin" %}
+                        <a href="/system-admin" class="text-white hover:text-accent mr-4">Admin Panel</a>
+                    {% endif %}
+                    <a href="/logout" class="text-white hover:text-accent">Logout</a>
+                </div>
+            {% endif %}
+        </div>
     </header>
-    <main>
-        <h1>Template Editor - {{ db_name }} ({{ db_status }})</h1>
-        {% if success %}
-            <p style="color: green;">{{ success }}</p>
-        {% endif %}
-        {% if error %}
-            <p style="color: red;">{{ error }}</p>
-        {% endif %}
-        <section>
-            <h2>Website Title</h2>
-            <p>Current: {{ content.title.content | default(db_name) }}</p>
-            <form method="post">
-                <label for="title">Title:</label>
-                <input type="text" id="title" name="title" value="{{ content.title.content | default(db_name) }}">
-                <button type="submit">Update Title</button>
-            </form>
-        </section>
-        <section>
-            <h2>Header Image</h2>
-            {% if content.header_image.image_url %}
-                <img src="{{ content.header_image.image_url }}" alt="{{ content.header_image.alt_text | default('Environmental Data') }}">
-                {% if content.header_image.credit_url %}
-                    <p><a href="{{ content.header_image.credit_url }}">{{ content.header_image.credit_text | default('Image by EDGI') }}</a></p>
-                {% else %}
-                    <p>{{ content.header_image.credit_text | default('Image by EDGI') }}</p>
-                {% endif %}
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-6">
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-3xl font-bold text-primary">Customize Database Homepage</h1>
+                    <p class="text-textlight mt-2">
+                        {{ db_name.replace('_', ' ').title() }} 
+                        <span class="px-2 py-1 rounded-full text-xs font-medium ml-2
+                            {% if db_status == 'Published' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                            {{ db_status }}
+                        </span>
+                    </p>
+                </div>
+                <div class="flex gap-3">
+                    {% if db_status == 'Published' %}
+                        <a href="/{{ db_name }}/" target="_blank" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition text-sm">
+                            <i class="ri-external-link-line mr-1"></i>View Live Site
+                        </a>
+                    {% endif %}
+                    <a href="/manage-databases" class="bg-gray-500 text-white px-4 py-2 rounded-button hover:bg-gray-600 transition text-sm">
+                        <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+                    </a>
+                </div>
+            </div>
+
+            <!-- Success/Error Messages -->
+            {% if success %}
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+                    <p class="text-sm">{{ success }}</p>
+                </div>
             {% endif %}
-            <form method="post" enctype="multipart/form-data">
-                <label for="image">Upload New Image (jpg, png, max 5MB):</label>
-                <input type="file" id="image" name="image" accept=".jpg,.png">
-                <label for="alt_text">Alt Text:</label>
-                <input type="text" id="alt_text" name="alt_text" value="{{ content.header_image.alt_text | default('') }}">
-                <label for="credit_text">Credit Text:</label>
-                <input type="text" id="credit_text" name="credit_text" value="{{ content.header_image.credit_text | default('') }}">
-                <label for="credit_url">Credit URL:</label>
-                <input type="text" id="credit_url" name="credit_url" value="{{ content.header_image.credit_url | default('') }}">
-                <button type="submit">Update Header Image</button>
-            </form>
-        </section>
-        <section>
-            <h2>Description</h2>
-            <p>Current: {{ content.description.content | default('') }}</p>
-            <form method="post">
-                <label for="description">Description (Markdown):</label>
-                <textarea id="description" name="description">{{ content.description.content | default('') }}</textarea>
-                <button type="submit">Update Description</button>
-            </form>
-        </section>
-        <section>
-            <h2>Footer</h2>
-            <p>Current: {{ content.footer.content | default('Made with EDGI') }}</p>
-            {% for paragraph in content.footer.paragraphs | default(['Made with EDGI']) %}
-                <p>{{ paragraph | safe }}</p>
-            {% endfor %}
-            <form method="post">
-                <label for="footer">Footer Content (Markdown):</label>
-                <textarea id="footer" name="footer">{{ content.footer.content | default('Made with EDGI') }}</textarea>
-                <button type="submit">Update Footer</button>
-            </form>
-        </section>
-        <section>
-            <h2>Actions</h2>
-            <p><a href="/dashboard">Back to Dashboard</a></p>
-            <p><a href="/{{ db_name }}/tables">Manage Tables</a></p>
-            {% if db_status == "Published" %}
-                <p><a href="/{{ db_name }}">View Homepage</a></p>
+            {% if error %}
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                    <p class="text-sm">{{ error }}</p>
+                </div>
             {% endif %}
+
+            <div class="grid grid-cols-1 lg:grid-cols-1">
+                <!-- Left Column - Edit Forms -->
+                <div class="space-y-6">
+                    
+                    <!-- Website Title -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-xl font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-text mr-2"></i>Website Title
+                        </h3>
+                        <p class="text-textlight text-sm mb-4">
+                            The main heading that appears on your database homepage
+                        </p>
+                        <form method="post" class="space-y-4">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <div>
+                                <label class="block text-text mb-2 font-medium">Title:</label>
+                                <input type="text" name="title" value="{{ content.title.content | default(db_name.replace('_', ' ').title()) }}" 
+                                       class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
+                                       placeholder="Your Database Title">
+                            </div>
+                            <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">
+                                <i class="ri-save-line mr-1"></i>Update Title
+                            </button>
+                        </form>
+                    </div>
+
+                    
+                    <!-- Header Image -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-xl font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-image-line mr-2"></i>Header Image
+                        </h3>
+                        <p class="text-textlight text-sm mb-4">
+                            Upload a header image for your database homepage (JPG or PNG, max 5MB)
+                        </p>
+                        
+                        <!-- Current Image Preview -->
+                        {% if content.header_image.image_url %}
+                            <div class="mb-4">
+                                <img src="{{ content.header_image.image_url }}" 
+                                     alt="{{ content.header_image.alt_text | default('Current header image') }}" 
+                                     class="w-full h-32 object-cover rounded border">
+                                <div class="text-xs text-textlight mt-2">
+                                    Current image
+                                    {% if content.header_image.credit_text %}
+                                        • Credit: {{ content.header_image.credit_text }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endif %}
+                        
+                        <form method="post" enctype="multipart/form-data" class="space-y-4">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <div>
+                                <label class="block text-text mb-2 font-medium">Upload New Image:</label>
+                                <div class="border-2 border-dashed border-gray-300 rounded-button p-4 text-center hover:border-accent transition">
+                                    <input type="file" name="image" accept=".jpg,.jpeg,.png" 
+                                           class="w-full text-sm text-textlight file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-accent file:text-white hover:file:bg-primary">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-text mb-2 font-medium">Alt Text:</label>
+                                    <input type="text" name="alt_text" value="{{ content.header_image.alt_text | default('') }}" 
+                                           class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-accent" 
+                                           placeholder="Describe the image">
+                                </div>
+                                <div>
+                                    <label class="block text-text mb-2 font-medium">Credit Text:</label>
+                                    <input type="text" name="credit_text" value="{{ content.header_image.credit_text | default('') }}" 
+                                           class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-accent" 
+                                           placeholder="Photo credit">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-text mb-2 font-medium">Credit URL (optional):</label>
+                                <input type="url" name="credit_url" value="{{ content.header_image.credit_url | default('') }}" 
+                                       class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-accent" 
+                                       placeholder="https://example.com">
+                            </div>
+                            <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">
+                                <i class="ri-upload-line mr-1"></i>Update Header Image
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Description -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-xl font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-file-text-line mr-2"></i>Description
+                        </h3>
+                        <p class="text-textlight text-sm mb-4">
+                            Describe your database content. You can use Markdown formatting and links [text](url).
+                        </p>
+                        <form method="post" class="space-y-4">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <div>
+                                <label class="block text-text mb-2 font-medium">Description (Markdown supported):</label>
+                                <textarea name="description" rows="5" 
+                                          class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
+                                          placeholder="Describe your environmental dataset...">{{ content.description.content | default('') }}</textarea>
+                                <div class="text-xs text-textlight mt-1">
+                                    <i class="ri-markdown-line mr-1"></i>
+                                    Supports Markdown: **bold**, *italic*, [links](url)
+                                </div>
+                            </div>
+                            <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">
+                                <i class="ri-save-line mr-1"></i>Update Description
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-xl font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-layout-bottom-line mr-2"></i>Footer
+                        </h3>
+                        <p class="text-textlight text-sm mb-4">
+                            Custom footer text that appears at the bottom of your database homepage
+                        </p>
+                        <form method="post" class="space-y-4">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <div>
+                                <label class="block text-text mb-2 font-medium">Footer Content (Markdown supported):</label>
+                                <textarea name="footer" rows="3" 
+                                          class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
+                                          placeholder="Made with love by your organization...">{{ content.footer.content | default('Made with ❤️ by EDGI and Public Environmental Data Partners.') }}</textarea>
+                                <div class="text-xs text-textlight mt-1">
+                                    <i class="ri-information-line mr-1"></i>
+                                    Will appear alongside "Data licensed under ODbL"
+                                </div>
+                            </div>
+                            <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">
+                                <i class="ri-save-line mr-1"></i>Update Footer
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Right Column -  -->
+                <div class="space-y-2">                   
+                    <!-- Help Tips -->
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-card p-6">
+                        <h3 class="text-lg font-semibold text-yellow-800 mb-4">
+                            <i class="ri-lightbulb-line mr-2"></i>Customization Tips
+                        </h3>
+                        <div class="space-y-2 text-sm text-yellow-700">
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Use descriptive titles that explain your data's purpose</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Include data sources and methodology in descriptions</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Choose header images that represent your data theme</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Credit image sources and data contributors</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Both draft and published databases can upload CSV files</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </section>
     </main>
-    <footer>
-        {% for paragraph in content.footer.paragraphs | default(["Made with EDGI"]) %}
-            <p>{{ paragraph | safe }}</p>
-        {% endfor %}
-        <p>{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</p>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <div class="text-primary">
+                        <p>EDGI Datasette Cloud Portal</p>
+                    </div>
+                </div>
+                <div>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                </div>
+            </div>
+        </div>
     </footer>
 </body>
 </html>

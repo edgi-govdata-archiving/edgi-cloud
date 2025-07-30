@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>System Admin - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>System Administration - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -15,7 +15,7 @@
         <div class="container mx-auto px-4 h-20 flex items-center justify-between">
             <div class="flex items-center">
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
-                    <i class="ri-shield-user-line text-white ri-2x" aria-hidden="true"></i>
+                    <i class="ri-admin-line text-white ri-2x" aria-hidden="true"></i>
                 </div>
                 <div class="text-xl font-semibold">System Administration</div>
             </div>
@@ -23,8 +23,8 @@
                 <div>
                     <a href="/create-database" class="text-white hover:text-accent mr-4">Create Database</a>
                     <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
-                    <a href="/register" class="text-white hover:text-accent mr-4">Register User</a>
-                    <a href="/change-password" class="text-white hover:text-accent mr-4">Change Password</a>
+                    <a href="/register" class="text-white hover:text-accent mr-4">Add User</a>
+                    <a href="/change-password" class="text-white hover:text-accent mr-4">Settings</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
             {% endif %}
@@ -32,7 +32,8 @@
     </header>
     
     <main class="flex-grow pt-20 pb-6">
-        <section class="container mx-auto px-4 mt-4">
+        <section class="container mx-auto px-4 mt-6">
+            <!-- Header -->
             <div class="flex justify-between items-center mb-6">
                 <div>
                     <h1 class="text-3xl font-bold text-primary">System Administration</h1>
@@ -43,64 +44,78 @@
                 </a>
             </div>
 
+            <!-- Success/Error Messages -->
             {% if success %}
-                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
                     <p class="text-sm">{{ success }}</p>
                 </div>
             {% endif %}
-
             {% if error %}
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
                     <p class="text-sm">{{ error }}</p>
                 </div>
             {% endif %}
 
-            <!-- System Overview -->
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                <div class="bg-card rounded-card p-6 border border-border text-center">
-                    <i class="ri-user-line text-3xl text-blue-500 mb-2"></i>
-                    <h3 class="text-2xl font-bold text-primary">{{ users|length }}</h3>
-                    <p class="text-textlight text-sm">Total Users</p>
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-blue-500 rounded-card p-6 text-white">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ users|length }}</h3>
+                            <p class="text-blue-100">Total Users</p>
+                        </div>
+                        <i class="ri-user-line text-4xl text-blue-200"></i>
+                    </div>
                 </div>
-                <div class="bg-card rounded-card p-6 border border-border text-center">
-                    <i class="ri-database-2-line text-3xl text-green-500 mb-2"></i>
-                    <h3 class="text-2xl font-bold text-primary">{{ databases|length }}</h3>
-                    <p class="text-textlight text-sm">Active Databases</p>
+                <div class="bg-green-500 rounded-card p-6 text-white">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ databases|length }}</h3>
+                            <p class="text-green-100">Active Databases</p>
+                        </div>
+                        <i class="ri-database-line text-4xl text-green-200"></i>
+                    </div>
                 </div>
-                <div class="bg-card rounded-card p-6 border border-border text-center">
-                    <i class="ri-eye-line text-3xl text-accent mb-2"></i>
-                    <h3 class="text-2xl font-bold text-primary">
-                        {{ databases|selectattr('status', 'equalto', 'Published')|list|length }}
-                    </h3>
-                    <p class="text-textlight text-sm">Published</p>
+                <div class="bg-purple-500 rounded-card p-6 text-white">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ databases|selectattr('status', 'equalto', 'Published')|list|length }}</h3>
+                            <p class="text-purple-100">Published</p>
+                        </div>
+                        <i class="ri-global-line text-4xl text-purple-200"></i>
+                    </div>
                 </div>
-                <div class="bg-card rounded-card p-6 border border-border text-center">
-                    <i class="ri-activity-line text-3xl text-orange-500 mb-2"></i>
-                    <h3 class="text-2xl font-bold text-primary">{{ activity_logs|length }}</h3>
-                    <p class="text-textlight text-sm">Recent Activities</p>
+                <div class="bg-orange-500 rounded-card p-6 text-white">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ activity_logs|length }}</h3>
+                            <p class="text-orange-100">Recent Activities</p>
+                        </div>
+                        <i class="ri-activity-line text-4xl text-orange-200"></i>
+                    </div>
                 </div>
             </div>
 
-            <!-- Tabs -->
+            <!-- Tab Navigation -->
             <div class="bg-card rounded-card border border-border">
                 <div class="border-b border-border">
-                    <nav class="flex space-x-8 px-6">
-                        <button onclick="showTab('users')" id="users-tab" class="py-4 px-1 border-b-2 border-accent text-accent font-medium">
+                    <nav class="flex">
+                        <button onclick="showTab('users')" id="users-tab" class="tab-button active px-6 py-4 font-medium text-accent border-b-2 border-accent">
                             <i class="ri-user-line mr-2"></i>Users
                         </button>
-                        <button onclick="showTab('databases')" id="databases-tab" class="py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text">
-                            <i class="ri-database-2-line mr-2"></i>Databases
+                        <button onclick="showTab('databases')" id="databases-tab" class="tab-button px-6 py-4 font-medium text-textlight hover:text-accent">
+                            <i class="ri-database-line mr-2"></i>Databases
                         </button>
-                        <button onclick="showTab('activity')" id="activity-tab" class="py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text">
+                        <button onclick="showTab('activity')" id="activity-tab" class="tab-button px-6 py-4 font-medium text-textlight hover:text-accent">
                             <i class="ri-activity-line mr-2"></i>Activity Logs
                         </button>
                     </nav>
                 </div>
 
                 <!-- Users Tab -->
-                <div id="users-content" class="p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold text-primary">User Management</h3>
+                <div id="users-content" class="tab-content p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-semibold text-primary">User Management</h3>
                         <a href="/register" class="bg-accent text-white px-4 py-2 rounded-button hover:bg-primary transition text-sm">
                             <i class="ri-user-add-line mr-1"></i>Add User
                         </a>
@@ -109,44 +124,42 @@
                     <div class="overflow-x-auto">
                         <table class="w-full">
                             <thead>
-                                <tr>
-                                    <th class="text-left p-3 bg-accent text-white">Username</th>
-                                    <th class="text-left p-3 bg-accent text-white">Email</th>
-                                    <th class="text-left p-3 bg-accent text-white">Role</th>
-                                    <th class="text-left p-3 bg-accent text-white">Created</th>
-                                    <th class="text-left p-3 bg-accent text-white">Actions</th>
+                                <tr class="bg-gray-50">
+                                    <th class="text-left p-3 font-medium text-text">Username</th>
+                                    <th class="text-left p-3 font-medium text-text">Email</th>
+                                    <th class="text-left p-3 font-medium text-text">Role</th>
+                                    <th class="text-left p-3 font-medium text-text">Created</th>
+                                    <th class="text-left p-3 font-medium text-text">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for user in users %}
-                                    <tr class="border-b hover:bg-gray-50">
+                                    <tr class="border-b hover:bg-gray-50 transition">
                                         <td class="p-3">
                                             <div class="flex items-center">
-                                                <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                                                    <i class="ri-user-line text-blue-600"></i>
+                                                <div class="w-8 h-8 bg-accent rounded-full flex items-center justify-center mr-3">
+                                                    <i class="ri-user-line text-white text-sm"></i>
                                                 </div>
-                                                {{ user.username }}
+                                                <span class="font-medium">{{ user.username }}</span>
                                             </div>
                                         </td>
                                         <td class="p-3 text-textlight">{{ user.email }}</td>
                                         <td class="p-3">
-                                            <span class="px-2 py-1 rounded text-xs
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium 
                                                 {% if user.role == 'system_admin' %}bg-red-100 text-red-800{% else %}bg-blue-100 text-blue-800{% endif %}">
                                                 {{ user.role.replace('_', ' ').title() }}
                                             </span>
                                         </td>
-                                        <td class="p-3 text-textlight text-sm">{{ user.created_at[:10] }}</td>
+                                        <td class="p-3 text-textlight">{{ user.created_at[:10] if user.created_at else 'N/A' }}</td>
                                         <td class="p-3">
-                                            <div class="flex gap-2">
-                                                <button class="text-blue-500 hover:text-blue-700" title="Edit">
-                                                    <i class="ri-edit-line"></i>
+                                            <button class="text-accent hover:text-primary text-sm mr-3">
+                                                <i class="ri-edit-line mr-1"></i>Edit
+                                            </button>
+                                            {% if user.username != actor.username %}
+                                                <button class="text-red-500 hover:text-red-700 text-sm">
+                                                    <i class="ri-delete-bin-line mr-1"></i>Delete
                                                 </button>
-                                                {% if user.role != 'system_admin' %}
-                                                    <button class="text-red-500 hover:text-red-700" title="Delete">
-                                                        <i class="ri-delete-bin-line"></i>
-                                                    </button>
-                                                {% endif %}
-                                            </div>
+                                            {% endif %}
                                         </td>
                                     </tr>
                                 {% endfor %}
@@ -156,14 +169,14 @@
                 </div>
 
                 <!-- Databases Tab -->
-                <div id="databases-content" class="p-6 hidden">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold text-primary">Database Management</h3>
+                <div id="databases-content" class="tab-content p-6 hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-semibold text-primary">Database Management</h3>
                         <div class="flex gap-2">
-                            <select class="px-3 py-2 border rounded-button text-sm">
-                                <option>All Statuses</option>
-                                <option>Published</option>
-                                <option>Draft</option>
+                            <select class="px-3 py-2 border rounded text-sm">
+                                <option value="">All Statuses</option>
+                                <option value="Published">Published</option>
+                                <option value="Draft">Draft</option>
                             </select>
                         </div>
                     </div>
@@ -171,47 +184,45 @@
                     <div class="overflow-x-auto">
                         <table class="w-full">
                             <thead>
-                                <tr>
-                                    <th class="text-left p-3 bg-accent text-white">Database Name</th>
-                                    <th class="text-left p-3 bg-accent text-white">Owner</th>
-                                    <th class="text-left p-3 bg-accent text-white">Status</th>
-                                    <th class="text-left p-3 bg-accent text-white">Created</th>
-                                    <th class="text-left p-3 bg-accent text-white">Actions</th>
+                                <tr class="bg-gray-50">
+                                    <th class="text-left p-3 font-medium text-text">Database Name</th>
+                                    <th class="text-left p-3 font-medium text-text">Owner</th>
+                                    <th class="text-left p-3 font-medium text-text">Status</th>
+                                    <th class="text-left p-3 font-medium text-text">Created</th>
+                                    <th class="text-left p-3 font-medium text-text">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for db in databases %}
-                                    <tr class="border-b hover:bg-gray-50">
+                                    <tr class="border-b hover:bg-gray-50 transition">
                                         <td class="p-3">
                                             <div class="flex items-center">
-                                                <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                                                    <i class="ri-database-line text-green-600"></i>
+                                                <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center mr-3">
+                                                    <i class="ri-database-line text-white text-sm"></i>
                                                 </div>
-                                                {{ db.db_name.replace('_', ' ').title() }}
+                                                <span class="font-medium">{{ db.db_name.replace('_', ' ').title() }}</span>
                                             </div>
                                         </td>
                                         <td class="p-3 text-textlight">{{ db.username }}</td>
                                         <td class="p-3">
-                                            <span class="px-2 py-1 rounded text-xs
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium 
                                                 {% if db.status == 'Published' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
                                                 {{ db.status }}
                                             </span>
                                         </td>
-                                        <td class="p-3 text-textlight text-sm">{{ db.created_at[:10] }}</td>
+                                        <td class="p-3 text-textlight">{{ db.created_at[:10] if db.created_at else 'N/A' }}</td>
                                         <td class="p-3">
-                                            <div class="flex gap-2">
-                                                {% if db.status == 'Published' %}
-                                                    <a href="{{ db.website_url }}" class="text-green-500 hover:text-green-700" title="View Site" target="_blank">
-                                                        <i class="ri-external-link-line"></i>
-                                                    </a>
-                                                {% endif %}
-                                                <button class="text-blue-500 hover:text-blue-700" title="Manage">
-                                                    <i class="ri-settings-line"></i>
-                                                </button>
-                                                <button class="text-red-500 hover:text-red-700" title="Delete">
-                                                    <i class="ri-delete-bin-line"></i>
-                                                </button>
-                                            </div>
+                                            {% if db.status == 'Published' %}
+                                                <a href="{{ db.website_url }}" target="_blank" class="text-green-500 hover:text-green-700 text-sm mr-3">
+                                                    <i class="ri-external-link-line mr-1"></i>View
+                                                </a>
+                                            {% endif %}
+                                            <a href="/edit-content/{{ db.db_id }}" class="text-accent hover:text-primary text-sm mr-3">
+                                                <i class="ri-edit-line mr-1"></i>Edit
+                                            </a>
+                                            <button class="text-red-500 hover:text-red-700 text-sm">
+                                                <i class="ri-delete-bin-line mr-1"></i>Delete
+                                            </button>
                                         </td>
                                     </tr>
                                 {% endfor %}
@@ -221,46 +232,41 @@
                 </div>
 
                 <!-- Activity Logs Tab -->
-                <div id="activity-content" class="p-6 hidden">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold text-primary">Recent Activity</h3>
-                        <div class="flex gap-2">
-                            <select class="px-3 py-2 border rounded-button text-sm">
-                                <option>All Actions</option>
-                                <option>Login</option>
-                                <option>Create Database</option>
-                                <option>Publish Database</option>
-                                <option>Delete Database</option>
-                            </select>
-                        </div>
+                <div id="activity-content" class="tab-content p-6 hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-semibold text-primary">Recent Activity</h3>
+                        <select class="px-3 py-2 border rounded text-sm">
+                            <option value="">All Actions</option>
+                            <option value="login">Login</option>
+                            <option value="create_database">Create Database</option>
+                            <option value="publish_database">Publish Database</option>
+                            <option value="upload_csv">Upload CSV</option>
+                        </select>
                     </div>
                     
-                    <div class="space-y-3 max-h-96 overflow-y-auto">
+                    <div class="space-y-4 max-h-96 overflow-y-auto">
                         {% for log in activity_logs %}
-                            <div class="bg-gray-50 rounded-card p-4 border">
-                                <div class="flex items-center justify-between">
-                                    <div class="flex items-center">
-                                        <div class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center mr-3">
-                                            {% if log.action == 'login' %}
-                                                <i class="ri-login-circle-line text-orange-600"></i>
-                                            {% elif log.action == 'create_database' %}
-                                                <i class="ri-database-2-line text-orange-600"></i>
-                                            {% elif log.action == 'publish_database' %}
-                                                <i class="ri-rocket-line text-orange-600"></i>
-                                            {% elif log.action == 'delete_database' %}
-                                                <i class="ri-delete-bin-line text-orange-600"></i>
-                                            {% else %}
-                                                <i class="ri-activity-line text-orange-600"></i>
-                                            {% endif %}
-                                        </div>
-                                        <div>
-                                            <p class="font-medium text-text">{{ log.action.replace('_', ' ').title() }}</p>
-                                            <p class="text-sm text-textlight">{{ log.details }}</p>
-                                        </div>
+                            <div class="flex items-start p-4 bg-gray-50 rounded">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center mr-4
+                                    {% if log.action == 'login' %}bg-blue-100 text-blue-600
+                                    {% elif log.action == 'create_database' %}bg-green-100 text-green-600
+                                    {% elif log.action == 'publish_database' %}bg-purple-100 text-purple-600
+                                    {% elif log.action == 'upload_csv' %}bg-orange-100 text-orange-600
+                                    {% else %}bg-gray-100 text-gray-600{% endif %}">
+                                    <i class="ri-{% if log.action == 'login' %}login-circle-line
+                                        {% elif log.action == 'create_database' %}database-line
+                                        {% elif log.action == 'publish_database' %}global-line
+                                        {% elif log.action == 'upload_csv' %}upload-line
+                                        {% else %}activity-line{% endif %} text-sm"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <div class="flex items-center justify-between">
+                                        <h4 class="font-medium text-text">{{ log.action.replace('_', ' ').title() }}</h4>
+                                        <span class="text-xs text-textlight">{{ log.timestamp[:16] if log.timestamp else 'N/A' }}</span>
                                     </div>
-                                    <div class="text-right">
-                                        <p class="text-xs text-textlight">{{ log.timestamp[:16] }}</p>
-                                        <p class="text-xs text-textlight">User ID: {{ log.user_id[:8] }}...</p>
+                                    <p class="text-textlight text-sm mt-1">{{ log.details }}</p>
+                                    <div class="text-xs text-textlight mt-2">
+                                        User ID: {{ log.user_id[:8] if log.user_id else 'Unknown' }}...
                                     </div>
                                 </div>
                             </div>
@@ -273,14 +279,15 @@
 
     <footer class="bg-gray-50 border-t border-gray-100 py-8">
         <div class="container mx-auto px-4">
-            <div class="flex flex-col md:flex-row justify-between items-center">
+                        <div class="flex flex-col md:flex-row justify-between items-center">
                 <div class="flex items-center mb-4 md:mb-0">
                     <div class="w-8 h-8 flex items-center justify-center mr-2">
-                        <i class="ri-shield-user-line text-primary ri-lg" aria-hidden="true"></i>
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
                     <p class="text-primary">
-                        System Administration Portal - 
-                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a>
+                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
+                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
                     </p>
                 </div>
                 <div>
@@ -292,20 +299,39 @@
 
     <script>
         function showTab(tabName) {
-            // Hide all content divs
-            document.getElementById('users-content').classList.add('hidden');
-            document.getElementById('databases-content').classList.add('hidden');
-            document.getElementById('activity-content').classList.add('hidden');
+            // Hide all tab contents
+            const contents = document.querySelectorAll('.tab-content');
+            contents.forEach(content => content.classList.add('hidden'));
             
-            // Remove active state from all tabs
-            document.getElementById('users-tab').className = 'py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text';
-            document.getElementById('databases-tab').className = 'py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text';
-            document.getElementById('activity-tab').className = 'py-4 px-1 border-b-2 border-transparent text-textlight hover:text-text';
+            // Remove active class from all tabs
+            const tabs = document.querySelectorAll('.tab-button');
+            tabs.forEach(tab => {
+                tab.classList.remove('active', 'text-accent', 'border-accent');
+                tab.classList.add('text-textlight');
+            });
             
-            // Show selected content and activate tab
+            // Show selected tab content
             document.getElementById(tabName + '-content').classList.remove('hidden');
-            document.getElementById(tabName + '-tab').className = 'py-4 px-1 border-b-2 border-accent text-accent font-medium';
+            
+            // Add active class to selected tab
+            const activeTab = document.getElementById(tabName + '-tab');
+            activeTab.classList.add('active', 'text-accent', 'border-accent');
+            activeTab.classList.remove('text-textlight');
         }
+
+        // Initialize with users tab active
+        document.addEventListener('DOMContentLoaded', function() {
+            showTab('users');
+        });
     </script>
+
+    <style>
+        .tab-button.active {
+            border-bottom: 2px solid theme('colors.accent');
+        }
+        .tab-button:not(.active) {
+            border-bottom: 2px solid transparent;
+        }
+    </style>
 </body>
 </html>
