@@ -20,7 +20,7 @@
                 <div class="text-xl font-semibold">{{ content.title.content | default(db_name.replace('_', ' ').title()) }}</div>
             </div>
             <div>
-                <a href="/{{ db_name }}/tables" class="text-white hover:text-accent mr-4">Browse Tables</a>
+                <a href="/{{ db_name }}/" class="text-white hover:text-accent mr-4">Browse Tables</a>
                 <a href="/" class="text-white hover:text-accent">Portal Home</a>
             </div>
         </div>
@@ -53,7 +53,7 @@
                             <span><i class="ri-file-list-line mr-1"></i>{{ statistics[1].value }} Total Records</span>
                         </div>
                     </div>
-                    <a href="/{{ db_name }}/tables" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                    <a href="/{{ db_name }}/" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
                         <i class="ri-table-line mr-2"></i>Browse Data Tables
                     </a>
                 </div>
@@ -112,7 +112,7 @@
                     <i class="ri-rocket-line mr-2"></i>Quick Access
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <a href="/{{ db_name }}/tables" class="flex items-center p-4 bg-blue-50 rounded-card hover:bg-blue-100 transition">
+                    <a href="/{{ db_name }}/" class="flex items-center p-4 bg-blue-50 rounded-card hover:bg-blue-100 transition">
                         <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4">
                             <i class="ri-table-line text-white ri-lg"></i>
                         </div>
@@ -204,16 +204,16 @@
             <div class="flex flex-col md:flex-row justify-between items-center">
                 <div class="flex items-center mb-4 md:mb-0">
                     <div class="w-8 h-8 flex items-center justify-center mr-2">
-                        <i class="{{ content.footer.icon | default('ri-earth-line') }} text-primary ri-lg" aria-hidden="true"></i>
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
-                    <div class="text-primary">
-                        {% for paragraph in content.footer.paragraphs | default(['Made with EDGI']) %}
-                            <p class="mb-2">{{ paragraph | safe }}</p>
-                        {% endfor %}
-                    </div>
+                    <p class="text-primary">
+                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
+                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
+                    </p>
                 </div>
                 <div>
-                    <a href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" class="text-accent hover:text-primary">{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</a>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
                 </div>
             </div>
         </div>
