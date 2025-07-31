@@ -305,9 +305,9 @@ async def index_page(datasette, request):
     # Get enhanced statistics for public homepage
     stats = await get_database_statistics(datasette)
     
-    # Format featured databases as cards
+    # Format featured databases as cards (limit to 6)
     feature_cards = []
-    for db in stats['featured_databases']:
+    for db in stats['featured_databases'][:6]:  # Only show first 6
         feature_cards.append({
             'title': db['db_name'].replace('_', ' ').title(),
             'description': f"{db['status']} environmental dataset",
@@ -315,22 +315,22 @@ async def index_page(datasette, request):
             'icon': 'ri-database-line'
         })
     
-    # Statistics for the cards section
+    # Statistics for the cards section - Link to all databases page
     statistics_data = [
         {
             "label": "Total Databases",
             "value": stats['total_databases'],
-            "url": "/register"
+            "url": "/all-databases"  # Link to custom all databases page
         },
         {
             "label": "Published Datasets",
             "value": stats['published_databases'],
-            "url": "/register"
+            "url": "/all-databases"  # Link to custom all databases page
         },
         {
             "label": "Active Users",
             "value": "Join Today",
-            "url": "/register"
+            "url": "/register"  # Keep this as register
         }
     ]
 
@@ -344,6 +344,7 @@ async def index_page(datasette, request):
                 "header_image": content['header_image'],
                 "info": content['info'],
                 "feature_cards": feature_cards,
+                "total_published": stats['published_databases'],  # Add total count for template
                 "statistics": statistics_data,
                 "content": content,
                 "actor": actor,
@@ -355,6 +356,126 @@ async def index_page(datasette, request):
         )
     )
 
+async def all_databases_page(datasette, request):
+    """Show all published databases - custom page."""
+    logger.debug(f"All Databases request: method={request.method}")
+
+    db = datasette.get_database("portal")
+
+    async def get_section(section_name):
+        result = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", [section_name])
+        row = result.first()
+        if row:
+            try:
+                content = json.loads(row["content"])
+                if section_name == "info" and 'content' in content:
+                    content['paragraphs'] = parse_markdown_links(content['content'])
+                if section_name == "footer" and 'content' in content:
+                    content['paragraphs'] = parse_markdown_links(content['content'])
+                return content
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error for section {section_name}: {str(e)}")
+                return {}
+        else:
+            return {}
+
+    # Get base content
+    content = {}
+    content['header_image'] = await get_section("header_image") or {
+        'image_url': '/static/default_header.jpg', 
+        'alt_text': 'EDGI Portal Header', 
+        'credit_url': '', 
+        'credit_text': ''
+    }
+    content['title'] = await get_section("title") or {'content': 'EDGI Datasette Cloud Portal'}
+    content['footer'] = await get_section("footer") or {
+        'content': 'Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.', 
+        'odbl_text': 'Data licensed under ODbL', 
+        'odbl_url': 'https://opendatacommons.org/licenses/odbl/', 
+        'paragraphs': ['Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.']
+    }
+
+    actor = get_actor_from_request(request)
+
+    try:
+        # Get all published databases
+        all_dbs_result = await db.execute(
+            """SELECT d.db_id, d.db_name, d.website_url, d.created_at, u.username
+               FROM databases d 
+               JOIN users u ON d.user_id = u.user_id 
+               WHERE d.status = 'Published' 
+               ORDER BY d.created_at DESC"""
+        )
+        
+        all_databases = []
+        for row in all_dbs_result:
+            # Get database content for custom titles/descriptions
+            db_content = await get_database_content(datasette, row['db_name'])
+            
+            # Get table count and record count for each database
+            table_count = 0
+            total_records = 0
+            try:
+                user_db = datasette.get_database(row['db_name'])
+                if user_db:
+                    table_names_result = await user_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    table_names = [t['name'] for t in table_names_result.rows]
+                    table_count = len(table_names)
+                    
+                    for table_name in table_names:
+                        try:
+                            count_result = await user_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
+                            record_count = count_result.first()['count'] if count_result.first() else 0
+                            total_records += record_count
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.error(f"Error getting stats for database {row['db_name']}: {e}")
+
+            all_databases.append({
+                'title': db_content.get('title', {}).get('content', row['db_name'].replace('_', ' ').title()),
+                'description': db_content.get('description', {}).get('content', 'Environmental data dashboard'),
+                'url': row['website_url'],
+                'created_at': row['created_at'],
+                'username': row['username'],
+                'table_count': table_count,
+                'total_records': total_records,
+                'icon': 'ri-database-line'
+            })
+        
+        return Response.html(
+            await datasette.render_template(
+                "all_databases.html",
+                {
+                    "page_title": "All Environmental Datasets | EDGI",
+                    "content": content,
+                    "databases": all_databases,
+                    "total_count": len(all_databases),
+                    "actor": actor,
+                    "success": request.args.get('success'),
+                    "error": request.args.get('error')
+                },
+                request=request
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in all_databases_page: {str(e)}")
+        return Response.html(
+            await datasette.render_template(
+                "all_databases.html",
+                {
+                    "page_title": "All Environmental Datasets | EDGI",
+                    "content": content,
+                    "databases": [],
+                    "total_count": 0,
+                    "actor": actor,
+                    "error": f"Error loading databases: {str(e)}"
+                },
+                request=request
+            )
+        )
+        
 async def login_page(datasette, request):
     logger.debug(f"Login request: method={request.method}")
 
@@ -1557,9 +1678,10 @@ async def edit_content(datasette, request):
                             f.write(file['content'])
                         
                         # Update content with correct image URL
-                        new_content['image_url'] = f"/static/data/{db_id}/header.jpg"
-                        logger.debug(f"Saved image to {image_path}, URL: {new_content['image_url']}")
-                
+                        import time
+                        timestamp = int(time.time())
+                        new_content['image_url'] = f"/static/data/{db_id}/header.jpg?v={timestamp}"
+                        logger.debug(f"Saved image to {image_path}, URL with cache busting: {new_content['image_url']}")
                 # Update other fields from forms
                 if 'alt_text' in forms:
                     new_content['alt_text'] = forms['alt_text'][0]
@@ -1622,7 +1744,7 @@ async def edit_content(datasette, request):
             {
                 "db_name": db_name,
                 "db_status": db_status,
-                "db": {"db_name": db_name, "status": db_status},  # Add db object for template compatibility
+                "db": {"db_name": db_name, "status": db_status},  # Add db object for temp
                 "content": content,
                 "actor": actor,
                 "success": request.args.get('success'),
@@ -1654,10 +1776,9 @@ def ensure_data_directories():
     logger.info(f"Ensured data directories exist: {DATA_DIR}, {STATIC_DIR}")
 
 async def serve_database_image(datasette, request):
-    """Serve database-specific images by extracting parameters from URL path."""
+    """Serve database-specific images with better cache handling."""
     try:
         # Extract db_id and filename from the URL path
-        # URL format: /static/data/db_id/filename
         path_parts = request.path.strip('/').split('/')
         
         if len(path_parts) < 4 or path_parts[0] != 'static' or path_parts[1] != 'data':
@@ -1666,6 +1787,10 @@ async def serve_database_image(datasette, request):
         
         db_id = path_parts[2]
         filename = path_parts[3]
+        
+        # Remove cache busting parameter from filename
+        if '?' in filename:
+            filename = filename.split('?')[0]
         
         logger.debug(f"Serving image: db_id={db_id}, filename={filename}")
         
@@ -1688,7 +1813,6 @@ async def serve_database_image(datasette, request):
         if db_info['status'] != 'Published':
             actor = get_actor_from_request(request)
             if not actor:
-                logger.error(f"No actor for private database: {db_id}")
                 return Response.text("Not found", status=404)
             
             owner_result = await query_db.execute(
@@ -1696,7 +1820,6 @@ async def serve_database_image(datasette, request):
                 [db_id, actor.get('id')]
             )
             if not owner_result.first():
-                logger.error(f"User {actor.get('id')} not owner of database {db_id}")
                 return Response.text("Not found", status=404)
         
         # Serve the file
@@ -1704,30 +1827,42 @@ async def serve_database_image(datasette, request):
         logger.debug(f"Looking for file at: {file_path}")
         
         if os.path.exists(file_path):
+            # Get file modification time for caching
+            import time
+            file_mtime = os.path.getmtime(file_path)
+            etag = f'"{int(file_mtime)}"'
+            
+            # Check if client has current version
+            if_none_match = request.headers.get('if-none-match')
+            if if_none_match == etag:
+                return Response('', status=304)
+            
             with open(file_path, 'rb') as f:
                 content = f.read()
             
             content_type = 'image/jpeg' if filename.endswith('.jpg') else 'image/png'
-            logger.debug(f"Serving {len(content)} bytes as {content_type}")
+            logger.debug(f"Serving {len(content)} bytes as {content_type} with ETag {etag}")
             
             return Response(
                 content, 
                 content_type=content_type,
                 headers={
-                    'Cache-Control': 'public, max-age=3600',  # Cache for 1 hour
-                    'Content-Length': str(len(content))
+                    'Cache-Control': 'public, max-age=300',  # 5 minutes instead of 1 hour
+                    'ETag': etag,  # Enable proper cache validation
+                    'Content-Length': str(len(content)),
+                    'Last-Modified': time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(file_mtime))
                 }
             )
         else:
             logger.error(f"File not found: {file_path}")
             return Response.text("Not found", status=404)
-        
+            
     except Exception as e:
         logger.error(f"Error serving image: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return Response.text("Internal server error", status=500)
-
+    
 async def diagnose_database_structure(datasette):
     """Diagnose the current database structure"""
     try:
@@ -1805,11 +1940,12 @@ def register_routes():
         (r"^/manage-databases$", manage_databases),
         (r"^/create-database$", create_database),
         (r"^/system-admin$", system_admin_page),
+        (r"^/all-databases$", all_databases_page),  # ADD THIS NEW LINE
         
         # Database management with /db/ prefix
         (r"^/edit-content/([^/]+)$", edit_content),
         (r"^/delete-table/([^/]+)/([^/]+)$", delete_table),
-        (r"^/delete-table-ajax$", delete_table_ajax),  # Add this line
+        (r"^/delete-table-ajax$", delete_table_ajax),
         (r"^/static/data/[^/]+/[^/]+$", serve_database_image),
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/create-homepage$", create_homepage),
