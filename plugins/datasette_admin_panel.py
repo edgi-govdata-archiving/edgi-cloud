@@ -1848,34 +1848,9 @@ def permission_allowed(datasette, actor, action, resource):
         if resource == "portal":
             return True
             
-        # For other databases, check if it's a draft and if user owns it
-        try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            query_db = datasette.get_database('portal')
-            
-            # Check database status and ownership
-            result = loop.run_until_complete(
-                query_db.execute("SELECT status, user_id FROM databases WHERE db_name = ?", [resource])
-            )
-            db_info = result.first()
-            
-            if db_info:
-                # Published databases are public
-                if db_info['status'] == 'Published':
-                    return True
-                
-                # Draft databases only accessible to owners
-                if db_info['status'] == 'Draft':
-                    if actor and actor.get('id') == db_info['user_id']:
-                        return True
-                    else:
-                        return False
-            
-        except Exception as e:
-            logger.error(f"Error checking database permissions for {resource}: {e}")
-            # Fall back to default behavior
-            return None
+        # For other databases, just return None to let Datasette handle it
+        # Don't try to run async code here as it causes "event loop already running" errors
+        return None
     
     # Let other plugins handle other permissions
     return None
