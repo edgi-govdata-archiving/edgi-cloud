@@ -107,8 +107,8 @@
                                    <!-- Separated Action Buttons --> 
                                     <div class="flex flex-wrap gap-2">
                                         <!-- Always show data management actions -->
-                                            <a href="/upload-secure/{{ db.db_name }}" class="btn btn-primary" target="_blank" class="bg-green-500 text-white px-3 py-2 rounded-button hover:bg-green-600 transition text-sm font-medium">
-                                                <i class="ri-upload-line"></i> Upload Datasette CSV 
+                                            <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                <i class="ri-upload-line"></i> Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
                                             </a>
 
                                         <!-- Database status actions -->
@@ -148,8 +148,8 @@
                                         <h4 class="font-semibold text-text">
                                             <i class="ri-table-line mr-2"></i>Data Tables
                                         </h4>
-                                        <a href="/csv-upload?database={{ db.db_name }}" target="_blank" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                            <i class="ri-upload-line mr-1"></i>Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
+                                        <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                            <i class="ri-upload-line"></i> Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
                                         </a>
                                     </div>
 
@@ -188,9 +188,8 @@
                                         <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded">
                                             <i class="ri-table-line text-3xl text-textlight mb-2"></i>
                                             <p class="text-textlight text-sm mb-3">No data tables yet</p>
-                                            <a href="/csv-upload?database={{ db.db_name }}" target="_blank" 
-                                                class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                                <i class="ri-upload-line mr-1"></i>Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
+                                            <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                <i class="ri-upload-line"></i> Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
                                             </a>
                                         </div>
                                     {% endif %}

@@ -64,31 +64,13 @@
                     <p class="text-text mb-4 text-lg">{{ paragraph | safe }}</p>
                 {% endfor %}
 
-                {% if not actor %}
-                    <!-- Call to Action for Non-Authenticated Users -->
-                    <div class="bg-blue-50 border border-blue-200 rounded-card p-6 my-6">
-                        <h3 class="text-xl font-semibold text-blue-800 mb-4">
-                            <i class="ri-rocket-line mr-2"></i>Start Sharing Your Environmental Data
-                        </h3>
-                        <p class="text-blue-700 mb-4">
-                            Join researchers, organizations, and activists using our platform to make environmental data accessible to everyone.
-                        </p>
-                        <div class="flex flex-col md:flex-row gap-4">
-                            <a href="/register" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium text-center">
-                                <i class="ri-user-add-line mr-2"></i>Create Free Account
-                            </a>
-                            <a href="/login" class="bg-white text-accent border border-accent px-6 py-3 rounded-button hover:bg-accent hover:text-white transition font-medium text-center">
-                                <i class="ri-login-circle-line mr-2"></i>Sign In
-                            </a>
-                        </div>
-                    </div>
-                {% endif %}
-
                 <!-- Featured Databases -->
                 {% if feature_cards %}
-                    <h3 class="text-2xl font-semibold text-primary mt-8 mb-6">
-                        <i class="ri-database-line mr-2"></i>Featured Environmental Datasets
-                    </h3>
+                    <div class="mb-6 mt-8">
+                        <h3 class="text-2xl font-semibold text-primary mb-6">
+                            <i class="ri-database-line mr-2"></i>Featured Environmental Datasets
+                        </h3>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for card in feature_cards %}
                             <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group">
@@ -106,6 +88,16 @@
                             </a>
                         {% endfor %}
                     </div>
+                    
+                    <!-- Show "View All Datasets" link if there are more than 6 databases -->
+                    {% if total_published > 6 %}
+                        <div class="text-right mt-6">
+                            <a href="/all-databases" class="text-accent hover:text-primary font-medium flex items-center justify-end">
+                                <span>View All Datasets</span>
+                                <i class="ri-arrow-right-line ml-1"></i>
+                            </a>
+                        </div>
+                    {% endif %}
                 {% else %}
                     <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded-card mt-6">
                         <i class="ri-database-line text-4xl text-textlight mb-2"></i>
@@ -115,6 +107,26 @@
                                 <i class="ri-arrow-right-line mr-1"></i>Get Started
                             </a>
                         {% endif %}
+                    </div>
+                {% endif %}
+
+                <!-- Call to Action for Non-Authenticated Users -->
+                {% if not actor %}
+                    <div class="bg-blue-50 border border-blue-200 rounded-card p-6 my-6">
+                        <h3 class="text-xl font-semibold text-blue-800 mb-4">
+                            <i class="ri-rocket-line mr-2"></i>Start Sharing Your Environmental Data
+                        </h3>
+                        <p class="text-blue-700 mb-4">
+                            Join researchers, organizations, and activists using our platform to make environmental data accessible to everyone.
+                        </p>
+                        <div class="flex flex-col md:flex-row gap-4">
+                            <a href="/register" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium text-center">
+                                <i class="ri-user-add-line mr-2"></i>Create Free Account
+                            </a>
+                            <a href="/login" class="bg-white text-accent border border-accent px-6 py-3 rounded-button hover:bg-accent hover:text-white transition font-medium text-center">
+                                <i class="ri-login-circle-line mr-2"></i>Sign In
+                            </a>
+                        </div>
                     </div>
                 {% endif %}
 
@@ -151,18 +163,22 @@
         </section>
 
         <!-- Statistics Section -->
-        <section class="container mx-auto px-4 mt-6">
+        <section class="container mx-auto px-4 mt-6"> 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {% for stat in statistics %}
-                    <div class="bg-accent rounded-card p-6 text-center text-white hover:bg-primary transition">
+                    {% if stat.url and not actor %}
+                        <a href="{{ stat.url }}" class="block">
+                    {% endif %}
+                    <div class="bg-accent rounded-card p-6 text-center text-white hover:bg-primary transition cursor-pointer">
                         <h3 class="text-4xl font-bold mb-2">{{ stat.value }}</h3>
                         <p class="text-white">{{ stat.label }}</p>
-                        {% if stat.url and not actor %}
-                            <a href="{{ stat.url }}" class="inline-block mt-3 text-white hover:text-gray-200 text-sm">
-                                <i class="ri-arrow-right-line mr-1"></i>Learn More
-                            </a>
+                        {% if not stat.url or actor %}
+                            <!-- You can still show Learn More or other logic here if needed -->
                         {% endif %}
                     </div>
+                    {% if stat.url and not actor %}
+                        </a>
+                    {% endif %}
                 {% endfor %}
             </div>
         </section>

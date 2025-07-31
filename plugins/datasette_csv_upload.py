@@ -1,6 +1,6 @@
 """
-Simplified Datasette CSV Upload Plugin
-Uses Datasette's built-in request handling instead of custom multipart parsing
+Hybrid Secure CSV Upload Plugin - Modified to work with upload_csvs_simple.html
+Combines secure routing with your existing excellent template
 """
 
 import io
@@ -13,52 +13,56 @@ from pathlib import Path
 from datetime import datetime
 from datasette import hookimpl
 from datasette.utils.asgi import Response
+from email.parser import BytesParser
+from email.policy import default
 import sqlite_utils
 
 logger = logging.getLogger(__name__)
 
-MAX_CSV_SIZE = 10 * 1024 * 1024  # 10MB limit for CSV files
+# Configuration
+MAX_CSV_SIZE = 10 * 1024 * 1024  # 10MB (matching your template)
+MAX_TABLES_PER_DATABASE = 20
 
 @hookimpl
 def register_routes():
-    """Register routes with higher priority than default Datasette routes"""
+    """Register secure routes with database name in path"""
     return [
-        (r"^/csv-upload$", csv_upload_handler),
+        (r"^/upload-secure/([^/]+)$", secure_csv_upload),
     ]
 
-async def csv_upload_handler(request, datasette):
-    """Handle CSV upload requests using Datasette's built-in form handling"""
-    logger.debug(f"CSV upload handler called: {request.method} {request.path}")
+async def secure_csv_upload(request, datasette):
+    """Secure CSV upload with database ownership verification"""
     
+    # Extract database name from URL path (MORE SECURE than query parameter)
+    path_parts = request.path.strip('/').split('/')
+    if len(path_parts) != 2 or path_parts[0] != 'upload-secure':
+        return Response.redirect("/manage-databases?error=Invalid upload URL")
+    
+    db_name = path_parts[1]
+    logger.debug(f"Secure CSV upload requested for database: {db_name}")
+    
+    # Check authentication
     actor = request.actor
-    
     if not actor:
         return Response.redirect("/login?error=Please log in to upload CSV files")
     
-    # Get database from URL parameter
-    database_name = request.args.get("database")
-    if not database_name:
-        return Response.redirect("/manage-databases?error=No database specified")
-    
-    logger.debug(f"Database requested: {database_name}")
-    
-    # Verify ownership
-    if not await verify_database_ownership(datasette, actor["id"], database_name):
+    # CRITICAL: Verify user owns this specific database
+    if not await verify_database_ownership(datasette, actor["id"], db_name):
         return Response.redirect(
-            f"/manage-databases?error=Access denied to database '{database_name}'"
+            f"/manage-databases?error=Access denied: You don't own database '{db_name}'"
         )
     
     if request.method == "POST":
-        return await handle_csv_upload_simple(request, datasette, database_name, actor)
+        return await handle_csv_upload_secure(request, datasette, db_name, actor)
     else:
-        return await show_upload_form(request, datasette, database_name, actor)
+        return await show_upload_form(request, datasette, db_name, actor)
 
 async def verify_database_ownership(datasette, user_id, db_name):
     """Verify user owns the database"""
     try:
         portal_db = datasette.get_database("portal")
         result = await portal_db.execute(
-            "SELECT 1 FROM databases WHERE db_name = ? AND user_id = ?",
+            "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
             [db_name, user_id]
         )
         return len(result.rows) > 0
@@ -66,208 +70,158 @@ async def verify_database_ownership(datasette, user_id, db_name):
         logger.error(f"Ownership check error: {e}")
         return False
 
-async def show_upload_form(request, datasette, database_name, actor):
-    """Show the CSV upload form"""
-    return Response.html(
-        await datasette.render_template(
-            "upload_csvs_simple.html",
-            {
-                "database_name": database_name,
-                "database_title": database_name.replace('_', ' ').title(),
-                "actor": actor,
-                "success": request.args.get('success'),
-                "error": request.args.get('error')
-            },
-            request=request
-        )
-    )
-
-async def handle_csv_upload_simple(request, datasette, database_name, actor):
-    """Handle CSV upload using a simpler approach that works with Datasette's form handling"""
+async def show_upload_form(request, datasette, db_name, actor):
+    """Show the CSV upload form using your excellent template"""
     try:
-        logger.debug(f"Handling CSV upload for {database_name}")
-        
-        # Get the raw body and extract CSV content manually
-        body = await request.post_body()
-        content_type = request.headers.get('content-type', '')
-        
-        logger.debug(f"Content type: {content_type}")
-        logger.debug(f"Body length: {len(body)}")
-        
-        # Extract CSV content and form fields from the body
-        csv_content, form_fields = extract_csv_from_body(body, content_type)
-        
-        if not csv_content:
-            return Response.redirect(
-                f"/csv-upload?database={database_name}&error=No CSV file content found"
+        return Response.html(
+            await datasette.render_template(
+                "upload_csvs_simple.html",  # YOUR TEMPLATE
+                {
+                    "database_name": db_name,
+                    "database_title": db_name.replace('_', ' ').title(),
+                    "actor": actor,
+                    # Your template expects success/error in request.args
+                    "request": request  # Pass request object so template can access request.args
+                },
+                request=request
             )
+        )
+    except Exception as e:
+        logger.error(f"Error showing upload form: {e}")
+        return Response.redirect(f"/manage-databases?error=Error loading upload form: {str(e)}")
+
+async def handle_csv_upload_secure(request, datasette, db_name, actor):
+    """Handle CSV upload - adapted to work with your template's form field names"""
+    try:
+        content_type = request.headers.get('content-type', '')
+        if 'multipart/form-data' not in content_type:
+            return Response.redirect(f"/upload-secure/{db_name}?error=Invalid content type")
         
-        # Get form fields
-        table_name = form_fields.get("table-name", "").strip()
-        replace_table = form_fields.get("replace_table") == "1"
-        detect_types = form_fields.get("detect_types", "1") == "1"
+        # Extract boundary
+        boundary = None
+        for part in content_type.split(';'):
+            part = part.strip()
+            if part.startswith('boundary='):
+                boundary = part.split('=', 1)[1].strip('"')
+                break
         
-        logger.debug(f"Form fields: table={table_name}, replace={replace_table}, detect={detect_types}")
-        logger.debug(f"CSV content length: {len(csv_content)}")
+        if not boundary:
+            return Response.redirect(f"/upload-secure/{db_name}?error=No boundary found in request")
+        
+        # Get request body
+        body = await request.post_body()
+        if len(body) > MAX_CSV_SIZE:
+            return Response.redirect(f"/upload-secure/{db_name}?error=File too large (max {MAX_CSV_SIZE // (1024*1024)}MB)")
+        
+        # Parse form data using reliable email parser approach
+        forms, files = parse_multipart_form_data(body, boundary)
+        
+        # Extract form fields - MATCHING YOUR TEMPLATE'S FIELD NAMES
+        table_name = forms.get('table-name', '').strip()  # Your template uses 'table-name'
+        csv_file = files.get('csv_file')  # Your template uses 'csv_file'
+        replace_table = forms.get('replace_table') == '1'
+        detect_types = forms.get('detect_types', '1') == '1'
+        
+        logger.debug(f"Form data: table_name='{table_name}', replace_table={replace_table}, detect_types={detect_types}")
+        logger.debug(f"CSV file: {csv_file['filename'] if csv_file else 'None'}")
+        
+        # Validation
+        if not csv_file:
+            return Response.redirect(f"/upload-secure/{db_name}?error=No CSV file uploaded")
+        
+        if not csv_file['filename'].lower().endswith('.csv'):
+            return Response.redirect(f"/upload-secure/{db_name}?error=File must be a CSV")
+        
+        # Get CSV content - handle BOM properly
+        try:
+            csv_content = csv_file['content'].decode('utf-8-sig')
+        except UnicodeDecodeError:
+            try:
+                csv_content = csv_file['content'].decode('latin-1')
+            except UnicodeDecodeError:
+                return Response.redirect(f"/upload-secure/{db_name}?error=Unable to decode CSV file. Please save as UTF-8.")
         
         # Validate CSV content
-        if len(csv_content.strip()) < 10:
-            return Response.redirect(
-                f"/csv-upload?database={database_name}&error=CSV file is too small or empty"
-            )
-        
-        # Check file size
-        if len(csv_content) > MAX_CSV_SIZE:
-            return Response.redirect(
-                f"/csv-upload?database={database_name}&error=CSV file too large (max 10MB)"
-            )
-        
-        # Validate CSV format
         try:
             validate_csv_content(csv_content)
         except Exception as e:
-            return Response.redirect(
-                f"/csv-upload?database={database_name}&error=Invalid CSV format: {str(e)}"
-            )
+            return Response.redirect(f"/upload-secure/{db_name}?error=Invalid CSV: {str(e)}")
         
-        # Generate table name if not provided
+        # Generate/clean table name
         if not table_name:
-            table_name = "uploaded_data"
+            table_name = clean_table_name(csv_file['filename'])
+        else:
+            table_name = clean_table_name(table_name)
         
-        # Clean table name
-        table_name = clean_table_name(table_name)
         if not table_name:
-            return Response.redirect(
-                f"/csv-upload?database={database_name}&error=Invalid table name"
-            )
+            return Response.redirect(f"/upload-secure/{db_name}?error=Invalid table name")
         
-        # Process the CSV
-        result = await process_csv_upload(
-            datasette, 
-            database_name, 
-            table_name, 
-            csv_content, 
-            replace_table, 
-            detect_types
+        # Process CSV with advanced processing
+        result = await process_csv_upload_advanced(
+            datasette, db_name, table_name, csv_content, replace_table, detect_types
         )
         
-        # Log the upload
-        await log_upload_activity(datasette, actor["id"], database_name, table_name, result)
+        # Log activity
+        await log_upload_activity(datasette, actor["id"], db_name, table_name, result)
         
+        # Redirect back to manage-databases with success message (like your original)
         return Response.redirect(
-            f"/manage-databases?success=Successfully uploaded {result['rows_inserted']} rows to table '{table_name}' in database '{database_name}'"
+            f"/manage-databases?success=Successfully uploaded {result['rows_inserted']} rows to table '{table_name}' in database '{db_name}'"
         )
         
     except Exception as e:
         logger.error(f"CSV upload error: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        return Response.redirect(
-            f"/csv-upload?database={database_name}&error=Upload failed: {str(e)}"
-        )
+        return Response.redirect(f"/upload-secure/{db_name}?error=Upload failed: {str(e)}")
 
-def extract_csv_from_body(body, content_type):
-    """Extract CSV content and form fields from multipart body using regex approach"""
+def parse_multipart_form_data(body, boundary):
+    """Parse multipart form data using reliable email parser"""
     try:
-        # Get boundary
-        boundary = None
-        if 'boundary=' in content_type:
-            boundary = content_type.split('boundary=')[-1].strip()
+        headers = f'Content-Type: multipart/form-data; boundary={boundary}\r\n\r\n'
+        msg = BytesParser(policy=default).parsebytes(headers.encode() + body)
         
-        if not boundary:
-            logger.error("No boundary found")
-            return None, {}
+        forms = {}
+        files = {}
         
-        # Convert to string
-        body_str = body.decode('utf-8', errors='ignore')
-        
-        logger.debug(f"Looking for boundary: {boundary}")
-        logger.debug(f"Body preview: {body_str[:500]}...")
-        
-        # Find CSV content by looking for the csv_file field with filename
-        csv_content = None
-        form_fields = {}
-        
-        # Use regex to find form fields
-        import re
-        
-        # Pattern to match form fields
-        field_pattern = r'Content-Disposition: form-data; name="([^"]+)"(?:; filename="([^"]*)")?[^\r\n]*\r?\n(?:Content-Type: [^\r\n]*\r?\n)?\r?\n(.*?)(?=\r?\n--' + re.escape(boundary) + r')'
-        
-        matches = re.findall(field_pattern, body_str, re.DOTALL)
-        
-        logger.debug(f"Found {len(matches)} form fields")
-        
-        for match in matches:
-            field_name, filename, content = match
-            content = content.strip()
-            
-            logger.debug(f"Field: {field_name}, Filename: {filename}, Content length: {len(content)}")
-            
-            if filename:  # This is a file field
-                # Remove BOM if present
-                if content.startswith('\ufeff'):
-                    content = content[1:]
-                
-                # Clean up the content - remove any trailing boundary markers
-                csv_content = content.split(f'--{boundary}')[0].strip()
-                logger.debug(f"Found CSV file content: {len(csv_content)} chars")
-                logger.debug(f"CSV preview: {csv_content[:200]}...")
-            else:  # This is a regular form field
-                form_fields[field_name] = content
-                logger.debug(f"Found form field {field_name}: {content}")
-        
-        # If regex approach didn't work, try a simpler string-based approach
-        if not csv_content:
-            logger.debug("Regex approach failed, trying simple string search")
-            
-            # Look for the csv_file field manually
-            csv_file_start = body_str.find('name="csv_file"')
-            if csv_file_start > -1:
-                # Find the start of the content (after the headers)
-                content_start = body_str.find('\r\n\r\n', csv_file_start)
-                if content_start > -1:
-                    content_start += 4  # Skip the \r\n\r\n
+        for part in msg.iter_parts():
+            if not part.is_multipart():
+                content_disposition = part.get('Content-Disposition', '')
+                if content_disposition:
+                    disposition_params = {}
+                    for param in content_disposition.split(';'):
+                        param = param.strip()
+                        if '=' in param:
+                            key, value = param.split('=', 1)
+                            disposition_params[key.strip()] = value.strip().strip('"')
                     
-                    # Find the end of the content (next boundary)
-                    content_end = body_str.find(f'--{boundary}', content_start)
-                    if content_end > -1:
-                        csv_content = body_str[content_start:content_end].strip()
-                        
-                        # Remove BOM if present
-                        if csv_content.startswith('\ufeff'):
-                            csv_content = csv_content[1:]
-                        
-                        logger.debug(f"Found CSV content with simple search: {len(csv_content)} chars")
-                        logger.debug(f"CSV preview: {csv_content[:200]}...")
-            
-            # Extract other form fields
-            for field in ['table-name', 'replace_table', 'detect_types', 'database']:
-                field_start = body_str.find(f'name="{field}"')
-                if field_start > -1:
-                    content_start = body_str.find('\r\n\r\n', field_start)
-                    if content_start > -1:
-                        content_start += 4
-                        content_end = body_str.find(f'--{boundary}', content_start)
-                        if content_end > -1:
-                            field_content = body_str[content_start:content_end].strip()
-                            form_fields[field] = field_content
-                            logger.debug(f"Found form field {field}: {field_content}")
+                    field_name = disposition_params.get('name')
+                    filename = disposition_params.get('filename')
+                    
+                    if field_name:
+                        content = part.get_payload(decode=True)
+                        if filename:
+                            files[field_name] = {
+                                'filename': filename,
+                                'content': content
+                            }
+                        else:
+                            forms[field_name] = content.decode('utf-8') if content else ''
         
-        return csv_content, form_fields
-        
+        logger.debug(f"Parsed forms: {list(forms.keys())}")
+        logger.debug(f"Parsed files: {list(files.keys())}")
+        return forms, files
     except Exception as e:
-        logger.error(f"Error extracting CSV from body: {e}")
+        logger.error(f"Error parsing multipart data: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        return None, {}
+        return {}, {}
 
 def validate_csv_content(csv_content):
     """Validate CSV content structure"""
     if not csv_content.strip():
         raise ValueError("CSV file is empty")
     
-    # Try to parse CSV to check format
     csv_file = io.StringIO(csv_content)
     reader = csv.reader(csv_file)
     
@@ -276,7 +230,6 @@ def validate_csv_content(csv_content):
         if not headers or all(not h.strip() for h in headers):
             raise ValueError("CSV must have valid column headers")
         
-        # Check for at least one data row
         try:
             next(reader)
         except StopIteration:
@@ -290,23 +243,14 @@ def clean_table_name(name):
     if not name:
         return "uploaded_table"
     
-    # Remove file extension
     name = os.path.splitext(name)[0]
-    
-    # Replace invalid characters with underscores
     name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    
-    # Remove consecutive underscores
     name = re.sub(r'_+', '_', name)
-    
-    # Remove leading/trailing underscores
     name = name.strip('_')
     
-    # Ensure it doesn't start with a number
     if name and name[0].isdigit():
         name = f"table_{name}"
     
-    # Ensure it's not empty and not too long
     if not name:
         name = "uploaded_table"
     elif len(name) > 50:
@@ -319,20 +263,13 @@ def clean_column_name(name):
     if not name:
         return "column"
         
-    # Replace invalid characters with underscores
     name = re.sub(r'[^a-zA-Z0-9_]', '_', name.strip())
-    
-    # Remove consecutive underscores
     name = re.sub(r'_+', '_', name)
-    
-    # Remove leading/trailing underscores
     name = name.strip('_')
     
-    # Ensure it doesn't start with a number
     if name and name[0].isdigit():
         name = f"col_{name}"
     
-    # Ensure it's not empty
     if not name:
         name = "column"
     
@@ -368,15 +305,13 @@ def detect_csv_column_types(rows, headers):
         except ValueError:
             pass
         
-        # Default to TEXT
         column_types[header] = "TEXT"
     
     return column_types
 
-async def process_csv_upload(datasette, db_name, table_name, csv_content, replace_table, detect_types):
-    """Process the CSV upload with enhanced error handling"""
+async def process_csv_upload_advanced(datasette, db_name, table_name, csv_content, replace_table, detect_types):
+    """Process CSV upload with advanced features"""
     
-    # Parse CSV
     csv_file = io.StringIO(csv_content)
     reader = csv.reader(csv_file)
     
@@ -403,7 +338,7 @@ async def process_csv_upload(datasette, db_name, table_name, csv_content, replac
         if not target_db:
             raise ValueError(f"Database '{db_name}' not found or not accessible")
         
-        # Detect types
+        # Type detection
         if detect_types:
             column_types = detect_csv_column_types(rows, headers)
         else:
@@ -419,29 +354,28 @@ async def process_csv_upload(datasette, db_name, table_name, csv_content, replac
             logger.debug(f"Dropping existing table: {table_name}")
             await target_db.execute_write(f"DROP TABLE [{table_name}]")
             table_exists = False
+        elif table_exists and not replace_table:
+            raise ValueError(f"Table '{table_name}' already exists. Enable 'Replace table' option to overwrite.")
         
-        # Create table if needed
+        # Create table
         if not table_exists:
             column_defs = [f"[{h}] {column_types.get(h, 'TEXT')}" for h in headers]
             create_sql = f"CREATE TABLE [{table_name}] ({', '.join(column_defs)})"
             logger.debug(f"Creating table: {create_sql}")
             await target_db.execute_write(create_sql)
         
-        # Insert data in batches
+        # Batch processing
         rows_inserted = 0
         batch_size = 1000
         
         for i in range(0, len(rows), batch_size):
             batch = rows[i:i + batch_size]
             
-            # Prepare batch
             prepared_batch = []
             for row in batch:
-                # Pad or truncate row to match headers
                 padded_row = (row + [""] * len(headers))[:len(headers)]
                 prepared_batch.append(padded_row)
             
-            # Insert batch
             placeholders = ", ".join(["?" for _ in headers])
             columns = ", ".join([f"[{h}]" for h in headers])
             insert_sql = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
@@ -467,10 +401,9 @@ async def process_csv_upload(datasette, db_name, table_name, csv_content, replac
         raise ValueError(f"Failed to process CSV: {str(e)}")
 
 async def log_upload_activity(datasette, user_id, db_name, table_name, result):
-    """Log upload activity to portal.db"""
+    """Log upload activity"""
     try:
         portal_db = datasette.get_database("portal")
-        
         await portal_db.execute_write(
             "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
             [
@@ -481,18 +414,12 @@ async def log_upload_activity(datasette, user_id, db_name, table_name, result):
                 datetime.utcnow().isoformat()
             ]
         )
-        
-        logger.debug(f"Logged upload activity for user {user_id}")
-        
     except Exception as e:
         logger.error(f"Failed to log upload activity: {e}")
 
 @hookimpl
 def permission_allowed(datasette, actor, action, resource):
-    """Grant CSV upload permissions"""
+    """Block the insecure official plugin"""
     if action == "upload-csvs":
-        # Allow CSV uploads for authenticated users
-        return actor is not None
-    
-    # Let other plugins handle other permissions
+        return False  # Always deny the official plugin for security
     return None
