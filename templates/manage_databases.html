@@ -11,6 +11,9 @@
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body class="bg-background">
+    <!-- Hidden CSRF token for AJAX requests -->
+    <input type="hidden" name="csrftoken" value="{{ csrf_token }}" style="display: none;">
+    
     <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
         <div class="container mx-auto px-4 h-20 flex items-center justify-between">
             <div class="flex items-center">
@@ -113,9 +116,12 @@
 
                                         <!-- Database status actions -->
                                         {% if db.status == 'Draft' %}
-                                            <a href="/db/{{ db.db_name }}/publish" class="bg-accent text-white px-3 py-2 rounded-button hover:bg-primary transition text-sm font-medium">
-                                                <i class="ri-send-plane-line mr-1"></i>Publish Database
-                                            </a>
+                                            <form method="post" action="/db/{{ db.db_name }}/publish" class="inline">
+                                                <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                                                <button type="submit" class="bg-accent text-white px-3 py-2 rounded-button hover:bg-primary transition text-sm font-medium">
+                                                    <i class="ri-send-plane-line mr-1"></i>Publish Database
+                                                </button>
+                                            </form>
                                         {% endif %}
 
                                         {% if db.status == 'Published' %}
@@ -135,9 +141,12 @@
                                                 </a>
                                             {% endif %}
                                         {% else %}
-                                            <a href="/db/{{ db.db_name }}/create-homepage" class="bg-orange-500 text-white px-3 py-2 rounded-button hover:bg-orange-600 transition text-sm font-medium">
-                                                <i class="ri-add-circle-line mr-1"></i>Create Homepage
-                                            </a>
+                                            <form method="post" action="/db/{{ db.db_name }}/create-homepage" class="inline">
+                                                <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                                                <button type="submit" class="bg-orange-500 text-white px-3 py-2 rounded-button hover:bg-orange-600 transition text-sm font-medium">
+                                                    <i class="ri-add-circle-line mr-1"></i>Create Homepage
+                                                </button>
+                                            </form>
                                         {% endif %}
                                     </div>
                                 </div>
@@ -310,7 +319,8 @@
                     },
                     body: JSON.stringify({
                         db_name: dbName,
-                        table_name: tableName
+                        table_name: tableName,
+                        csrf_token: document.querySelector('[name="csrftoken"]').value
                     })
                 });
 

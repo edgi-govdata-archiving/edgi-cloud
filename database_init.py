@@ -10,13 +10,14 @@ import uuid
 import json
 import os
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
+import math
 
 # Configuration
-PORTAL_DB_PATH = "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db"
-DATA_DIR = "C:/MS Data Science - WMU/EDGI/edgi-cloud/data"
-STATIC_DIR = "C:/MS Data Science - WMU/EDGI/edgi-cloud/static"
+PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+DATA_DIR = os.getenv('EDGI_DATA_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/data")
+STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/static")
 
 def init_portal_database():
     """Initialize the main portal database with test data."""
@@ -79,28 +80,28 @@ def create_test_users(portal_db):
     
     users = [
         {
-            "user_id": str(uuid.uuid4()),
+            "user_id": uuid.uuid4().hex[:20],
             "username": "admin",
             "password_hash": hashed_password,
             "role": "system_admin",
             "email": "admin@edgi.org",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         },
         {
-            "user_id": str(uuid.uuid4()),
+            "user_id": uuid.uuid4().hex[:20],
             "username": "researcher1",
             "password_hash": hashed_password,
             "role": "system_user",
             "email": "researcher1@university.edu",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         },
         {
-            "user_id": str(uuid.uuid4()),
+            "user_id": uuid.uuid4().hex[:20],
             "username": "analyst",
             "password_hash": hashed_password,
             "role": "system_user",
             "email": "analyst@environmental.org",
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
     ]
     
@@ -120,7 +121,7 @@ def create_portal_content(portal_db):
             "db_id": None,
             "section": "title",
             "content": json.dumps({"content": "EDGI Datasette Cloud Portal"}),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         },
         {
@@ -132,7 +133,7 @@ def create_portal_content(portal_db):
                 "credit_text": "EDGI - Environmental Data & Governance Initiative",
                 "credit_url": "https://envirodatagov.org"
             }),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         },
         {
@@ -145,7 +146,7 @@ def create_portal_content(portal_db):
                     "Upload your data, customize your portal, and make environmental information accessible to the public."
                 ]
             }),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         },
         {
@@ -159,7 +160,7 @@ def create_portal_content(portal_db):
                     "Made with ❤ by <a href=\"https://envirodatagov.org\">EDGI</a> and <a href=\"https://screening-tools.com/\">Public Environmental Data Partners</a>"
                 ]
             }),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         }
     ]
@@ -179,34 +180,34 @@ def create_sample_databases(portal_db, users):
     
     sample_databases = [
         {
-            "db_id": str(uuid.uuid4()),
+            "db_id": uuid.uuid4().hex[:20],
             "user_id": researcher_user['user_id'],
             "db_name": "air_quality_monitoring",
             "website_url": "http://localhost:8001/air_quality_monitoring/",
             "status": "Published",
-            "created_at": (datetime.utcnow() - timedelta(days=30)).isoformat(),
+            "created_at": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
             "file_path": os.path.join(DATA_DIR, researcher_user['user_id'], "air_quality_monitoring.db"),
             "title": "Air Quality Monitoring Network",
             "description": "Real-time and historical air quality measurements from monitoring stations across the region. Includes PM2.5, PM10, ozone, and nitrogen dioxide concentrations."
         },
         {
-            "db_id": str(uuid.uuid4()),
+            "db_id": uuid.uuid4().hex[:20],
             "user_id": analyst_user['user_id'],
             "db_name": "water_quality_assessment",
             "website_url": "http://localhost:8001/water_quality_assessment/",
             "status": "Published",
-            "created_at": (datetime.utcnow() - timedelta(days=15)).isoformat(),
+            "created_at": (datetime.now(timezone.utc) - timedelta(days=15)).isoformat(),
             "file_path": os.path.join(DATA_DIR, analyst_user['user_id'], "water_quality_assessment.db"),
             "title": "Water Quality Assessment Database",
             "description": "Comprehensive water quality data from rivers, lakes, and groundwater sources. Includes chemical analysis, bacterial counts, and environmental indicators."
         },
         {
-            "db_id": str(uuid.uuid4()),
+            "db_id": uuid.uuid4().hex[:20],
             "user_id": researcher_user['user_id'],
             "db_name": "climate_monitoring",
             "website_url": "http://localhost:8001/climate_monitoring/",
             "status": "Draft",
-            "created_at": (datetime.utcnow() - timedelta(days=7)).isoformat(),
+            "created_at": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),
             "file_path": os.path.join(DATA_DIR, researcher_user['user_id'], "climate_monitoring.db"),
             "title": "Regional Climate Monitoring",
             "description": "Temperature, precipitation, and weather pattern data from meteorological stations. Supporting climate change research and environmental planning."
@@ -238,7 +239,7 @@ def create_database_content(portal_db, db_info):
             "db_id": db_info['db_id'],
             "section": "title",
             "content": json.dumps({"content": db_info['title']}),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         },
         {
@@ -248,19 +249,19 @@ def create_database_content(portal_db, db_info):
                 "content": db_info['description'],
                 "paragraphs": [db_info['description']]
             }),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         },
         {
             "db_id": db_info['db_id'],
             "section": "header_image",
             "content": json.dumps({
-                "image_url": f"/static/{db_info['db_id']}_header.jpg",
+                "image_url": f"/data/{db_info['db_id']}/header.jpg",
                 "alt_text": "Environmental Data",
                 "credit_text": "Environmental Data Portal",
                 "credit_url": ""
             }),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         },
         {
@@ -272,7 +273,7 @@ def create_database_content(portal_db, db_info):
                 "odbl_url": "https://opendatacommons.org/licenses/odbl/",
                 "paragraphs": ["Made with EDGI"]
             }),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
         }
     ]
@@ -306,7 +307,7 @@ def create_air_quality_data(db):
     
     # Air quality measurements (last 30 days)
     measurements = []
-    base_date = datetime.utcnow() - timedelta(days=30)
+    base_date = datetime.now(timezone.utc) - timedelta(days=30)
     
     for day in range(30):
         current_date = base_date + timedelta(days=day)
@@ -321,7 +322,7 @@ def create_air_quality_data(db):
                 no2 = random.normalvariate(20, 8) + (5 if station['station_name'] == 'Industrial' else 0)
                 
                 measurements.append({
-                    "measurement_id": str(uuid.uuid4()),
+                    "measurement_id": uuid.uuid4().hex[:20],
                     "station_id": station['station_id'],
                     "timestamp": measurement_time.isoformat(),
                     "pm25_ugm3": max(0, round(pm25, 1)),
@@ -352,14 +353,14 @@ def create_water_quality_data(db):
     
     # Water quality tests
     tests = []
-    base_date = datetime.utcnow() - timedelta(days=90)
+    base_date = datetime.now(timezone.utc) - timedelta(days=90)
     
     for week in range(12):  # Weekly sampling for 12 weeks
         test_date = base_date + timedelta(weeks=week)
         
         for source in sources:
             tests.append({
-                "test_id": str(uuid.uuid4()),
+                "test_id": uuid.uuid4().hex[:20],
                 "source_id": source['source_id'],
                 "test_date": test_date.date().isoformat(),
                 "ph": round(random.normalvariate(7.2, 0.5), 2),
@@ -389,7 +390,7 @@ def create_climate_data(db):
     
     # Daily weather data (last year)
     weather_data = []
-    base_date = datetime.utcnow() - timedelta(days=365)
+    base_date = datetime.now(timezone.utc) - timedelta(days=365)
     
     for day in range(365):
         current_date = base_date + timedelta(days=day)
@@ -402,12 +403,12 @@ def create_climate_data(db):
             temp_low = temp_high - random.uniform(5, 15)
             
             weather_data.append({
-                "record_id": str(uuid.uuid4()),
+                "record_id": uuid.uuid4().hex[:20],
                 "station_id": station['station_id'],
                 "date": current_date.date().isoformat(),
                 "temperature_high_c": round(temp_high, 1),
                 "temperature_low_c": round(temp_low, 1),
-                "precipitation_mm": round(max(0, random.exponential(2)), 1),
+                "precipitation_mm": round(max(0, random.expovariate(0.5)), 1),  # Fixed: Use expovariate
                 "humidity_percent": round(random.uniform(40, 90), 1),
                 "wind_speed_kmh": round(random.uniform(5, 25), 1),
                 "pressure_hpa": round(random.normalvariate(1013, 10), 1),
@@ -425,7 +426,7 @@ def create_activity_logs(portal_db, users):
     print("Creating activity logs...")
     
     activities = []
-    base_date = datetime.utcnow() - timedelta(days=30)
+    base_date = datetime.now(timezone.utc) - timedelta(days=30)
     
     activity_types = [
         ("login", "User logged in"),
@@ -443,7 +444,7 @@ def create_activity_logs(portal_db, users):
             action, detail_template = random.choice(activity_types)
             
             activities.append({
-                "log_id": str(uuid.uuid4()),
+                "log_id": uuid.uuid4().hex[:20],
                 "user_id": user['user_id'],
                 "action": action,
                 "details": f"{detail_template} - {user['username']}",
@@ -482,5 +483,4 @@ def main():
     print("\n🚀 Ready to start Datasette!")
 
 if __name__ == "__main__":
-    import math  # Add missing import
     main()

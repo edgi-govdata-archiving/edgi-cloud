@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSV Upload - {{ database_title }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+</head>
+<body class="h-full flex flex-col">
+
+  <!-- Top Bar -->
+  <header class="bg-[#24688f] text-white p-4 flex justify-between items-center">
+    <span class="text-lg font-semibold">CSV Upload to {{ database_title }}</span>
+    <div class="flex items-center space-x-2">
+      <span class="font-semibold">{{ actor.username if actor else "Guest" }}</span>
+      <a href="/manage-databases" class="text-white hover:text-gray-200">
+        <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-grow p-8 max-w-4xl mx-auto bg-white">
+    
+    <div class="text-center py-12">
+      <div class="mb-8">
+        <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <i class="ri-upload-cloud-line text-3xl text-blue-600"></i>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-900 mb-2">Upload CSV to {{ database_title }}</h1>
+        <p class="text-gray-600">You're being redirected to Datasette's built-in CSV upload tool</p>
+      </div>
+
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+        <h2 class="text-lg font-semibold text-blue-800 mb-3">
+          <i class="ri-information-line mr-2"></i>Using Datasette's Native Upload
+        </h2>
+        <div class="text-blue-700 space-y-2 text-sm">
+          <p>✅ Built-in validation and error handling</p>
+          <p>✅ Support for multiple file formats</p>
+          <p>✅ Advanced column type detection</p>
+          <p>✅ Preview before import</p>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <a href="{{ upload_url }}" 
+           class="inline-flex items-center bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition font-medium">
+          <i class="ri-upload-line mr-2"></i>
+          Go to Datasette CSV Upload
+        </a>
+        
+        <div class="text-sm text-gray-500">
+          <p>Or <a href="/csv-upload?database={{ database_name }}" class="text-blue-600 hover:underline">use our custom upload form</a></p>
+        </div>
+      </div>
+
+      <!-- Instructions -->
+      <div class="mt-12 bg-gray-50 rounded-lg p-6 text-left">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">
+          <i class="ri-lightbulb-line mr-2"></i>Upload Instructions
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+          <div class="space-y-2">
+            <div class="flex items-start">
+              <i class="ri-check-line mt-0.5 mr-2 text-green-600"></i>
+              <span>CSV files up to 100MB are supported</span>
+            </div>
+            <div class="flex items-start">
+              <i class="ri-check-line mt-0.5 mr-2 text-green-600"></i>
+              <span>First row should contain column headers</span>
+            </div>
+            <div class="flex items-start">
+              <i class="ri-check-line mt-0.5 mr-2 text-green-600"></i>
+              <span>UTF-8 encoding is recommended</span>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-start">
+              <i class="ri-information-line mt-0.5 mr-2 text-blue-600"></i>
+              <span>You can preview data before importing</span>
+            </div>
+            <div class="flex items-start">
+              <i class="ri-information-line mt-0.5 mr-2 text-blue-600"></i>
+              <span>Choose table name and import options</span>
+            </div>
+            <div class="flex items-start">
+              <i class="ri-information-line mt-0.5 mr-2 text-blue-600"></i>
+              <span>Data types are automatically detected</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t text-sm text-gray-500 p-4 text-center">
+    Powered by <a href="https://datasette.io" class="text-blue-600 underline">Datasette</a> | 
+    <a href="/manage-databases" class="text-blue-600 underline">Back to Database Management</a>
+  </footer>
+
+  <!-- Auto-redirect after 3 seconds -->
+  <script>
+    // Auto-redirect to Datasette upload after 3 seconds
+    setTimeout(function() {
+      const userChoice = confirm(
+        "Ready to upload your CSV file?\n\n" +
+        "Click OK to go to Datasette's upload page, or Cancel to stay here."
+      );
+      
+      if (userChoice) {
+        window.location.href = "{{ upload_url }}";
+      }
+    }, 2000);
+    
+    // Also allow immediate navigation
+    document.addEventListener('DOMContentLoaded', function() {
+      const uploadLink = document.querySelector('a[href="{{ upload_url }}"]');
+      if (uploadLink) {
+        uploadLink.addEventListener('click', function(e) {
+          // Let the link work normally
+        });
+      }
+    });
+  </script>
+
+</body>
+</html>

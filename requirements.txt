@@ -6,4 +6,4 @@ datasette-template-sql
 markupsafe==2.1.5
 gunicorn==22.0.0
 bcrypt==4.2.0
-pandas>=2.0.0
+python-multipart
