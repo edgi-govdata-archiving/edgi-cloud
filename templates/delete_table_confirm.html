@@ -118,7 +118,7 @@
                     <!-- Action Buttons -->
                     <div class="flex flex-col sm:flex-row gap-3">
                         <form method="post" class="flex-1" onsubmit="return confirmDeletion(event)">
-                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
                             <button type="submit" id="delete-button" disabled
                                     class="w-full bg-red-600 text-white py-3 px-4 rounded-button hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition font-medium">
                                 <i class="ri-delete-bin-line mr-2"></i>Delete Table Permanently

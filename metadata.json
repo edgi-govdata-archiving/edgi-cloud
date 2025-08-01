@@ -1,14 +1,13 @@
 {
-  "title": "CAMPD (Clean Air Markets Program Data)",
-  "description": "Metadata from EPA's Clean Air Markets Program Data (CAMPD) emissions database.",
+  "title": "EDGI Cloud Portal",
+  "description": "EDGI Cloud Portal for environmental data sharing and exploration.",
   "license": "ODbL",
   "license_url": "https://opendatacommons.org/licenses/odbl/",
   "source": "EDGI Cloud Portal",
   "source_url": "https://edgi.org/",
   "databases": {
-    "CAMPD": {
+    "portal": {
       "tables": {
-        "emissions": {"facets": ["unit", "year", "tag"]},
         "admin_content": {"allow": {"id": "admin"}},
         "users": {"allow": {"id": "admin"}}
       }

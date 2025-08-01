@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Register - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>{% if is_admin %}Add User{% else %}Register{% endif %} - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -20,8 +20,13 @@
                 <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
             </div>
             <div>
-                <a href="/" class="text-white hover:text-accent mr-4">Home</a>
-                <a href="/login" class="text-white hover:text-accent">Login</a>
+                {% if is_admin %}
+                    <a href="/system-admin" class="text-white hover:text-accent mr-4">Admin Panel</a>
+                    <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
+                {% else %}
+                    <a href="/" class="text-white hover:text-accent mr-4">Home</a>
+                    <a href="/login" class="text-white hover:text-accent">Login</a>
+                {% endif %}
             </div>
         </div>
     </header>
@@ -31,8 +36,16 @@
             <div class="bg-card rounded-card p-6 border border-border max-w-md mx-auto">
                 <div class="text-center mb-6">
                     <i class="ri-user-add-line text-primary ri-3x mb-4"></i>
-                    <h2 class="text-2xl font-semibold text-primary">Create Your Account</h2>
-                    <p class="text-textlight mt-2">Join the environmental data community</p>
+                    <h2 class="text-2xl font-semibold text-primary">
+                        {% if is_admin %}Add New User{% else %}Create Your Account{% endif %}
+                    </h2>
+                    <p class="text-textlight mt-2">
+                        {% if is_admin %}
+                            Create a new user account
+                        {% else %}
+                            Join the environmental data community
+                        {% endif %}
+                    </p>
                 </div>
 
                 {% if error %}
@@ -42,7 +55,7 @@
                 {% endif %}
 
                 <form action="/register" method="post">
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                    <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
                     
                     <div class="mb-4">
                         <label for="username" class="block text-text mb-2 font-medium">Username:</label>
@@ -72,24 +85,44 @@
                         <label for="role" class="block text-text mb-2 font-medium">Account Type:</label>
                         <div class="relative">
                             <select id="role" name="role" class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" required>
-                                <option value="system_user">Data User - Create and manage databases</option>
-                                <option value="system_admin">System Admin - Full system access</option>
+                                {% for role in available_roles %}
+                                    <option value="{{ role }}" {% if role == "system_user" %}selected{% endif %}>
+                                        {% if role == "system_user" %}
+                                            Data User - Create and manage databases
+                                        {% elif role == "system_admin" %}
+                                            System Admin - Full system access
+                                        {% endif %}
+                                    </option>
+                                {% endfor %}
                             </select>
                             <i class="ri-shield-user-line absolute left-3 top-3 text-textlight"></i>
                         </div>
-                        <p class="text-xs text-textlight mt-1">Choose "Data User" for standard access</p>
+                        {% if is_admin %}
+                            <p class="text-xs text-textlight mt-1">As an admin, you can create both user and admin accounts</p>
+                        {% else %}
+                            <p class="text-xs text-textlight mt-1">New users are created with standard data user access</p>
+                        {% endif %}
                     </div>
                     
                     <button type="submit" class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
-                        <i class="ri-user-add-line mr-2"></i>Create Account
+                        <i class="ri-user-add-line mr-2"></i>
+                        {% if is_admin %}Add User{% else %}Create Account{% endif %}
                     </button>
                 </form>
 
-                <div class="mt-6 text-center">
-                    <p class="text-textlight">Already have an account? 
-                        <a href="/login" class="text-accent hover:text-primary font-medium">Login here</a>
-                    </p>
-                </div>
+                {% if not is_admin %}
+                    <div class="mt-6 text-center">
+                        <p class="text-textlight">Already have an account? 
+                            <a href="/login" class="text-accent hover:text-primary font-medium">Login here</a>
+                        </p>
+                    </div>
+                {% else %}
+                    <div class="mt-6 text-center">
+                        <a href="/system-admin" class="text-accent hover:text-primary font-medium">
+                            <i class="ri-arrow-left-line mr-1"></i>Back to Admin Panel
+                        </a>
+                    </div>
+                {% endif %}
             </div>
         </section>
     </main>

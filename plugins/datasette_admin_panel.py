@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 from datasette import hookimpl
 from datasette.utils.asgi import Response
-
+from datasette.utils import tilde_encode
 from datasette.database import Database
 import bleach
 import re
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv','.txt'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_DATABASES_PER_USER = 5
-STATIC_DIR = "C:/MS Data Science - WMU/EDGI/edgi-cloud/static"
-DATA_DIR = "C:/MS Data Science - WMU/EDGI/edgi-cloud/data"
+STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/static")
+DATA_DIR = os.getenv('EDGI_DATA_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/data")
 
 def sanitize_text(text):
     """Sanitize text by stripping HTML tags while preserving safe characters."""
@@ -109,6 +109,59 @@ def set_actor_cookie(response, datasette, actor_data):
         logger.error(f"Error setting cookie: {e}")
         response.set_cookie("ds_actor", f"user_{actor_data.get('id', '')}", httponly=True, max_age=3600, samesite="lax")
 
+async def verify_csrf_token(request, datasette):
+    """Verify CSRF token for POST requests."""
+    if request.method != "POST":
+        return True
+    
+    # Get CSRF token from form data
+    try:
+        post_vars = await request.post_vars()
+        submitted_token = post_vars.get("csrftoken", "")
+    except:
+        submitted_token = ""
+    
+    # Generate expected token using Datasette's method
+    actor = get_actor_from_request(request)
+    if not actor:
+        return False
+    
+    # Use Datasette's CSRF token generation
+    expected_token = datasette._send_signed_token(
+        {"a": actor.get("id", "")}, 
+        max_age=3600
+    )
+    
+    return submitted_token == expected_token
+
+def generate_csrf_token(datasette, actor):
+    """Generate CSRF token for forms."""
+    if not actor:
+        return ""
+    
+    return datasette._send_signed_token(
+        {"a": actor.get("id", "")}, 
+        max_age=3600
+    )
+
+async def csrf_protect(func):
+    """Decorator to add CSRF protection to views."""
+    async def wrapper(datasette, request):
+        # Skip CSRF for GET requests
+        if request.method == "GET":
+            return await func(datasette, request)
+        
+        # Verify CSRF token for POST requests
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch for {request.path}")
+            return Response.html(
+                "<h1>CSRF Token Invalid</h1><p>Please refresh the page and try again.</p>",
+                status=403
+            )
+        
+        return await func(datasette, request)
+    return wrapper
+
 async def get_database_content(datasette, db_name):
     """Get homepage content for a database with proper header image handling."""
     query_db = datasette.get_database('portal')
@@ -149,7 +202,7 @@ async def get_database_content(datasette, db_name):
             custom_header_path = os.path.join(DATA_DIR, db_id, 'header.jpg')
             if os.path.exists(custom_header_path):
                 content['header_image'] = {
-                    'image_url': f'/static/data/{db_id}/header.jpg',  # Use our custom route
+                    'image_url': f'/data/{db_id}/header.jpg',  # Use our custom route
                     'alt_text': 'Environmental Data',
                     'credit_text': 'Environmental Data Portal',
                     'credit_url': ''
@@ -475,7 +528,8 @@ async def all_databases_page(datasette, request):
                 request=request
             )
         )
-        
+
+# Apply CSRF protection to login page
 async def login_page(datasette, request):
     logger.debug(f"Login request: method={request.method}")
 
@@ -487,7 +541,25 @@ async def login_page(datasette, request):
         'description': {'content': 'Environmental data dashboard.'}
     }
 
+    actor = get_actor_from_request(request)
+
     if request.method == "POST":
+        # CSRF protection for login
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch in login for {request.path}")
+            return Response.html(
+                await datasette.render_template(
+                    "login.html",
+                    {
+                        "metadata": datasette.metadata(),
+                        "content": content,
+                        "error": "Security token invalid. Please try again.",
+                        "csrf_token": generate_csrf_token(datasette, actor)
+                    },
+                    request=request
+                )
+            )
+
         post_vars = await request.post_vars()
         logger.debug(f"POST vars keys: {list(post_vars.keys())}")
         username = post_vars.get("username")
@@ -501,7 +573,8 @@ async def login_page(datasette, request):
                     {
                         "metadata": datasette.metadata(),
                         "content": content,
-                        "error": "Username and password are required"
+                        "error": "Username and password are required",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -532,7 +605,8 @@ async def login_page(datasette, request):
                                 {
                                     "metadata": datasette.metadata(),
                                     "content": content,
-                                    "error": "Invalid username or password"
+                                    "error": "Invalid username or password",
+                                    "csrf_token": generate_csrf_token(datasette, actor)
                                 },
                                 request=request
                             )
@@ -545,7 +619,8 @@ async def login_page(datasette, request):
                             {
                                 "metadata": datasette.metadata(),
                                 "content": content,
-                                "error": "Invalid password hash. Please contact the administrator."
+                                "error": "Invalid password hash. Please contact the administrator.",
+                                "csrf_token": generate_csrf_token(datasette, actor)
                             },
                             request=request
                         )
@@ -558,7 +633,8 @@ async def login_page(datasette, request):
                         {
                             "metadata": datasette.metadata(),
                             "content": content,
-                            "error": "Invalid username or password"
+                            "error": "Invalid username or password",
+                            "csrf_token": generate_csrf_token(datasette, actor)
                         },
                         request=request
                     )
@@ -571,7 +647,8 @@ async def login_page(datasette, request):
                     {
                         "metadata": datasette.metadata(),
                         "content": content,
-                        "error": f"Login error: {str(e)}"
+                        "error": f"Login error: {str(e)}",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -582,7 +659,8 @@ async def login_page(datasette, request):
             "login.html",
             {
                 "metadata": datasette.metadata(),
-                "content": content
+                "content": content,
+                "csrf_token": generate_csrf_token(datasette, actor)
             },
             request=request
         )
@@ -601,7 +679,32 @@ async def register_page(datasette, request):
         'description': {'content': 'Environmental data dashboard.'}
     }
 
+    # Determine available roles based on who is accessing the page
+    is_admin = actor and actor.get("role") == "system_admin"
+    available_roles = ["system_user"]
+    if is_admin:
+        available_roles.append("system_admin")
+
     if request.method == "POST":
+        # CSRF protection for registration
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch in registration for {request.path}")
+            return Response.html(
+                await datasette.render_template(
+                    "register.html",
+                    {
+                        "metadata": datasette.metadata(),
+                        "content": content,
+                        "error": "Security token invalid. Please try again.",
+                        "csrf_token": generate_csrf_token(datasette, actor),
+                        "actor": actor,
+                        "is_admin": is_admin,
+                        "available_roles": available_roles
+                    },
+                    request=request
+                )
+            )
+
         post_vars = await request.post_vars()
         logger.debug(f"Register POST vars keys: {list(post_vars.keys())}")
         username = post_vars.get("username")
@@ -616,38 +719,107 @@ async def register_page(datasette, request):
                     {
                         "metadata": datasette.metadata(),
                         "content": content,
-                        "error": "Username, password, email, and role are required"
+                        "error": "Username, password, email, and role are required",
+                        "csrf_token": generate_csrf_token(datasette, actor),
+                        "actor": actor,
+                        "is_admin": is_admin,
+                        "available_roles": available_roles
                     },
                     request=request
                 )
             )
+        
+        # Role validation based on who is registering
+        if role not in available_roles:
+            error_msg = "Invalid role selected"
+            if role == "system_admin" and not is_admin:
+                error_msg = "Only system administrators can create admin accounts"
+            
+            return Response.html(
+                await datasette.render_template(
+                    "register.html",
+                    {
+                        "metadata": datasette.metadata(),
+                        "content": content,
+                        "error": error_msg,
+                        "csrf_token": generate_csrf_token(datasette, actor),
+                        "actor": actor,
+                        "is_admin": is_admin,
+                        "available_roles": available_roles
+                    },
+                    request=request
+                )
+            )
+        
         try:
             db = datasette.get_database("portal")
-            if role not in ["system_admin", "system_user"]:
+            
+            # Check if username already exists
+            existing_user = await db.execute("SELECT username FROM users WHERE username = ?", [username])
+            if existing_user.first():
                 return Response.html(
                     await datasette.render_template(
                         "register.html",
                         {
                             "metadata": datasette.metadata(),
                             "content": content,
-                            "error": "Invalid role"
+                            "error": "Username already exists. Please choose a different username.",
+                            "csrf_token": generate_csrf_token(datasette, actor),
+                            "actor": actor,
+                            "is_admin": is_admin,
+                            "available_roles": available_roles
                         },
                         request=request
                     )
                 )
+            
+            # Check if email already exists
+            existing_email = await db.execute("SELECT email FROM users WHERE email = ?", [email])
+            if existing_email.first():
+                return Response.html(
+                    await datasette.render_template(
+                        "register.html",
+                        {
+                            "metadata": datasette.metadata(),
+                            "content": content,
+                            "error": "Email already registered. Please use a different email address.",
+                            "csrf_token": generate_csrf_token(datasette, actor),
+                            "actor": actor,
+                            "is_admin": is_admin,
+                            "available_roles": available_roles
+                        },
+                        request=request
+                    )
+                )
+            
             hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            user_id = str(uuid.uuid4())
+            user_id = uuid.uuid4().hex[:20]
             logger.debug(f"Generated user_id: {user_id} for username: {username}")
+            
             await db.execute_write(
                 "INSERT INTO users (user_id, username, password_hash, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 [user_id, username, hashed_password, role, email, datetime.utcnow()]
             )
             await db.execute_write(
                 "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), user_id, "register", f"User {username} registered", datetime.utcnow()]
+                [uuid.uuid4().hex[:20], user_id, "register", f"User {username} registered with role {role}", datetime.utcnow()]
             )
+            
+            # Log who created the user (if admin is creating)
+            if is_admin:
+                await db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [uuid.uuid4().hex[:20], actor.get("id"), "create_user", f"Admin {actor.get('username')} created user {username} with role {role}", datetime.utcnow()]
+                )
+            
             logger.debug("User registered: %s with role: %s, user_id: %s", username, role, user_id)
-            return Response.redirect("/login?success=Registration successful")
+            
+            # Redirect based on who created the account
+            if is_admin:
+                return Response.redirect("/system-admin?success=User account created successfully")
+            else:
+                return Response.redirect("/login?success=Registration successful")
+                
         except Exception as e:
             logger.error(f"Registration error: {str(e)}")
             return Response.html(
@@ -656,7 +828,11 @@ async def register_page(datasette, request):
                     {
                         "metadata": datasette.metadata(),
                         "content": content,
-                        "error": f"Registration error: {str(e)}"
+                        "error": f"Registration error: {str(e)}",
+                        "csrf_token": generate_csrf_token(datasette, actor),
+                        "actor": actor,
+                        "is_admin": is_admin,
+                        "available_roles": available_roles
                     },
                     request=request
                 )
@@ -668,7 +844,10 @@ async def register_page(datasette, request):
             {
                 "metadata": datasette.metadata(),
                 "content": content,
-                "actor": actor
+                "actor": actor,
+                "csrf_token": generate_csrf_token(datasette, actor),
+                "is_admin": is_admin,
+                "available_roles": available_roles
             },
             request=request
         )
@@ -700,6 +879,22 @@ async def change_password_page(datasette, request):
     }
 
     if request.method == "POST":
+        # CSRF protection for password change
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch in change password for {request.path}")
+            return Response.html(
+                await datasette.render_template(
+                    "change_password.html",
+                    {
+                        "metadata": datasette.metadata(),
+                        "content": content,
+                        "error": "Security token invalid. Please try again.",
+                        "csrf_token": generate_csrf_token(datasette, actor)
+                    },
+                    request=request
+                )
+            )
+
         post_vars = await request.post_vars()
         logger.debug(f"Change password POST vars keys: {list(post_vars.keys())}")
         current_password = post_vars.get("current_password")
@@ -713,7 +908,8 @@ async def change_password_page(datasette, request):
                     {
                         "metadata": datasette.metadata(),
                         "content": content,
-                        "error": "All fields are required and new passwords must match"
+                        "error": "All fields are required and new passwords must match",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -731,7 +927,7 @@ async def change_password_page(datasette, request):
                 )
                 await db.execute_write(
                     "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                    [str(uuid.uuid4()), actor.get("id"), "change_password", f"User {username} changed password", datetime.utcnow()]
+                    [uuid.uuid4().hex[:20], actor.get("id"), "change_password", f"User {username} changed password", datetime.utcnow()]
                 )
                 logger.debug("Password changed for user: %s", username)
                 return Response.redirect("/manage-databases?success=Password changed successfully")
@@ -743,7 +939,8 @@ async def change_password_page(datasette, request):
                         {
                             "metadata": datasette.metadata(),
                             "content": content,
-                            "error": "Invalid current password"
+                            "error": "Invalid current password",
+                            "csrf_token": generate_csrf_token(datasette, actor)
                         },
                         request=request
                     )
@@ -756,7 +953,8 @@ async def change_password_page(datasette, request):
                     {
                         "metadata": datasette.metadata(),
                         "content": content,
-                        "error": f"Password change error: {str(e)}"
+                        "error": f"Password change error: {str(e)}",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -768,7 +966,8 @@ async def change_password_page(datasette, request):
             {
                 "metadata": datasette.metadata(),
                 "content": content,
-                "actor": actor
+                "actor": actor,
+                "csrf_token": generate_csrf_token(datasette, actor)
             },
             request=request
         )
@@ -869,7 +1068,7 @@ async def manage_databases(datasette, request):
             'table_count': table_count,
             'total_size': total_size,
             'website_url': f"/{db_name}/", # Datasette URL format
-            'upload_url': f"/{db_name}/-/upload-csvs", 
+            'upload_url': f"/upload-secure/{db_name}",  # CSRF-protected upload URL
             'has_custom_homepage': has_custom_homepage  # Indicate if custom homepage exists
         })
 
@@ -882,14 +1081,15 @@ async def manage_databases(datasette, request):
                 "actor": actor,
                 "user_databases": databases_with_tables,
                 "success": request.args.get('success'),
-                "error": request.args.get('error')
+                "error": request.args.get('error'),
+                "csrf_token": generate_csrf_token(datasette, actor)
             },
             request=request
         )
     )
 
 async def create_database(datasette, request):
-    """Simplified database creation - remove CSV upload (will use plugin)."""
+    """Simplified database creation with CSRF protection."""
     logger.debug(f"Create Database request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -919,6 +1119,23 @@ async def create_database(datasette, request):
     }
 
     if request.method == "POST":
+        # CSRF protection for database creation
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch in create database for {request.path}")
+            return Response.html(
+                await datasette.render_template(
+                    "create_database.html",
+                    {
+                        "metadata": datasette.metadata(),
+                        "content": content,
+                        "actor": actor,
+                        "error": "Security token invalid. Please try again.",
+                        "csrf_token": generate_csrf_token(datasette, actor)
+                    },
+                    request=request
+                )
+            )
+
         post_vars = await request.post_vars()
         db_name = post_vars.get("db_name", "").strip()
         
@@ -930,14 +1147,16 @@ async def create_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
-                        "error": "Database name is required"
+                        "error": "Database name is required",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
             )
 
         # Validate database name format
-        if not re.match(r'^[a-z0-9_]+$', db_name):
+        if not re.match(r'^[a-z0-9_]+
+                , db_name):
             return Response.html(
                 await datasette.render_template(
                     "create_database.html",
@@ -945,7 +1164,8 @@ async def create_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
-                        "error": "Database name must contain only lowercase letters, numbers, and underscores"
+                        "error": "Database name must contain only lowercase letters, numbers, and underscores",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -960,7 +1180,8 @@ async def create_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
-                        "error": f"Database name '{db_name}' already exists. Please choose a different name."
+                        "error": f"Database name '{db_name}' already exists. Please choose a different name.",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -980,14 +1201,15 @@ async def create_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
-                        "error": f"Maximum {MAX_DATABASES_PER_USER} databases per user reached"
+                        "error": f"Maximum {MAX_DATABASES_PER_USER} databases per user reached",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
             )
 
         try:
-            db_id = str(uuid.uuid4())
+            db_id = uuid.uuid4().hex[:20]
             scheme = request.scheme
             host = request.headers.get('host', 'localhost:8001')
             website_url = f"{scheme}://{host}/{db_name}/"
@@ -1017,7 +1239,7 @@ async def create_database(datasette, request):
             # Log activity
             await query_db.execute_write(
                 "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                [str(uuid.uuid4()), user_id, "create_database", f"Created database {db_name}", datetime.utcnow()]
+                [uuid.uuid4().hex[:20], user_id, "create_database", f"Created database {db_name}", datetime.utcnow()]
             )
             
             logger.debug(f"Database created: {db_name}, website_url={website_url}, file_path={db_path}")
@@ -1032,7 +1254,8 @@ async def create_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
-                        "error": f"Create database error: {str(e)}"
+                        "error": f"Create database error: {str(e)}",
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -1044,14 +1267,15 @@ async def create_database(datasette, request):
             {
                 "metadata": datasette.metadata(),
                 "content": content,
-                "actor": actor
+                "actor": actor,
+                "csrf_token": generate_csrf_token(datasette, actor)
             },
             request=request
         )
     )
 
 async def delete_table(request, datasette):
-    #Delete a table from user's database
+    #Delete a table from user's database with CSRF protection
     actor = request.actor
     
     # Check if user is authenticated
@@ -1077,6 +1301,13 @@ async def delete_table(request, datasette):
     
     # Handle POST request (actual deletion)
     if request.method == "POST":
+        # CSRF protection for table deletion
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch in delete table for {request.path}")
+            return Response.redirect(
+                f"/manage-databases?error=Security token invalid. Please try again."
+            )
+
         try:
             # Get form data to check for CSRF token
             post_vars = await request.post_vars()
@@ -1129,7 +1360,8 @@ async def delete_table(request, datasette):
                         "table_name": table_name,
                         "row_count": row_count,
                         "column_count": len(columns),
-                        "columns": columns[:5]  # Show first 5 columns
+                        "columns": columns[:5],  # Show first 5 columns
+                        "csrf_token": generate_csrf_token(datasette, actor)
                     },
                     request=request
                 )
@@ -1142,7 +1374,7 @@ async def delete_table(request, datasette):
             )
 
 async def delete_table_ajax(request, datasette):
-    """AJAX endpoint for table deletion"""
+    """AJAX endpoint for table deletion with CSRF protection"""
     if request.method != "POST":
         return Response.json({"error": "Method not allowed"}, status=405)
     
@@ -1158,9 +1390,15 @@ async def delete_table_ajax(request, datasette):
         
         db_name = data.get('db_name')
         table_name = data.get('table_name')
+        csrf_token = data.get('csrf_token')
         
         if not db_name or not table_name:
             return Response.json({"error": "Missing db_name or table_name"}, status=400)
+        
+        # CSRF protection for AJAX requests
+        expected_token = generate_csrf_token(datasette, actor)
+        if csrf_token != expected_token:
+            return Response.json({"error": "CSRF token invalid"}, status=403)
         
         # Verify ownership
         if not await user_owns_database(datasette, actor["id"], db_name):
@@ -1184,7 +1422,7 @@ async def delete_table_ajax(request, datasette):
         await portal_db.execute_write(
             "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
             [
-                str(uuid.uuid4()),
+                uuid.uuid4().hex[:20],
                 actor["id"],
                 "delete_table",
                 f"Deleted table {table_name} from {db_name}",
@@ -1258,7 +1496,8 @@ async def system_admin_page(datasette, request):
                     'users': [],
                     'databases': [],
                     'activity_logs': [],
-                    'error': f"Error loading system admin data: {str(e)}"
+                    'error': f"Error loading system admin data: {str(e)}",
+                    "csrf_token": generate_csrf_token(datasette, actor)
                 },
                 request=request
             )
@@ -1275,14 +1514,15 @@ async def system_admin_page(datasette, request):
                 'databases': databases_list,
                 'activity_logs': logs_list,
                 'success': request.args.get('success'),
-                'error': request.args.get('error')
+                'error': request.args.get('error'),
+                "csrf_token": generate_csrf_token(datasette, actor)
             },
             request=request
         )
     )
 
 async def publish_database(datasette, request):
-    """Publish database - separate from homepage creation."""
+    """Publish database with CSRF protection."""
     logger.debug(f"Publish Database request: method={request.method}, path={request.path}")
 
     actor = get_actor_from_request(request)
@@ -1295,6 +1535,11 @@ async def publish_database(datasette, request):
         db_name = path_parts[1]
     else:
         return Response.text("Invalid URL format", status=400)
+    
+    # CSRF protection for publishing
+    if request.method == "POST" and not await verify_csrf_token(request, datasette):
+        logger.warning(f"CSRF token mismatch in publish database for {request.path}")
+        return Response.redirect(f"/manage-databases?error=Security token invalid. Please try again.")
     
     query_db = datasette.get_database('portal')
     try:
@@ -1326,7 +1571,7 @@ async def publish_database(datasette, request):
         
         await query_db.execute_write(
             "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [str(uuid.uuid4()), actor.get("id"), "publish_database", f"Published database {db_name}", datetime.utcnow()]
+            [uuid.uuid4().hex[:20], actor.get("id"), "publish_database", f"Published database {db_name}", datetime.utcnow()]
         )
         
         return Response.redirect(f"/manage-databases?success=Database '{db_name}' published successfully! It's now publicly accessible at /{db_name}/")
@@ -1493,7 +1738,7 @@ async def database_homepage(datasette, request):
         return Response.text("Error loading database homepage", status=500)
 
 async def create_homepage(datasette, request):
-    """Create/enable custom homepage for a database."""
+    """Create/enable custom homepage for a database with CSRF protection."""
     logger.debug(f"Create Homepage request: method={request.method}, path={request.path}")
 
     # Handle /db/{db_name}/create-homepage path
@@ -1506,6 +1751,11 @@ async def create_homepage(datasette, request):
     actor = get_actor_from_request(request)
     if not actor:
         return Response.redirect("/login?error=Session expired or invalid")
+
+    # CSRF protection for homepage creation
+    if request.method == "POST" and not await verify_csrf_token(request, datasette):
+        logger.warning(f"CSRF token mismatch in create homepage for {request.path}")
+        return Response.redirect(f"/manage-databases?error=Security token invalid. Please try again.")
 
     query_db = datasette.get_database('portal')
     try:
@@ -1564,7 +1814,7 @@ async def create_homepage(datasette, request):
         
         await query_db.execute_write(
             "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [str(uuid.uuid4()), actor.get("id"), "create_homepage", f"Created custom homepage for {db_name}", datetime.utcnow()]
+            [uuid.uuid4().hex[:20], actor.get("id"), "create_homepage", f"Created custom homepage for {db_name}", datetime.utcnow()]
         )
         
         return Response.redirect(f"/edit-content/{db_id}?success=Custom homepage created! You can now customize your database portal.")
@@ -1574,7 +1824,7 @@ async def create_homepage(datasette, request):
         return Response.text(f"Error creating homepage: {str(e)}", status=500)
 
 async def edit_content(datasette, request):
-    """Enhanced content editor with proper image handling using email.parser approach."""
+    """Enhanced content editor with proper image handling and CSRF protection."""
     logger.debug(f"Edit Content request: method={request.method}, path={request.path}")
 
     path_parts = request.path.strip('/').split('/')
@@ -1603,6 +1853,11 @@ async def edit_content(datasette, request):
     content = await get_database_content(datasette, db_name)
     
     if request.method == "POST":
+        # CSRF protection for content editing
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch in edit content for {request.path}")
+            return Response.redirect(f"{request.path}?error=Security token invalid. Please try again.")
+
         content_type = request.headers.get('content-type', '').lower()
         if 'multipart/form-data' in content_type:
             # Handle image upload using email.parser approach (like in CAMPD project)
@@ -1680,7 +1935,7 @@ async def edit_content(datasette, request):
                         # Update content with correct image URL
                         import time
                         timestamp = int(time.time())
-                        new_content['image_url'] = f"/static/data/{db_id}/header.jpg?v={timestamp}"
+                        new_content['image_url'] = f"/data/{db_id}/header.jpg?v={timestamp}"
                         logger.debug(f"Saved image to {image_path}, URL with cache busting: {new_content['image_url']}")
                 # Update other fields from forms
                 if 'alt_text' in forms:
@@ -1748,7 +2003,8 @@ async def edit_content(datasette, request):
                 "content": content,
                 "actor": actor,
                 "success": request.args.get('success'),
-                "error": request.args.get('error')
+                "error": request.args.get('error'),
+                "csrf_token": generate_csrf_token(datasette, actor)
             },
             request=request
         )
@@ -1781,12 +2037,12 @@ async def serve_database_image(datasette, request):
         # Extract db_id and filename from the URL path
         path_parts = request.path.strip('/').split('/')
         
-        if len(path_parts) < 4 or path_parts[0] != 'static' or path_parts[1] != 'data':
+        if len(path_parts) < 3 or path_parts[0] != 'data':
             logger.error(f"Invalid URL format: {request.path}")
             return Response.text("Not found", status=404)
         
-        db_id = path_parts[2]
-        filename = path_parts[3]
+        db_id = path_parts[1]
+        filename = path_parts[2]
         
         # Remove cache busting parameter from filename
         if '?' in filename:
@@ -1940,13 +2196,13 @@ def register_routes():
         (r"^/manage-databases$", manage_databases),
         (r"^/create-database$", create_database),
         (r"^/system-admin$", system_admin_page),
-        (r"^/all-databases$", all_databases_page),  # ADD THIS NEW LINE
+        (r"^/all-databases$", all_databases_page),
         
         # Database management with /db/ prefix
         (r"^/edit-content/([^/]+)$", edit_content),
         (r"^/delete-table/([^/]+)/([^/]+)$", delete_table),
         (r"^/delete-table-ajax$", delete_table_ajax),
-        (r"^/static/data/[^/]+/[^/]+$", serve_database_image),
+        (r"^/data/[^/]+/[^/]+$", serve_database_image),
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/create-homepage$", create_homepage),
         (r"^/db/([^/]+)/homepage$", database_homepage),

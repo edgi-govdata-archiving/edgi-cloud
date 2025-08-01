@@ -1,11 +1,10 @@
 """
-Hybrid Secure CSV Upload Plugin - Modified to work with upload_csvs_simple.html
-Combines secure routing with your existing excellent template
+CSV Upload Plugin - work with upload_csvs_simple.html in secure routing with CSRF protection
 """
 
 import io
 import csv
-import os
+import os  # Added missing import
 import re
 import uuid
 import logging
@@ -15,13 +14,60 @@ from datasette import hookimpl
 from datasette.utils.asgi import Response
 from email.parser import BytesParser
 from email.policy import default
-import sqlite_utils
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 MAX_CSV_SIZE = 10 * 1024 * 1024  # 10MB (matching your template)
 MAX_TABLES_PER_DATABASE = 20
+DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data/data")  # Align with dynamic path from datasette_admin_panel.py
+
+def generate_csrf_token(datasette, actor):
+    """Generate CSRF token for forms using Datasette's built-in method."""
+    if not actor:
+        return ""
+    
+    return datasette._send_signed_token(
+        {"a": actor.get("id", "")}, 
+        max_age=3600
+    )
+
+async def verify_csrf_token(request, datasette):
+    """Verify CSRF token for POST requests."""
+    if request.method != "POST":
+        return True
+    
+    # Get actor
+    actor = request.actor
+    if not actor:
+        return False
+    
+    # Get CSRF token from form data or JSON
+    submitted_token = ""
+    content_type = request.headers.get('content-type', '').lower()
+    
+    if 'application/json' in content_type:
+        try:
+            import json
+            body = await request.post_body()
+            data = json.loads(body.decode('utf-8'))
+            submitted_token = data.get('csrf_token', '')
+        except:
+            submitted_token = ""
+    else:
+        try:
+            post_vars = await request.post_vars()
+            submitted_token = post_vars.get("csrftoken", "")
+        except:
+            submitted_token = ""
+    
+    # Generate expected token using Datasette's method
+    expected_token = datasette._send_signed_token(
+        {"a": actor.get("id", "")}, 
+        max_age=3600
+    )
+    
+    return submitted_token == expected_token
 
 @hookimpl
 def register_routes():
@@ -31,7 +77,7 @@ def register_routes():
     ]
 
 async def secure_csv_upload(request, datasette):
-    """Secure CSV upload with database ownership verification"""
+    """Secure CSV upload with database ownership verification and CSRF protection"""
     
     # Extract database name from URL path (MORE SECURE than query parameter)
     path_parts = request.path.strip('/').split('/')
@@ -53,6 +99,11 @@ async def secure_csv_upload(request, datasette):
         )
     
     if request.method == "POST":
+        # CSRF protection for CSV upload
+        if not await verify_csrf_token(request, datasette):
+            logger.warning(f"CSRF token mismatch in CSV upload for {request.path}")
+            return Response.redirect(f"/upload-secure/{db_name}?error=Security token invalid. Please try again.")
+        
         return await handle_csv_upload_secure(request, datasette, db_name, actor)
     else:
         return await show_upload_form(request, datasette, db_name, actor)
@@ -71,7 +122,7 @@ async def verify_database_ownership(datasette, user_id, db_name):
         return False
 
 async def show_upload_form(request, datasette, db_name, actor):
-    """Show the CSV upload form using your excellent template"""
+    """Show the CSV upload form using your excellent template with CSRF token"""
     try:
         return Response.html(
             await datasette.render_template(
@@ -80,6 +131,7 @@ async def show_upload_form(request, datasette, db_name, actor):
                     "database_name": db_name,
                     "database_title": db_name.replace('_', ' ').title(),
                     "actor": actor,
+                    "csrf_token": generate_csrf_token(datasette, actor),  # Add CSRF token
                     # Your template expects success/error in request.args
                     "request": request  # Pass request object so template can access request.args
                 },
@@ -91,7 +143,7 @@ async def show_upload_form(request, datasette, db_name, actor):
         return Response.redirect(f"/manage-databases?error=Error loading upload form: {str(e)}")
 
 async def handle_csv_upload_secure(request, datasette, db_name, actor):
-    """Handle CSV upload - adapted to work with your template's form field names"""
+    """Handle CSV upload - adapted to work with your template's form field names with CSRF protection"""
     try:
         content_type = request.headers.get('content-type', '')
         if 'multipart/form-data' not in content_type:
@@ -115,6 +167,13 @@ async def handle_csv_upload_secure(request, datasette, db_name, actor):
         
         # Parse form data using reliable email parser approach
         forms, files = parse_multipart_form_data(body, boundary)
+        
+        # Verify CSRF token from parsed form data
+        submitted_token = forms.get('csrftoken', '')
+        expected_token = generate_csrf_token(datasette, actor)
+        if submitted_token != expected_token:
+            logger.warning(f"CSRF token mismatch in CSV upload: expected={expected_token}, got={submitted_token}")
+            return Response.redirect(f"/upload-secure/{db_name}?error=Security token invalid. Please try again.")
         
         # Extract form fields - MATCHING YOUR TEMPLATE'S FIELD NAMES
         table_name = forms.get('table-name', '').strip()  # Your template uses 'table-name'
@@ -407,7 +466,7 @@ async def log_upload_activity(datasette, user_id, db_name, table_name, result):
         await portal_db.execute_write(
             "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
             [
-                str(uuid.uuid4()), 
+                uuid.uuid4().hex[:20],  # Shortened UUID for log_id
                 user_id, 
                 "csv_upload", 
                 f"Uploaded {result['rows_inserted']} rows to {db_name}.{table_name}",
