@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 MAX_CSV_SIZE = 10 * 1024 * 1024  # 10MB (matching your template)
 MAX_TABLES_PER_DATABASE = 20
-DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data/data")  # Align with dynamic path from datasette_admin_panel.py
+DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")  # Align with dynamic path from datasette_admin_panel.py
 
 def generate_csrf_token(datasette, actor):
     """Generate CSRF token for forms using Datasette's built-in method."""

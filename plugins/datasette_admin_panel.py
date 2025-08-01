@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv','.txt'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_DATABASES_PER_USER = 5
-STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/static")
-DATA_DIR = os.getenv('EDGI_DATA_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/data")
+STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "/app/static")
+DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")
 
 def sanitize_text(text):
     """Sanitize text by stripping HTML tags while preserving safe characters."""
@@ -1155,8 +1155,7 @@ async def create_database(datasette, request):
             )
 
         # Validate database name format
-        if not re.match(r'^[a-z0-9_]+
-                , db_name):
+        if not re.match(r'^[a-z0-9_]+$', db_name):
             return Response.html(
                 await datasette.render_template(
                     "create_database.html",
@@ -1211,7 +1210,7 @@ async def create_database(datasette, request):
         try:
             db_id = uuid.uuid4().hex[:20]
             scheme = request.scheme
-            host = request.headers.get('host', 'localhost:8001')
+            host = get_dynamic_host(request)    
             website_url = f"{scheme}://{host}/{db_name}/"
             
             # Create user directory and database file
@@ -2247,6 +2246,18 @@ def permission_allowed(datasette, actor, action, resource):
     # Let other plugins handle other permissions
     return None
 
+def get_dynamic_host(request):
+    """Get the dynamic host for URL generation."""
+    host = request.headers.get('host')
+    if not host:
+        # Fallback to environment variable or localhost
+        app_name = os.getenv('FLY_APP_NAME')
+        if app_name:
+            host = f"{app_name}.fly.dev"
+        else:
+            host = 'localhost:8001'
+    return host
+
 @hookimpl
 def startup(datasette):
     async def run_diagnosis():
@@ -2256,7 +2267,7 @@ def startup(datasette):
 
     async def inner():
         ensure_data_directories()
-        db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
+        db_path = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
         portal_db = sqlite_utils.Database(db_path)
         query_db = datasette.get_database('portal')
         
