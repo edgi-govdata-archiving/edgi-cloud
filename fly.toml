@@ -1,10 +1,10 @@
-# fly.toml app configuration file generated for edgi-cloud on 2025-08-01T04:04:03-04:00
+# fly.toml app configuration file generated for edgi-cloud on 2025-08-01T11:06:52Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
 app = 'edgi-cloud'
-primary_region = 'lax'
+primary_region = 'ord'
 
 [build]
 
@@ -19,4 +19,5 @@ primary_region = 'lax'
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
-  cpus = 1
+  cpus = 4
+  memory_mb = 8192
