@@ -2240,107 +2240,86 @@ def skip_csrf(datasette, scope):
     
     return False
 
-
 @hookimpl
 def startup(datasette):
-    async def run_diagnosis():
-        await diagnose_database_structure(datasette)
-    import asyncio
-    asyncio.create_task(run_diagnosis())
-
+    """Startup hook - now simplified since init_db.py handles database creation"""
+    
     async def inner():
+        # Ensure directories exist
         ensure_data_directories()
+        
+        # Get database path
         db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-        portal_db = sqlite_utils.Database(db_path)
+        
+        # Check if portal database exists
+        if not os.path.exists(db_path):
+            logger.error(f"Portal database not found at: {db_path}")
+            logger.error("Run init_db.py first to create the database")
+            return
+        
         query_db = datasette.get_database('portal')
         
-        # Create tables
-        portal_db.create_table("users", {
-            "user_id": str,
-            "username": str,
-            "password_hash": str,
-            "role": str,
-            "email": str,
-            "created_at": str
-        }, pk="user_id", if_not_exists=True)
-
-        portal_db.create_table("databases", {
-            "db_id": str,
-            "user_id": str,
-            "db_name": str,
-            "website_url": str,
-            "status": str,
-            "created_at": str,
-            "deleted_at": str,
-            "file_path": str
-        }, pk="db_id", if_not_exists=True)
-
-        portal_db.create_table("admin_content", {
-            "db_id": str,
-            "section": str,
-            "content": str,
-            "updated_at": str,
-            "updated_by": str
-        }, pk=("db_id", "section"), if_not_exists=True)
-
-        portal_db.create_table("activity_logs", {
-            "log_id": str,
-            "user_id": str,
-            "action": str,
-            "details": str,
-            "timestamp": str
-        }, pk="log_id", if_not_exists=True)
-
-        # Add missing columns
         try:
-            # Check if column exists before adding
-            result = await query_db.execute("PRAGMA table_info(databases)")
-            columns = [row['name'] for row in result]
+            # Verify database structure
+            tables = await query_db.table_names()
+            required_tables = ['users', 'databases', 'admin_content', 'activity_logs']
+            missing_tables = [t for t in required_tables if t not in tables]
             
-            if 'deleted_at' not in columns:
-                await query_db.execute("ALTER TABLE databases ADD COLUMN deleted_at TEXT")
-            if 'file_path' not in columns:
-                await query_db.execute("ALTER TABLE databases ADD COLUMN file_path TEXT")
-        except Exception as e:
-            logger.debug(f"Column addition error (likely already exists): {e}")
-
-        try:
-            # Initialize portal-wide content
-            result = await query_db.execute("SELECT COUNT(*) FROM admin_content WHERE db_id IS NULL")
-            if result.first()[0] == 0:
-                await query_db.execute_write(
-                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                    [None, "title", json.dumps({"content": "EDGI Datasette Cloud Portal"}), datetime.utcnow().isoformat(), "system"]
-                )
-                await query_db.execute_write(
-                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                    [None, "header_image", json.dumps({"image_url": "/static/default_header.jpg", "alt_text": "EDGI Portal Header", "credit_url": "", "credit_text": ""}), datetime.utcnow().isoformat(), "system"]
-                )
-                await query_db.execute_write(
-                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                    [None, "info", json.dumps({"content": "The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites."}), datetime.utcnow().isoformat(), "system"]
-                )
-                await query_db.execute_write(
-                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                    [None, "footer", json.dumps({"content": "Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.", "odbl_text": "Data licensed under ODbL", "odbl_url": "https://opendatacommons.org/licenses/odbl/", "paragraphs": ["Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners."]}), datetime.utcnow().isoformat(), "system"]
-                )
+            if missing_tables:
+                logger.error(f"Missing required tables: {missing_tables}")
+                logger.error("Database may not be properly initialized")
+                return
             
-            # Register all published databases with Datasette
-            result = await query_db.execute("SELECT db_name, file_path, status FROM databases WHERE status IN ('Published', 'Draft')")
+            # Register existing user databases with Datasette
+            result = await query_db.execute(
+                "SELECT db_name, file_path, status FROM databases WHERE status IN ('Published', 'Draft') AND file_path IS NOT NULL"
+            )
+            
             registered_count = 0
+            failed_count = 0
+            
             for row in result:
-                if row['file_path'] and os.path.exists(row['file_path']):
+                db_name = row['db_name']
+                file_path = row['file_path']
+                status = row['status']
+                
+                if file_path and os.path.exists(file_path):
                     try:
-                        user_db = Database(datasette, path=row['file_path'], is_mutable=True)
-                        datasette.add_database(user_db, name=row['db_name'])
-                        registered_count += 1
-                        logger.debug(f"Registered database: {row['db_name']} (status: {row['status']})")
+                        # Check if already registered
+                        if db_name not in datasette.databases:
+                            user_db = Database(datasette, path=file_path, is_mutable=True)
+                            datasette.add_database(user_db, name=db_name)
+                            registered_count += 1
+                            logger.debug(f"Registered database: {db_name} (status: {status})")
+                        else:
+                            logger.debug(f"Database already registered: {db_name}")
                     except Exception as reg_error:
-                        logger.error(f"Error registering database {row['db_name']}: {reg_error}")
+                        failed_count += 1
+                        logger.error(f"Failed to register database {db_name}: {reg_error}")
+                else:
+                    logger.warning(f"Database file not found for {db_name}: {file_path}")
+                    failed_count += 1
             
-            logger.info(f"Startup complete: Registered {registered_count} databases with Datasette")
+            logger.info(f"Startup complete - Registered: {registered_count}, Failed: {failed_count}")
             
+            # Log startup to activity logs
+            try:
+                await query_db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [
+                        uuid.uuid4().hex[:20],
+                        "system",
+                        "startup",
+                        f"System started - Registered {registered_count} databases",
+                        datetime.utcnow().isoformat()
+                    ]
+                )
+            except Exception as e:
+                logger.debug(f"Could not log startup activity: {e}")
+                
         except Exception as e:
             logger.error(f"Error during startup initialization: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
     return inner
