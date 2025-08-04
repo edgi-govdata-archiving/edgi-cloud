@@ -23,6 +23,7 @@
                 <div>
                     <a href="/create-database" class="text-white hover:text-accent mr-4">Create Database</a>
                     <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
+                    <a href="/edit-portal-homepage" class="text-white hover:text-accent mr-4">Edit Portal</a>
                     <a href="/register" class="text-white hover:text-accent mr-4">Add User</a>
                     <a href="/change-password" class="text-white hover:text-accent mr-4">Settings</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
@@ -39,9 +40,14 @@
                     <h1 class="text-3xl font-bold text-primary">System Administration</h1>
                     <p class="text-textlight mt-2">Manage users, databases, and system activity</p>
                 </div>
-                <a href="/register" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
-                    <i class="ri-user-add-line mr-2"></i>Add New User
-                </a>
+                <div class="flex gap-3">
+                    <a href="/edit-portal-homepage" class="bg-blue-500 text-white px-6 py-3 rounded-button hover:bg-blue-600 transition font-medium">
+                        <i class="ri-palette-line mr-2"></i>Edit Portal Homepage
+                    </a>
+                    <a href="/register" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                        <i class="ri-user-add-line mr-2"></i>Add New User
+                    </a>
+                </div>
             </div>
 
             <!-- Success/Error Messages -->
@@ -241,6 +247,7 @@
                             <option value="create_database">Create Database</option>
                             <option value="publish_database">Publish Database</option>
                             <option value="upload_csv">Upload CSV</option>
+                            <option value="edit_portal_homepage">Edit Portal</option>
                         </select>
                     </div>
                     
@@ -252,11 +259,13 @@
                                     {% elif log.action == 'create_database' %}bg-green-100 text-green-600
                                     {% elif log.action == 'publish_database' %}bg-purple-100 text-purple-600
                                     {% elif log.action == 'upload_csv' %}bg-orange-100 text-orange-600
+                                    {% elif log.action == 'edit_portal_homepage' %}bg-indigo-100 text-indigo-600
                                     {% else %}bg-gray-100 text-gray-600{% endif %}">
                                     <i class="ri-{% if log.action == 'login' %}login-circle-line
                                         {% elif log.action == 'create_database' %}database-line
                                         {% elif log.action == 'publish_database' %}global-line
                                         {% elif log.action == 'upload_csv' %}upload-line
+                                        {% elif log.action == 'edit_portal_homepage' %}palette-line
                                         {% else %}activity-line{% endif %} text-sm"></i>
                                 </div>
                                 <div class="flex-1">
@@ -279,7 +288,7 @@
 
     <footer class="bg-gray-50 border-t border-gray-100 py-8">
         <div class="container mx-auto px-4">
-                        <div class="flex flex-col md:flex-row justify-between items-center">
+            <div class="flex flex-col md:flex-row justify-between items-center">
                 <div class="flex items-center mb-4 md:mb-0">
                     <div class="w-8 h-8 flex items-center justify-center mr-2">
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>

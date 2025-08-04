@@ -117,11 +117,9 @@ async def handle_csv_upload_secure(request, datasette, db_name, actor):
         # Parse form data using reliable email parser approach
         forms, files = parse_multipart_form_data(body, boundary)
         
-        # NO manual CSRF verification needed - Datasette already validated it!
-        
-        # Extract form fields - MATCHING YOUR TEMPLATE'S FIELD NAMES
-        table_name = forms.get('table-name', '').strip()  # Your template uses 'table-name'
-        csv_file = files.get('csv_file')  # Your template uses 'csv_file'
+        # Extract form fields - MATCHING TEMPLATE'S FIELD NAMES
+        table_name = forms.get('table-name', '').strip()
+        csv_file = files.get('csv_file')
         replace_table = forms.get('replace_table') == '1'
         detect_types = forms.get('detect_types', '1') == '1'
         

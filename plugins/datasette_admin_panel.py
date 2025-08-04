@@ -1,4 +1,3 @@
-import io
 import json
 import bcrypt
 import logging
@@ -16,10 +15,6 @@ import os
 import base64
 from email.parser import BytesParser
 from email.policy import default
-import hmac
-import hashlib
-import time
-import secrets
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -27,8 +22,8 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv','.txt'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_DATABASES_PER_USER = 5
-STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/static")
-DATA_DIR = os.getenv('EDGI_DATA_DIR', "C:/MS Data Science - WMU/EDGI/edgi-cloud/data")
+STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "/static")
+DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")
 CSRF_SECRET_KEY = os.getenv('CSRF_SECRET_KEY')
 
 
@@ -170,10 +165,10 @@ async def get_database_content(datasette, db_name):
     
     if 'footer' not in content:
         content['footer'] = {
-            'content': 'Made with love by EDGI and Public Environmental Data Partners.',
+            'content': 'Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.',
             'odbl_text': 'Data licensed under ODbL',
             'odbl_url': 'https://opendatacommons.org/licenses/odbl/',
-            'paragraphs': ['Made with love by EDGI and Public Environmental Data Partners.']
+            'paragraphs': ['Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.']
         }
     
     # Parse markdown for description and footer
@@ -1633,7 +1628,7 @@ async def database_homepage(datasette, request):
         # Check if content is customized
         default_title = db_name.replace('_', ' ').title()
         default_description = 'Environmental data dashboard powered by Datasette.'
-        default_footer = 'Made with love by EDGI and Public Environmental Data Partners.'
+        default_footer = 'Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.'
         
         has_custom_title = content.get('title', {}).get('content', '') != default_title
         has_custom_description = content.get('description', {}).get('content', '') != default_description
@@ -1988,6 +1983,249 @@ async def edit_content(datasette, request):
         )
     )
     
+# Add this route function to your datasette_admin_panel.py
+
+async def edit_portal_homepage(datasette, request):
+    """Edit portal homepage content - System Admin only."""
+    logger.debug(f"Edit Portal Homepage request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor or actor.get("role") != "system_admin":
+        logger.warning(f"Unauthorized portal edit attempt: actor={actor}")
+        return Response.redirect("/login?error=System admin access required")
+
+    query_db = datasette.get_database('portal')
+    
+    # Verify admin role in database
+    try:
+        result = await query_db.execute("SELECT role FROM users WHERE user_id = ?", [actor.get("id")])
+        user = result.first()
+        if not user or user["role"] != "system_admin":
+            logger.warning(f"Invalid role for portal edit: user_id={actor.get('id')}")
+            return Response.redirect("/login?error=Unauthorized access")
+    except Exception as e:
+        logger.error(f"Error verifying admin role: {str(e)}")
+        return Response.redirect("/login?error=Authentication error")
+
+    # Get current portal content
+    async def get_portal_section(section_name):
+        result = await query_db.execute(
+            "SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", 
+            [section_name]
+        )
+        row = result.first()
+        if row:
+            try:
+                content = json.loads(row["content"])
+                if section_name in ["info", "footer"] and 'content' in content:
+                    content['paragraphs'] = parse_markdown_links(content['content'])
+                return content
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error for portal section {section_name}: {str(e)}")
+                return {}
+        return {}
+
+    content = {}
+    content['title'] = await get_portal_section("title") or {'content': 'EDGI Datasette Cloud Portal'}
+    content['header_image'] = await get_portal_section("header_image") or {
+        'image_url': '/static/default_header.jpg', 
+        'alt_text': 'EDGI Portal Header', 
+        'credit_url': '', 
+        'credit_text': ''
+    }
+    content['info'] = await get_portal_section("info") or {
+        'content': 'The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.',
+        'paragraphs': parse_markdown_links('The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.')
+    }
+    content['footer'] = await get_portal_section("footer") or {
+        'content': 'Made with \u2764\ufe0f by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/).',
+        'paragraphs': parse_markdown_links('Made with \u2764\ufe0f by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/).')
+    }
+
+    if request.method == "POST":
+        content_type = request.headers.get('content-type', '').lower()
+        
+        if 'multipart/form-data' in content_type:
+            # Handle image upload (similar to database header image upload)
+            try:
+                body = await request.post_body()
+                
+                if len(body) > MAX_FILE_SIZE:
+                    return Response.redirect(f"{request.path}?error=File too large")
+                
+                # Parse multipart form data (reuse the email parser approach)
+                boundary = None
+                if 'boundary=' in content_type:
+                    boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
+                
+                if not boundary:
+                    logger.error("No boundary found in Content-Type header")
+                    return Response.redirect(f"{request.path}?error=Invalid form data")
+                
+                headers = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', [])}
+                headers['content-type'] = request.headers.get('content-type', '')
+                
+                header_bytes = b'\r\n'.join([f'{k}: {v}'.encode('utf-8') for k, v in headers.items()]) + b'\r\n\r\n'
+                msg = BytesParser(policy=default).parsebytes(header_bytes + body)
+                
+                forms = {}
+                files = {}
+                
+                for part in msg.iter_parts():
+                    if not part.is_multipart():
+                        content_disposition = part.get('Content-Disposition', '')
+                        if content_disposition:
+                            disposition_params = {}
+                            for param in content_disposition.split(';'):
+                                param = param.strip()
+                                if '=' in param:
+                                    key, value = param.split('=', 1)
+                                    disposition_params[key.strip()] = value.strip().strip('"')
+                            
+                            field_name = disposition_params.get('name')
+                            filename = disposition_params.get('filename')
+                            
+                            if field_name:
+                                if filename:
+                                    files[field_name] = {
+                                        'filename': filename,
+                                        'content': part.get_payload(decode=True)
+                                    }
+                                else:
+                                    forms[field_name] = [part.get_payload(decode=True).decode('utf-8')]
+                
+                new_content = content.get('header_image', {})
+                
+                # Handle image upload for portal
+                if 'image' in files and files['image']['content']:
+                    file = files['image']
+                    filename = file['filename']
+                    ext = Path(filename).suffix.lower()
+                    
+                    if ext in ['.jpg', '.jpeg', '.png']:
+                        # Save portal header image in static directory
+                        portal_header_path = os.path.join(STATIC_DIR, 'portal_header.jpg')
+                        with open(portal_header_path, 'wb') as f:
+                            f.write(file['content'])
+                        
+                        # Update content with timestamp for cache busting
+                        import time
+                        timestamp = int(time.time())
+                        new_content['image_url'] = f"/static/portal_header.jpg?v={timestamp}"
+                        logger.debug(f"Saved portal header to {portal_header_path}")
+                
+                # Update other fields
+                if 'alt_text' in forms:
+                    new_content['alt_text'] = forms['alt_text'][0]
+                if 'credit_text' in forms:
+                    new_content['credit_text'] = forms['credit_text'][0]
+                if 'credit_url' in forms:
+                    new_content['credit_url'] = forms['credit_url'][0]
+                
+                # Save to database - Handle NULL db_id properly
+                # First delete existing record for this section with NULL db_id
+                await query_db.execute_write(
+                    "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
+                    ['header_image']
+                )
+                # Then insert new record
+                await query_db.execute_write(
+                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [None, 'header_image', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
+                )
+                
+                await query_db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [uuid.uuid4().hex[:20], actor.get("id"), "edit_portal_homepage", f"Updated portal header image", datetime.utcnow()]
+                )
+                
+                return Response.redirect(f"{request.path}?success=Portal header image updated")
+                
+            except Exception as e:
+                logger.error(f"Error handling portal image upload: {e}")
+                return Response.redirect(f"{request.path}?error=Error uploading image: {str(e)}")
+        else:
+            # Handle text form data
+            post_vars = await request.post_vars()
+            
+            if 'title' in post_vars:
+                new_content = {"content": post_vars['title']}
+                # Handle NULL db_id properly for title
+                await query_db.execute_write(
+                    "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
+                    ['title']
+                )
+                await query_db.execute_write(
+                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [None, 'title', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
+                )
+                
+                await query_db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [uuid.uuid4().hex[:20], actor.get("id"), "edit_portal_homepage", f"Updated portal title", datetime.utcnow()]
+                )
+                
+                return Response.redirect(f"{request.path}?success=Portal title updated")
+            
+            if 'description' in post_vars:
+                new_content = {
+                    "content": post_vars['description'],
+                    "paragraphs": parse_markdown_links(post_vars['description'])
+                }
+                # Handle NULL db_id properly for info
+                await query_db.execute_write(
+                    "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
+                    ['info']
+                )
+                await query_db.execute_write(
+                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [None, 'info', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
+                )
+                
+                await query_db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [uuid.uuid4().hex[:20], actor.get("id"), "edit_portal_homepage", f"Updated portal description", datetime.utcnow()]
+                )
+                
+                return Response.redirect(f"{request.path}?success=Portal description updated")
+            
+            if 'footer' in post_vars:
+                new_content = {
+                    "content": post_vars['footer'],
+                    "odbl_text": "Data licensed under ODbL",
+                    "odbl_url": "https://opendatacommons.org/licenses/odbl/",
+                    "paragraphs": parse_markdown_links(post_vars['footer'])
+                }
+                # Handle NULL db_id properly for footer
+                await query_db.execute_write(
+                    "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
+                    ['footer']
+                )
+                await query_db.execute_write(
+                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [None, 'footer', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
+                )
+                
+                await query_db.execute_write(
+                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
+                    [uuid.uuid4().hex[:20], actor.get("id"), "edit_portal_homepage", f"Updated portal footer", datetime.utcnow()]
+                )
+                
+                return Response.redirect(f"{request.path}?success=Portal footer updated")
+    
+    return Response.html(
+        await datasette.render_template(
+            "portal_homepage_editor.html",  # You can reuse template.html or create this specific template
+            {
+                "content": content,
+                "actor": actor,
+                "success": request.args.get('success'),
+                "error": request.args.get('error')
+            },
+            request=request
+        )
+    )
+
 def ensure_data_directories():
     """Ensure required directories exist."""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -2139,23 +2377,14 @@ async def diagnose_database_structure(datasette):
         print(f"TRACEBACK: {traceback.format_exc()}")
 
 async def user_owns_database(datasette, user_id, db_name):
-    """Check if a user owns a specific database using portal.db"""
-    try:
-        logger.debug(f"Checking ownership for user_id={user_id}, db_name={db_name}")
-        
-        # Use portal.db (the main database)
+    """Verify user owns the database"""
+    try:     
         portal_db = datasette.get_database("portal")
-        logger.debug(f"Successfully got portal database")
-        
-        # Execute the ownership query
         result = await portal_db.execute(
             "SELECT 1 FROM databases WHERE db_name = ? AND user_id = ?",
             [db_name, user_id]
-        )
-        logger.debug(f"Ownership query result: {result.rows}")
-        
+        )     
         return len(result.rows) > 0
-        
     except Exception as e:
         logger.error(f"Database ownership check failed: {e}")
         return False
@@ -2181,8 +2410,8 @@ def register_routes():
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/create-homepage$", create_homepage),
         (r"^/db/([^/]+)/homepage$", database_homepage),
-        (r"^/db/([^/]+)/delete$", delete_database),  # CHANGED: Use /db/{db_name}/delete
-        #(r"^/.well-known/appspecific/com.chrome.devtools.json$", handle_devtools),
+        (r"^/db/([^/]+)/delete$", delete_database),  # Use /db/{db_name}/delete
+        (r"^/edit-portal-homepage$", edit_portal_homepage),
 
     ]
 
@@ -2201,44 +2430,9 @@ def actor_from_request(datasette, request):
 
 @hookimpl
 def permission_allowed(datasette, actor, action, resource):
-    """Grant permissions and control database access."""
-    
-    # Handle CSV upload permissions
     if action == "upload-csvs":
-        if actor and actor.get("id"):
-            logger.debug(f"Granting upload-csvs permission to actor: {actor}")
-            return True
-        else:
-            logger.debug(f"Denying upload-csvs permission - no actor or no actor ID: {actor}")
-            return False
-    
-    # Handle database view permissions for draft databases
-    if action == "view-database" and resource:
-        # Allow access to portal database for everyone
-        if resource == "portal":
-            return True
-            
-        # For other databases, just return None to let Datasette handle it
-        # Don't try to run async code here as it causes "event loop already running" errors
-        return None
-    
-    # Let other plugins handle other permissions
+        return False  # Block insecure official plugin
     return None
-
-@hookimpl
-def skip_csrf(datasette, scope):
-    if scope["type"] == "http":
-        headers = dict(scope.get("headers", []))
-        
-        # Skip CSRF for requests with Authorization header (API clients)
-        if b'authorization' in headers:
-            return True
-            
-        # Skip CSRF for JSON API requests
-        if headers.get(b'content-type') == b'application/json':
-            return True
-    
-    return False
 
 @hookimpl
 def startup(datasette):
