@@ -83,7 +83,7 @@
                             The main heading that appears on your database homepage
                         </p>
                         <form method="post" class="space-y-4">
-                            <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                             <div>
                                 <label class="block text-text mb-2 font-medium">Title:</label>
                                 <input type="text" name="title" value="{{ content.title.content | default(db_name.replace('_', ' ').title()) }}" 
@@ -122,7 +122,7 @@
                         {% endif %}
                         
                         <form method="post" enctype="multipart/form-data" class="space-y-4">
-                            <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                             <div>
                                 <label class="block text-text mb-2 font-medium">Upload New Image:</label>
                                 <div class="border-2 border-dashed border-gray-300 rounded-button p-4 text-center hover:border-accent transition">
@@ -165,7 +165,7 @@
                             Describe your database content. You can use Markdown formatting and links [text](url).
                         </p>
                         <form method="post" class="space-y-4">
-                            <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                             <div>
                                 <label class="block text-text mb-2 font-medium">Description (Markdown supported):</label>
                                 <textarea name="description" rows="5" 
@@ -191,7 +191,7 @@
                             Custom footer text that appears at the bottom of your database homepage
                         </p>
                         <form method="post" class="space-y-4">
-                            <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                             <div>
                                 <label class="block text-text mb-2 font-medium">Footer Content (Markdown supported):</label>
                                 <textarea name="footer" rows="3" 

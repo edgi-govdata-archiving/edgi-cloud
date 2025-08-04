@@ -52,7 +52,7 @@
 
     <form method="post" enctype="multipart/form-data" class="space-y-6">
       <!-- CSRF token MUST be first -->
-      <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+      <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
       <!-- Hidden database field -->
       <input type="hidden" name="database" value="{{ database_name }}">
 

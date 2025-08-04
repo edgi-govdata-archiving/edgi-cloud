@@ -55,7 +55,7 @@
                 {% endif %}
 
                 <form action="/register" method="post">
-                    <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     
                     <div class="mb-4">
                         <label for="username" class="block text-text mb-2 font-medium">Username:</label>

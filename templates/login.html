@@ -48,7 +48,8 @@
                 {% endif %}
 
                 <form action="/login" method="post">
-                    <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                    <!-- FIXED: Use Datasette's built-in CSRF token function -->
+                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     
                     <div class="mb-4">
                         <label class="block text-text mb-2 font-medium">Username:</label>
