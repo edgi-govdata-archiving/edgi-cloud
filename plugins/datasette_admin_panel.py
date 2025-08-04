@@ -483,7 +483,6 @@ async def all_databases_page(datasette, request):
         )
 
 async def login_page(datasette, request):
-    """Simplified login with automatic CSRF protection"""
     logger.debug(f"Login request: method={request.method}")
 
     db = datasette.get_database('portal')
@@ -497,8 +496,6 @@ async def login_page(datasette, request):
     actor = get_actor_from_request(request)
 
     if request.method == "POST":
-        # NO CSRF checking needed - Datasette handles it automatically!
-        # If CSRF fails, Datasette will return 403 before this code runs
         
         post_vars = await request.post_vars()
         username = post_vars.get("username")
@@ -932,7 +929,7 @@ async def manage_databases(datasette, request):
             'table_count': table_count,
             'total_size': total_size,
             'website_url': f"/{db_name}/", # Datasette URL format
-            'upload_url': f"/upload-secure/{db_name}",  # CSRF-protected upload URL
+            'upload_url': f"/upload-secure/{db_name}",  # 
             'has_custom_homepage': has_custom_homepage  # Indicate if custom homepage exists
         })
 
@@ -953,7 +950,6 @@ async def manage_databases(datasette, request):
     )
 
 async def create_database(datasette, request):
-    """Simplified database creation with CSRF protection."""
     logger.debug(f"Create Database request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -1115,7 +1111,6 @@ async def create_database(datasette, request):
     )
 
 async def delete_table(request, datasette):
-    #Delete a table from user's database with CSRF protection
     actor = request.actor
     
     # Check if user is authenticated
@@ -1142,7 +1137,6 @@ async def delete_table(request, datasette):
     # Handle POST request (actual deletion)
     if request.method == "POST":
         try:
-            # Get form data to check for CSRF token
             post_vars = await request.post_vars()
             logger.debug(f"POST vars: {list(post_vars.keys())}")
 
@@ -1206,7 +1200,6 @@ async def delete_table(request, datasette):
             )
 
 async def delete_table_ajax(request, datasette):
-    """AJAX endpoint for table deletion with CSRF protection"""
     if request.method != "POST":
         return Response.json({"error": "Method not allowed"}, status=405)
     
@@ -1266,7 +1259,6 @@ async def delete_table_ajax(request, datasette):
         return Response.json({"error": f"Failed to delete table: {str(e)}"}, status=500)
 
 async def delete_database(datasette, request):
-    """Delete database with confirmation - CSRF handled automatically by Datasette"""
     logger.debug(f"Delete Database request: method={request.method}")
     
     actor = get_actor_from_request(request)
@@ -1313,7 +1305,6 @@ async def delete_database(datasette, request):
     }
 
     if request.method == "POST":
-        # NO manual CSRF checking needed - Datasette handles it automatically!
         
         post_vars = request.scope.get("cached_post_vars")
         if post_vars is None:
@@ -1528,7 +1519,6 @@ async def system_admin_page(datasette, request):
     )
 
 async def publish_database(datasette, request):
-    """Publish database with CSRF protection."""
     logger.debug(f"Publish Database request: method={request.method}, path={request.path}")
 
     actor = get_actor_from_request(request)
@@ -1541,11 +1531,6 @@ async def publish_database(datasette, request):
         db_name = path_parts[1]
     else:
         return Response.text("Invalid URL format", status=400)
-    
-    # CSRF protection for publishing
-    if request.method == "POST":
-        logger.warning(f"CSRF token mismatch in publish database for {request.path}")
-        return Response.redirect(f"/manage-databases?error=Security token invalid. Please try again.")
     
     query_db = datasette.get_database('portal')
     try:
@@ -1744,7 +1729,6 @@ async def database_homepage(datasette, request):
         return Response.text("Error loading database homepage", status=500)
 
 async def create_homepage(datasette, request):
-    """Create/enable custom homepage for a database - CSRF handled automatically by Datasette"""
     logger.debug(f"Create Homepage request: method={request.method}, path={request.path}")
 
     # Handle /db/{db_name}/create-homepage path
@@ -1757,9 +1741,6 @@ async def create_homepage(datasette, request):
     actor = get_actor_from_request(request)
     if not actor:
         return Response.redirect("/login?error=Session expired or invalid")
-
-    # NO manual CSRF checking needed - Datasette handles it automatically!
-    # If CSRF fails, this function won't even be called
 
     query_db = datasette.get_database('portal')
     try:
@@ -1827,7 +1808,6 @@ async def create_homepage(datasette, request):
         return Response.text(f"Error creating homepage: {str(e)}", status=500)
     
 async def edit_content(datasette, request):
-    """Enhanced content editor with proper image handling and CSRF protection."""
     logger.debug(f"Edit Content request: method={request.method}, path={request.path}")
 
     path_parts = request.path.strip('/').split('/')
@@ -2247,7 +2227,6 @@ def permission_allowed(datasette, actor, action, resource):
 
 @hookimpl
 def skip_csrf(datasette, scope):
-    """Skip CSRF for API endpoints that use Authorization headers"""
     if scope["type"] == "http":
         headers = dict(scope.get("headers", []))
         
