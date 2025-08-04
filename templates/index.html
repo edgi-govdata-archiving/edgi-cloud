@@ -9,6 +9,25 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
+    <style>
+        /* Markdown content styling for footer */
+        .markdown-content {
+            line-height: 1.6;
+        }
+        .markdown-content a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .markdown-content a:hover {
+            color: #2563eb;
+        }
+        .markdown-content strong {
+            font-weight: 600;
+        }
+        .markdown-content em {
+            font-style: italic;
+        }
+    </style>
 </head>
 <body class="bg-background">
     <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
@@ -57,7 +76,7 @@
 
         <!-- Main Content -->
         <section class="container mx-auto px-4 mt-6">
-            <div class="bg-card rounded-card p-6 border border-border">
+            <div class="bg-card rounded-card p-6 border border-border w-[90%] mx-auto">
                 <h2 class="text-3xl font-bold text-primary mb-6">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</h2>
                 
                 {% for paragraph in content.info.paragraphs | default(["The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites, supporting data exploration and public access."]) %}
@@ -163,7 +182,7 @@
         </section>
 
         <!-- Statistics Section -->
-        <section class="container mx-auto px-4 mt-6"> 
+        <section class="container mx-auto px-4 mt-6 w-[90%]"> 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {% for stat in statistics %}
                     {% if stat.url and not actor %}
@@ -185,7 +204,7 @@
 
         <!-- How It Works Section -->
         {% if not actor %}
-        <section class="container mx-auto px-4 mt-8">
+        <section class="container mx-auto px-4 mt-8 w-[90%]">
             <div class="bg-card rounded-card p-6 border border-border">
                 <h3 class="text-2xl font-semibold text-primary mb-6 text-center">
                     <i class="ri-roadmap-line mr-2"></i>How It Works
@@ -232,14 +251,27 @@
                     <div class="w-8 h-8 flex items-center justify-center mr-2">
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
-                    <p class="text-primary">
-                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
-                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
-                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
-                    </p>
+                    <!-- Enhanced Footer with Markdown Support from Database -->
+                    <div class="text-primary markdown-content">
+                        {% if content.footer.paragraphs %}
+                            {% for paragraph in content.footer.paragraphs %}
+                                <span>{{ paragraph | safe }}</span>
+                                {% if not loop.last %}<br>{% endif %}
+                            {% endfor %}
+                        {% else %}
+                            <!-- Fallback to original footer if no custom content -->
+                            <span>
+                                Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                                <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
+                                <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
+                            </span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div>
-                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                    <a href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" class="text-accent hover:text-primary">
+                        {{ content.footer.odbl_text | default('Data licensed under ODbL') }}
+                    </a>
                 </div>
             </div>
         </div>
