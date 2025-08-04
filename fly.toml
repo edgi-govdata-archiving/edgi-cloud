@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for edgi-cloud on 2025-07-31T21:17:43-04:00
+# fly.toml app configuration file generated for edgi-cloud on 2025-08-04T11:56:19-04:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -7,14 +7,25 @@ app = 'edgi-cloud'
 primary_region = 'ord'
 
 [build]
-  dockerfile = 'Dockerfile'
+
+[env]
+  CSRF_SECRET_KEY = 'fd93c677e08304855095d266835d86c9a2eadda209d6c2c9fe0bea65fe0941d4'
+  EDGI_DATA_DIR = '/data'
+  EDGI_STATIC_DIR = '/app/static'
+  PORTAL_DB_PATH = '/data/portal.db'
+  DEFAULT_PASSWORD = 'edgi2025!'
+  APP_URL = 'https://edgi-cloud.fly.dev'
+
+[[mounts]]
+  source = 'edgi_data_volume'
+  destination = '/data'
 
 [http_service]
   internal_port = 8001
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]
