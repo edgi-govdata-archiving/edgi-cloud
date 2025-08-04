@@ -11,8 +11,8 @@
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body class="bg-background">
-    <!-- Hidden CSRF token for AJAX requests -->
-    <input type="hidden" name="csrftoken" value="{{ csrf_token }}" style="display: none;">
+    <!-- Hidden CSRF token for AJAX requests - FIXED to use Datasette's built-in function -->
+    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}" style="display: none;">
     
     <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
         <div class="container mx-auto px-4 h-20 flex items-center justify-between">
@@ -117,7 +117,7 @@
                                         <!-- Database status actions -->
                                         {% if db.status == 'Draft' %}
                                             <form method="post" action="/db/{{ db.db_name }}/publish" class="inline">
-                                                <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                                                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                                                 <button type="submit" class="bg-accent text-white px-3 py-2 rounded-button hover:bg-primary transition text-sm font-medium">
                                                     <i class="ri-send-plane-line mr-1"></i>Publish Database
                                                 </button>
@@ -142,12 +142,19 @@
                                             {% endif %}
                                         {% else %}
                                             <form method="post" action="/db/{{ db.db_name }}/create-homepage" class="inline">
-                                                <input type="hidden" name="csrftoken" value="{{ csrf_token }}">
+                                                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                                                 <button type="submit" class="bg-orange-500 text-white px-3 py-2 rounded-button hover:bg-orange-600 transition text-sm font-medium">
                                                     <i class="ri-add-circle-line mr-1"></i>Create Homepage
                                                 </button>
                                             </form>
                                         {% endif %}
+
+                                        <!-- DELETE DATABASE BUTTON - UPDATED URL -->
+                                        <a href="/db/{{ db.db_name }}/delete" 
+                                           class="bg-red-500 text-white px-3 py-2 rounded-button hover:bg-red-600 transition text-sm font-medium"
+                                           onclick="return confirm('This will take you to a confirmation page. Continue?')">
+                                            <i class="ri-delete-bin-line mr-1"></i>Delete Database
+                                        </a>
                                     </div>
                                 </div>
 
@@ -299,79 +306,5 @@
             </div>
         </div>
     </footer>
-
-    <!-- JavaScript for table deletion confirmation -->
-    <script>
-        async function deleteTableAjax(dbName, tableName, element) {
-            if (!confirm(`Are you sure you want to delete the table "${tableName}"? This action cannot be undone.`)) {
-                return;
-            }
-            // Show loading state
-            const originalContent = element.innerHTML;
-            element.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Deleting...';
-            element.disabled = true;
-
-            try {
-                const response = await fetch('/delete-table-ajax', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        db_name: dbName,
-                        table_name: tableName,
-                        csrf_token: document.querySelector('[name="csrftoken"]').value
-                    })
-                });
-
-                const result = await response.json();
-        
-                if (result.success) {
-                    // Remove the table row from UI
-                    element.closest('.bg-gray-50').remove();
-                    
-                    // Show success message
-                    showMessage(result.message, 'success');
-                    
-                    // Update database stats if needed
-                    location.reload();
-                } else {
-                    throw new Error(result.error || 'Unknown error');
-                }
-            } catch (error) {
-                // Restore button state
-                element.innerHTML = originalContent;
-                element.disabled = false;
-                
-                // Show error message
-                showMessage('Error deleting table: ' + error.message, 'error');
-            }
-        }
-        // Helper function to show messages
-        function showMessage(message, type) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `fixed top-4 right-4 z-50 px-4 py-3 rounded shadow-lg ${
-                type === 'success' ? 'bg-green-100 border border-green-400 text-green-700' : 
-                'bg-red-100 border border-red-400 text-red-700'
-            }`;
-            messageDiv.innerHTML = `
-                <div class="flex items-center">
-                    <i class="ri-${type === 'success' ? 'check' : 'error'}-warning-line mr-2"></i>
-                    <span>${message}</span>
-                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-lg">&times;</button>
-                </div>
-            `;
-            
-            document.body.appendChild(messageDiv);
-            
-            // Auto-remove after 5 seconds
-            setTimeout(() => {
-                if (messageDiv.parentElement) {
-                    messageDiv.remove();
-                }
-            }, 5000);
-        }
-
-    </script>
 </body>
 </html>
