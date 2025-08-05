@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
     <style>
-        /* Markdown content styling */
+        /* Markdown content styling*/
         .markdown-content {
             line-height: 1.6;
         }
@@ -19,16 +19,31 @@
         }
         .markdown-content ul {
             list-style-type: disc;
-            margin-left: 1.5rem;
+            margin-left: 2rem;
             margin-bottom: 1rem;
+            margin-top: 1rem;
+            padding-left: 0;
+            display: block;
         }
         .markdown-content ol {
             list-style-type: decimal;
-            margin-left: 1.5rem;
+            margin-left: 2rem;
             margin-bottom: 1rem;
+            margin-top: 1rem;
+            padding-left: 0;
+            display: block;
         }
         .markdown-content li {
             margin-bottom: 0.5rem;
+            display: list-item;
+            margin-left: 0;
+            padding-left: 0.5rem;
+            list-style-position: outside;
+        }
+        
+        .markdown-content div {
+            display: block;
+            margin-bottom: 1rem;
         }
         .markdown-content strong {
             font-weight: 600;
@@ -37,11 +52,13 @@
             font-style: italic;
         }
         .markdown-content a {
-            color: #2563eb;
-            text-decoration: underline;
+            color: #0071BC;
+            text-decoration: none;
+            transition: color 0.2s ease-in-out;
         }
         .markdown-content a:hover {
-            color: #1d4ed8;
+            color: #1A4480;
+            text-decoration: underline;
         }
         .markdown-content h1, .markdown-content h2, .markdown-content h3 {
             font-weight: 600;
@@ -63,6 +80,30 @@
             border-radius: 0.25rem;
             font-family: monospace;
             font-size: 0.875rem;
+        }
+        
+        /* Footer specific link styling */
+        footer .markdown-content a {
+            color: #0071BC;
+        }
+        footer .markdown-content a:hover {
+            color: #1A4480;
+        }
+        
+        .stat-card {
+            transition: all 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .feature-card {
+            transition: all 0.3s ease;
+        }
+        .feature-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
     </style>
 </head>
