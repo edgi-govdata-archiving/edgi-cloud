@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ content.title.content | default("EDGI Datasette Cloud Portal") }} | EDGI</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
@@ -10,22 +10,100 @@
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
     <style>
-        /* Markdown content styling for footer */
+        /* Markdown content styling*/
         .markdown-content {
             line-height: 1.6;
         }
-        .markdown-content a {
-            color: inherit;
-            text-decoration: none;
+        .markdown-content p {
+            margin-bottom: 1rem;
         }
-        .markdown-content a:hover {
-            color: #2563eb;
+        .markdown-content ul {
+            list-style-type: disc;
+            margin-left: 2rem;
+            margin-bottom: 1rem;
+            margin-top: 1rem;
+            padding-left: 0;
+            display: block;
+        }
+        .markdown-content ol {
+            list-style-type: decimal;
+            margin-left: 2rem;
+            margin-bottom: 1rem;
+            margin-top: 1rem;
+            padding-left: 0;
+            display: block;
+        }
+        .markdown-content li {
+            margin-bottom: 0.5rem;
+            display: list-item;
+            margin-left: 0;
+            padding-left: 0.5rem;
+            list-style-position: outside;
+        }
+        
+        .markdown-content div {
+            display: block;
+            margin-bottom: 1rem;
         }
         .markdown-content strong {
             font-weight: 600;
         }
         .markdown-content em {
             font-style: italic;
+        }
+        .markdown-content a {
+            color: #0071BC;
+            text-decoration: none;
+            transition: color 0.2s ease-in-out;
+        }
+        .markdown-content a:hover {
+            color: #1A4480;
+            text-decoration: underline;
+        }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            font-weight: 600;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .markdown-content h1 { font-size: 1.5rem; }
+        .markdown-content h2 { font-size: 1.25rem; }
+        .markdown-content h3 { font-size: 1.125rem; }
+        .markdown-content blockquote {
+            border-left: 4px solid #e5e7eb;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            color: #6b7280;
+        }
+        .markdown-content code {
+            background-color: #f3f4f6;
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+        
+        /* Footer specific link styling */
+        footer .markdown-content a {
+            color: #0071BC;
+        }
+        footer .markdown-content a:hover {
+            color: #1A4480;
+        }
+        
+        .stat-card {
+            transition: all 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .feature-card {
+            transition: all 0.3s ease;
+        }
+        .feature-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
     </style>
 </head>
@@ -79,9 +157,16 @@
             <div class="bg-card rounded-card p-6 border border-border w-[90%] mx-auto">
                 <h2 class="text-3xl font-bold text-primary mb-6">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</h2>
                 
-                {% for paragraph in content.info.paragraphs | default(["The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites, supporting data exploration and public access."]) %}
-                    <p class="text-text mb-4 text-lg">{{ paragraph | safe }}</p>
-                {% endfor %}
+                <!-- Enhanced Description with Markdown Support -->
+                <div class="markdown-content text-text">
+                    {% if content.info.paragraphs %}
+                        {% for paragraph in content.info.paragraphs %}
+                            <div class="mb-4">{{ paragraph | safe }}</div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="mb-4">The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites, supporting data exploration and public access.</p>
+                    {% endif %}
+                </div>
 
                 <!-- Featured Databases -->
                 {% if feature_cards %}
@@ -92,7 +177,7 @@
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for card in feature_cards %}
-                            <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group">
+                            <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group feature-card">
                                 <div class="flex items-center justify-between mb-3">
                                     <h4 class="text-lg font-semibold text-accent group-hover:text-primary flex items-center">
                                         <i class="{{ card.icon | default('ri-database-line') }} mr-2"></i>
@@ -188,7 +273,7 @@
                     {% if stat.url and not actor %}
                         <a href="{{ stat.url }}" class="block">
                     {% endif %}
-                    <div class="bg-accent rounded-card p-6 text-center text-white hover:bg-primary transition cursor-pointer">
+                    <div class="bg-accent rounded-card p-6 text-center text-white hover:bg-primary transition cursor-pointer stat-card">
                         <h3 class="text-4xl font-bold mb-2">{{ stat.value }}</h3>
                         <p class="text-white">{{ stat.label }}</p>
                         {% if not stat.url or actor %}

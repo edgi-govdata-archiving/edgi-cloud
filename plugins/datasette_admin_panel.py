@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv','.txt'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-MAX_DATABASES_PER_USER = 5
+MAX_DATABASES_PER_USER = 10
 STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "/static")
 DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")
 CSRF_SECRET_KEY = os.getenv('CSRF_SECRET_KEY')
@@ -32,14 +32,92 @@ def sanitize_text(text):
     return bleach.clean(text, tags=[], strip=True)
 
 def parse_markdown_links(text):
-    """Parse markdown-like links [text](url) into HTML <a> tags and split into paragraphs."""
-    paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
-    parsed_paragraphs = []
+    """Enhanced markdown parser that handles links, bold, italic, and lists."""
+    import re
+    
+    # Split text into blocks (separated by double newlines OR single newlines for lists)
+    blocks = []
+    current_block = []
+    lines = text.split('\n')
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        if not line:  # Empty line
+            if current_block:
+                blocks.append('\n'.join(current_block))
+                current_block = []
+        else:
+            current_block.append(line)
+        i += 1
+    
+    # Don't forget the last block
+    if current_block:
+        blocks.append('\n'.join(current_block))
+    
+    parsed_blocks = []
+    
+    for block in blocks:
+        if not block.strip():
+            continue
+            
+        lines = [line.strip() for line in block.split('\n') if line.strip()]
+        
+        # Check if this block is a list
+        bullet_lines = [line for line in lines if line.startswith(('- ', '* '))]
+        numbered_lines = [line for line in lines if re.match(r'^\d+\.\s', line)]
+        
+        # More flexible list detection - if majority are list items, treat as list
+        if len(bullet_lines) >= 2:
+            # Handle as bullet list
+            list_items = []
+            for line in lines:
+                if line.startswith(('- ', '* ')):
+                    item_text = line[2:].strip()  # Remove "- " or "* "
+                    item_text = apply_inline_formatting(item_text)
+                    list_items.append(f'<li>{item_text}</li>')
+            
+            if list_items:
+                parsed_blocks.append(f'<ul>{"".join(list_items)}</ul>')
+            
+        elif len(numbered_lines) >= 2:
+            # Handle as numbered list
+            list_items = []
+            for line in lines:
+                if re.match(r'^\d+\.\s', line):
+                    item_text = re.sub(r'^\d+\.\s', '', line).strip()  # Remove "1. "
+                    item_text = apply_inline_formatting(item_text)
+                    list_items.append(f'<li>{item_text}</li>')
+            
+            if list_items:
+                parsed_blocks.append(f'<ol>{"".join(list_items)}</ol>')
+            
+        else:
+            # Handle as regular paragraph
+            paragraph_text = ' '.join(lines)
+            formatted_text = apply_inline_formatting(paragraph_text)
+            parsed_blocks.append(formatted_text)
+    
+    return parsed_blocks
+
+def apply_inline_formatting(text):
+    """Apply inline formatting (links, bold, italic) to text."""
+    import re
+    
+    # Handle links: [text](url)
     link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
-    for paragraph in paragraphs:
-        parsed = link_pattern.sub(lambda m: f'<a href="{sanitize_text(m.group(2))}">{sanitize_text(m.group(1))}</a>', paragraph)
-        parsed_paragraphs.append(parsed)
-    return parsed_paragraphs
+    text = link_pattern.sub(lambda m: f'<a href="{sanitize_text(m.group(2))}">{sanitize_text(m.group(1))}</a>', text)
+    
+    # Handle bold: **text**
+    bold_pattern = re.compile(r'\*\*([^*]+)\*\*')
+    text = bold_pattern.sub(r'<strong>\1</strong>', text)
+    
+    # Handle italic: *text* (but not if it's part of **text**)
+    italic_pattern = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
+    text = italic_pattern.sub(r'<em>\1</em>', text)
+    
+    return text
 
 async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
     """Check if database name is globally unique."""
@@ -1759,7 +1837,6 @@ async def create_homepage(datasette, request):
             # Homepage already exists, redirect to edit
             return Response.redirect(f"/edit-content/{db_id}")
         
-        # Create CLEARLY customized content (not defaults)
         custom_title = f"Custom {db_name.replace('_', ' ').title()} Environmental Data Portal"
         custom_description = f"Welcome to the {db_name.replace('_', ' ').title()} environmental data portal. This database contains important environmental monitoring data and research findings. Explore our comprehensive datasets to understand environmental trends and patterns."
         custom_footer = f"Environmental data portal for {db_name.replace('_', ' ').title()} | Powered by EDGI and Public Environmental Data Partners"
@@ -1772,9 +1849,9 @@ async def create_homepage(datasette, request):
             }),
             ("header_image", {
                 "image_url": "/static/default_header.jpg",
-                "alt_text": f"{db_name.replace('_', ' ').title()} Environmental Data Portal",
-                "credit_text": "Environmental Data Portal",
-                "credit_url": ""
+                "alt_text": f"{db_name.replace('_', ' ').title()} EDGI Portal Header by J. Alex Lang",
+                "credit_text": "Image by J. Alex Lang. Used by permission udated.",
+                "credit_url": "https://www.flickr.com/photos/jalexlang/21359307802/"
             }),
             ("footer", {
                 "content": custom_footer,

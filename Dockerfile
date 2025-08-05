@@ -19,7 +19,7 @@ RUN mkdir -p /data && chmod 755 /data
 # Environment variables
 ENV PORT=8001
 ENV EDGI_DATA_DIR=/data
-ENV EDGI_STATIC_DIR=/static
+ENV EDGI_STATIC_DIR=/app/static
 ENV PORTAL_DB_PATH=/data/portal.db
 
 EXPOSE 8001
