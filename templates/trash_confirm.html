@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>Move to Trash - {{ db_name }} | EDGI Portal</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-delete-bin-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Move to Trash</div>
+            </div>
+            <div>
+                <a href="/manage-databases" class="text-white hover:text-accent">
+                    <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+                </a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-6">
+            <div class="max-w-2xl mx-auto">
+                <!-- Warning Card -->
+                <div class="bg-yellow-50 border border-yellow-200 rounded-card p-6 mb-6">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mr-4">
+                            <i class="ri-delete-bin-line text-yellow-600 ri-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold text-yellow-800">Move Database to Trash</h1>
+                            <p class="text-yellow-600">30-day recovery window</p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded border border-yellow-200 p-4">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-3">
+                            You are about to move to trash:
+                        </h2>
+                        
+                        <div class="space-y-3">
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Database:</span>
+                                <span class="font-medium text-yellow-600">{{ db_name.replace('_', ' ').title() }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Current Status:</span>
+                                <span class="font-medium 
+                                    {% if db_status == 'Published' %}
+                                        text-green-600
+                                    {% elif db_status == 'Unpublished' %}
+                                        text-blue-600
+                                    {% else %}
+                                        text-yellow-600
+                                    {% endif %}">
+                                    {{ db_status }}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Tables:</span>
+                                <span class="font-medium">{{ table_count | default(0) }} data tables</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Records:</span>
+                                <span class="font-medium">{{ "{:,}".format(total_records | default(0)) }} total rows</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Size:</span>
+                                <span class="font-medium">{{ "%.1f".format(database_size | default(0)) }} KB</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                {% if error %}
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                        <p class="text-sm">{{ error }}</p>
+                    </div>
+                {% endif %}
+
+                <!-- Information -->
+                <div class="bg-card rounded-card p-6 border border-border mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">What happens when you move this database to trash?</h3>
+                    
+                    <div class="space-y-3 mb-6">
+                        <div class="flex items-start text-sm">
+                            <i class="ri-time-line text-yellow-500 mr-2 mt-0.5"></i>
+                            <span><strong>{{ retention_days }}-day recovery window:</strong> You have {{ retention_days }} days to restore the database</span>
+                        </div>
+                        <div class="flex items-start text-sm">
+                            <i class="ri-lock-line text-orange-500 mr-2 mt-0.5"></i>
+                            <span><strong>Name reservation:</strong> The database name "{{ db_name }}" will be reserved during this period</span>
+                        </div>
+                        <div class="flex items-start text-sm">
+                            <i class="ri-eye-off-line text-blue-500 mr-2 mt-0.5"></i>
+                            <span><strong>Access removed:</strong> Database will be removed from public and private access</span>
+                        </div>
+                        {% if db_status == 'Published' %}
+                        <div class="flex items-start text-sm">
+                            <i class="ri-link-unlink text-red-500 mr-2 mt-0.5"></i>
+                            <span><strong>Public links broken:</strong> Links to <strong>/{{ db_name }}/</strong> will no longer work</span>
+                        </div>
+                        {% endif %}
+                        <div class="flex items-start text-sm">
+                            <i class="ri-refresh-line text-green-500 mr-2 mt-0.5"></i>
+                            <span><strong>Easy restore:</strong> You can restore anytime from the trash bin</span>
+                        </div>
+                        <div class="flex items-start text-sm">
+                            <i class="ri-alarm-warning-line text-red-500 mr-2 mt-0.5"></i>
+                            <span><strong>Auto-deletion:</strong> Database will be permanently deleted after {{ retention_days }} days</span>
+                        </div>
+                    </div>
+
+                    <!-- Database Name Confirmation -->
+                    <form method="post" onsubmit="return confirmTrash(event)">
+                        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                        
+                        <div class="mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Type the database name <strong class="text-red-600">{{ db_name }}</strong> to confirm:
+                            </label>
+                            <input type="text" name="confirm_db_name" id="confirm-input"
+                                class="w-full p-3 border-2 border-yellow-300 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 font-mono"
+                                placeholder="Enter database name exactly"
+                                autocomplete="off">
+                            <p class="text-yellow-600 text-xs mt-1">
+                                Must match exactly: {{ db_name }}
+                            </p>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <button type="submit" 
+                                    class="flex-1 bg-yellow-500 text-white py-3 px-4 rounded-button hover:bg-yellow-600 transition font-medium">
+                                <i class="ri-delete-bin-line mr-2"></i>Move to Trash ({{ retention_days }}-day recovery)
+                            </button>
+                            
+                            <a href="/manage-databases" 
+                               class="flex-1 bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium">
+                                <i class="ri-close-line mr-2"></i>Cancel
+                            </a>
+                        </div>
+                    </form>
+
+                    <!-- Recovery Information -->
+                    <div class="mt-6 pt-6 border-t border-gray-200">
+                        <div class="bg-blue-50 p-4 rounded">
+                            <h4 class="text-sm font-medium text-blue-800 mb-2">Recovery Options</h4>
+                            <div class="text-blue-700 text-sm space-y-1">
+                                <div>• Access your <strong>Trash Bin</strong> from the main navigation</div>
+                                <div>• Use the <strong>Restore Database</strong> button anytime within {{ retention_days }} days</div>
+                                <div>• Restored databases return to <strong>Draft</strong> status</div>
+                                <div>• You can republish restored databases immediately</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alternative Actions -->
+                    {% if db_status == 'Published' %}
+                    <div class="mt-6 pt-6 border-t border-gray-200">
+                        <h4 class="text-sm font-medium text-gray-700 mb-3">Alternative: Just unpublish instead?</h4>
+                        <p class="text-gray-600 text-sm mb-3">
+                            If you want to make the database private but keep it accessible to you, consider unpublishing instead.
+                        </p>
+                        <form method="post" action="/db/{{ db_name }}/unpublish" class="inline">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-button hover:bg-blue-600 transition text-sm">
+                                <i class="ri-eye-off-line mr-1"></i>Just Unpublish Instead
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <p class="text-primary">
+                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
+                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
+                    </p>
+                </div>
+                <div>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+        <script>
+        const confirmationInput = document.getElementById('confirm-input');
+        const requiredDbName = '{{ db_name }}';
+
+        // Enable submit button only when correct database name is entered
+        confirmationInput.addEventListener('input', function() {
+            const submitButton = document.querySelector('button[type="submit"]');
+            const isMatch = this.value.trim() === requiredDbName;
+            
+            if (isMatch) {
+                submitButton.disabled = false;
+                submitButton.classList.remove('bg-gray-400');
+                submitButton.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+                confirmationInput.classList.remove('border-yellow-300');
+                confirmationInput.classList.add('border-green-500', 'bg-green-50');
+            } else {
+                submitButton.disabled = true;
+                submitButton.classList.add('bg-gray-400');
+                submitButton.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+                confirmationInput.classList.remove('border-green-500', 'bg-green-50');
+                confirmationInput.classList.add('border-yellow-300');
+            }
+        });
+
+        function confirmTrash(event) {
+            const dbName = '{{ db_name }}';
+            const confirmInput = document.getElementById('confirm-input').value.trim();
+            const retentionDays = {{ retention_days }};
+            
+            if (confirmInput !== dbName) {
+                event.preventDefault();
+                alert('Please enter the exact database name to confirm deletion.');
+                document.getElementById('confirm-input').focus();
+                return false;
+            }
+            
+            const confirmMessage = 
+                `Move "${dbName.replace('_', ' ')}" to trash?\n\n` +
+                `This will:\n` +
+                `• Remove all access to the database\n` +
+                `• Reserve the database name for ${retentionDays} days\n` +
+                `• Allow recovery from the trash bin\n` +
+                `• Automatically delete after ${retentionDays} days if not restored\n\n` +
+                `Continue?`;
+            
+            if (!confirm(confirmMessage)) {
+                event.preventDefault();
+                return false;
+            }
+            
+            // Show loading state
+            const button = event.target.querySelector('button[type="submit"]');
+            if (button) {
+                button.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Moving to Trash...';
+                button.disabled = true;
+            }
+            
+            return true;
+        }
+
+        // Auto-focus on confirmation input
+        document.getElementById('confirm-input').focus();
+
+        // Initially disable submit button
+        document.querySelector('button[type="submit"]').disabled = true;
+        document.querySelector('button[type="submit"]').classList.add('bg-gray-400');
+    </script>
+</body>
+</html>

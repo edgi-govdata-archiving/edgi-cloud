@@ -2,7 +2,7 @@ import json
 import bcrypt
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from datasette import hookimpl
 from datasette.utils.asgi import Response
 from datasette.utils import tilde_encode
@@ -16,6 +16,9 @@ import base64
 from email.parser import BytesParser
 from email.policy import default
 
+# Import deletion functions when needed to avoid circular imports
+# We'll import these functions dynamically when they're called
+
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
@@ -25,7 +28,7 @@ MAX_DATABASES_PER_USER = 10
 STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "/static")
 DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")
 CSRF_SECRET_KEY = os.getenv('CSRF_SECRET_KEY')
-
+TRASH_RETENTION_DAYS = 30
 
 def sanitize_text(text):
     """Sanitize text by stripping HTML tags while preserving safe characters."""
@@ -120,7 +123,7 @@ def apply_inline_formatting(text):
     return text
 
 async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
-    """Check if database name is globally unique."""
+    """Check if database name is globally unique, including trashed databases."""
     db = datasette.get_database("portal")
     if exclude_db_id:
         result = await db.execute(
@@ -132,6 +135,15 @@ async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
             "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status != 'Deleted'", 
             [db_name]
         )
+    return result.first()[0] == 0
+
+async def check_database_name_available(datasette, db_name):
+    """Check if database name is available for new creation (not reserved by trash)."""
+    db = datasette.get_database("portal")
+    result = await db.execute(
+        "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')", 
+        [db_name]
+    )
     return result.first()[0] == 0
 
 def get_actor_from_request(request):
@@ -263,48 +275,141 @@ async def get_database_content(datasette, db_name):
     return content
 
 async def get_database_statistics(datasette, user_id=None):
-    """Get enhanced database statistics for homepage."""
-    db = datasette.get_database("portal")
-    
+    """Get enhanced database statistics for homepage with encoding safety."""
     try:
-        # Total databases
-        total_result = await db.execute("SELECT COUNT(*) FROM databases WHERE status != 'Deleted'")
-        total_count = total_result.first()[0]
+        db = datasette.get_database("portal")
         
-        # Published databases
-        published_result = await db.execute("SELECT COUNT(*) FROM databases WHERE status = 'Published'")
-        published_count = published_result.first()[0]
+        # Initialize default values
+        stats = {
+            'total_databases': 0,
+            'published_databases': 0,
+            'featured_databases': [],
+            'user_databases': 0,
+            'user_published': 0,
+            'user_trashed': 0
+        }
+        
+        try:
+            # Total active databases (not deleted or trashed)
+            total_result = await db.execute(
+                "SELECT COUNT(*) FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
+            )
+            stats['total_databases'] = total_result.first()[0] if total_result.first() else 0
+        except Exception as e:
+            logger.error(f"Error getting total databases: {e}")
+        
+        try:
+            # Published databases
+            published_result = await db.execute(
+                "SELECT COUNT(*) FROM databases WHERE status = 'Published'"
+            )
+            stats['published_databases'] = published_result.first()[0] if published_result.first() else 0
+        except Exception as e:
+            logger.error(f"Error getting published databases: {e}")
         
         # User-specific statistics if user_id provided
-        user_stats = {}
         if user_id:
-            user_result = await db.execute("SELECT COUNT(*) FROM databases WHERE user_id = ? AND status != 'Deleted'", [user_id])
-            user_stats['user_databases'] = user_result.first()[0]
+            try:
+                # User active databases
+                user_result = await db.execute(
+                    "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished')", 
+                    [user_id]
+                )
+                stats['user_databases'] = user_result.first()[0] if user_result.first() else 0
+            except Exception as e:
+                logger.error(f"Error getting user databases for {user_id}: {e}")
             
-            user_published_result = await db.execute("SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Published'", [user_id])
-            user_stats['user_published'] = user_published_result.first()[0]
+            try:
+                # User published databases
+                user_published_result = await db.execute(
+                    "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Published'", 
+                    [user_id]
+                )
+                stats['user_published'] = user_published_result.first()[0] if user_published_result.first() else 0
+            except Exception as e:
+                logger.error(f"Error getting user published databases for {user_id}: {e}")
+            
+            try:
+                # User trashed databases
+                user_trashed_result = await db.execute(
+                    "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Trashed'", 
+                    [user_id]
+                )
+                stats['user_trashed'] = user_trashed_result.first()[0] if user_trashed_result.first() else 0
+            except Exception as e:
+                logger.error(f"Error getting user trashed databases for {user_id}: {e}")
         
-        # Featured databases for homepage
-        featured_result = await db.execute(
-            "SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 6"
-        )
-        featured_databases = [dict(row) for row in featured_result]
+        try:
+            # Featured databases for homepage - only get essential fields
+            featured_result = await db.execute(
+                "SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 6"
+            )
+            stats['featured_databases'] = []
+            for row in featured_result:
+                try:
+                    # Safely convert each row
+                    db_dict = {
+                        'db_id': str(row['db_id']) if row['db_id'] else '',
+                        'db_name': str(row['db_name']) if row['db_name'] else '',
+                        'website_url': str(row['website_url']) if row['website_url'] else '',
+                        'status': str(row['status']) if row['status'] else ''
+                    }
+                    stats['featured_databases'].append(db_dict)
+                except Exception as row_error:
+                    logger.error(f"Error processing featured database row: {row_error}")
+                    continue
+        except Exception as e:
+            logger.error(f"Error getting featured databases: {e}")
         
-        return {
-            'total_databases': total_count,
-            'published_databases': published_count,
-            'featured_databases': featured_databases,
-            **user_stats
-        }
+        logger.debug(f"Database statistics calculated: {stats}")
+        return stats
+        
     except Exception as e:
-        logger.error(f"Error fetching statistics: {str(e)}")
+        logger.error(f"Error fetching database statistics: {str(e)}")
+        # Return safe defaults
         return {
             'total_databases': 0,
             'published_databases': 0,
             'featured_databases': [],
             'user_databases': 0,
-            'user_published': 0
+            'user_published': 0,
+            'user_trashed': 0
         }
+
+async def cleanup_database_encoding_issues(datasette):
+    """Clean up potential encoding issues in the database."""
+    try:
+        db = datasette.get_database("portal")
+        
+        # Check for problematic records
+        logger.info("Checking for encoding issues in database...")
+        
+        # Get all databases and check for encoding issues
+        try:
+            result = await db.execute("SELECT db_id, db_name, website_url FROM databases")
+            problematic_records = []
+            
+            for row in result:
+                try:
+                    # Try to access each field
+                    str(row['db_id'])
+                    str(row['db_name']) 
+                    str(row['website_url'])
+                except UnicodeError as e:
+                    problematic_records.append(row['db_id'])
+                    logger.warning(f"Found encoding issue in database record: {row['db_id']}")
+            
+            if problematic_records:
+                logger.warning(f"Found {len(problematic_records)} records with encoding issues")
+                # You might want to manually fix these or recreate them
+            else:
+                logger.info("No encoding issues found in database records")
+                
+        except Exception as check_error:
+            logger.error(f"Error checking for encoding issues: {check_error}")
+            
+    except Exception as e:
+        logger.error(f"Error in encoding cleanup: {e}")
 
 async def index_page(datasette, request):
     """Enhanced index page with improved statistics and user database info."""
@@ -379,7 +484,7 @@ async def index_page(datasette, request):
             logger.error(f"Error verifying user in index_page: {str(e)}")
             response = Response.redirect("/login?error=Authentication error")
             response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-            return response
+            return respons
 
     # Get enhanced statistics for public homepage
     stats = await get_database_statistics(datasette)
@@ -555,6 +660,28 @@ async def all_databases_page(datasette, request):
             )
         )
 
+async def log_database_action(datasette, user_id, action, details, metadata=None):
+    """Enhanced logging with metadata support."""
+    try:
+        query_db = datasette.get_database("portal")
+        log_data = {
+            'log_id': uuid.uuid4().hex[:20],
+            'user_id': user_id,
+            'action': action,
+            'details': details,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        if metadata:
+            log_data['action_metadata'] = json.dumps(metadata)
+        
+        await query_db.execute_write(
+            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
+        )
+    except Exception as e:
+        logger.error(f"Error logging action: {e}")
+
 async def login_page(datasette, request):
     logger.debug(f"Login request: method={request.method}")
 
@@ -587,7 +714,6 @@ async def login_page(datasette, request):
                 )
             )
         
-        # Your existing login logic here...
         try:
             db = datasette.get_database("portal")
             result = await db.execute("SELECT user_id, username, password_hash, role FROM users WHERE username = ?", [username])
@@ -908,7 +1034,7 @@ async def change_password_page(datasette, request):
     )
 
 async def manage_databases(datasette, request):
-    """Enhanced manage databases with better table information."""
+    """Enhanced manage databases with three-tier deletion system."""
     logger.debug(f"Manage Databases request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -930,7 +1056,18 @@ async def manage_databases(datasette, request):
         logger.error(f"Error verifying user in manage_databases: {str(e)}")
         return Response.redirect("/login?error=Authentication error")
 
-    result = await query_db.execute("SELECT db_id, db_name, status, website_url, file_path FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published')", [actor.get("id")])
+    # Get filter parameter
+    status_filter = request.args.get('status', 'active')
+    
+    # Build query based on filter
+    if status_filter == 'active':
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished')"
+    elif status_filter == 'trash':
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline FROM databases WHERE user_id = ? AND status = 'Trashed'"
+    else:
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')"
+    
+    result = await query_db.execute(query, [actor.get("id")])
     user_databases = [dict(row) for row in result]
     
     title = await query_db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
@@ -1006,6 +1143,8 @@ async def manage_databases(datasette, request):
             'has_custom_homepage': has_custom_homepage  # Indicate if custom homepage exists
         })
 
+    stats = await get_database_statistics(datasette, actor.get("id"))
+
     return Response.html(
         await datasette.render_template(
             "manage_databases.html",
@@ -1014,9 +1153,10 @@ async def manage_databases(datasette, request):
                 "content": content,
                 "actor": actor,
                 "user_databases": databases_with_tables,
+                "status_filter": status_filter,
+                "stats": stats,
                 "success": request.args.get('success'),
                 "error": request.args.get('error'),
-                
             },
             request=request
         )
@@ -1618,6 +1758,9 @@ async def publish_database(datasette, request):
         if db_info['status'] == 'Published':
             return Response.redirect(f"/manage-databases?error=Database '{db_name}' is already published")
         
+        if db_info['status'] == 'Trashed':
+            return Response.redirect(f"/manage-databases?error=Database '{db_name}' is in trash. Restore it first.")
+        
         # Update status to Published
         await query_db.execute_write(
             "UPDATE databases SET status = 'Published' WHERE db_name = ?",
@@ -1633,9 +1776,14 @@ async def publish_database(datasette, request):
             except Exception as reg_error:
                 logger.error(f"Error registering database {db_name}: {reg_error}")
         
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-            [uuid.uuid4().hex[:20], actor.get("id"), "publish_database", f"Published database {db_name}", datetime.utcnow()]
+        await log_database_action(
+            datasette, actor.get("id"), "publish_database", 
+            f"Published database {db_name}",
+            {
+                "db_name": db_name,
+                "previous_status": db_info['status'],
+                "new_status": "Published"
+            }
         )
         
         return Response.redirect(f"/manage-databases?success=Database '{db_name}' published successfully! It's now publicly accessible at /{db_name}/")
@@ -1643,7 +1791,7 @@ async def publish_database(datasette, request):
     except Exception as e:
         logger.error(f"Error publishing database {db_name}: {str(e)}")
         return Response.text(f"Error publishing database: {str(e)}", status=500)
-
+    
 async def database_homepage(datasette, request):
     """Enhanced database homepage with better error handling."""
     logger.debug(f"Database homepage request: method={request.method}, path={request.path}")
@@ -2411,7 +2559,7 @@ async def serve_database_image(datasette, request):
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return Response.text("Internal server error", status=500)
-    
+        
 async def diagnose_database_structure(datasette):
     """Diagnose the current database structure"""
     try:
@@ -2466,10 +2614,25 @@ async def user_owns_database(datasette, user_id, db_name):
         logger.error(f"Database ownership check failed: {e}")
         return False
 
-
 @hookimpl
 def register_routes():
-    """Register routes including static file serving for database images."""
+    """Register routes including deletion routes."""
+    # Import deletion functions here to avoid circular imports
+    try:
+        from datasette_delete_db import (
+            unpublish_database, 
+            trash_database, 
+            restore_database, 
+            permanent_delete_database
+        )
+    except ImportError:
+        logger.warning("Could not import deletion functions - deletion features may not work")
+        # Create dummy functions
+        async def unpublish_database(datasette, request): return Response.text("Feature not available", status=500)
+        async def trash_database(datasette, request): return Response.text("Feature not available", status=500)
+        async def restore_database(datasette, request): return Response.text("Feature not available", status=500)
+        async def permanent_delete_database(datasette, request): return Response.text("Feature not available", status=500)
+    
     return [
         (r"^/$", index_page),
         (r"^/login$", login_page),
@@ -2487,9 +2650,7 @@ def register_routes():
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/create-homepage$", create_homepage),
         (r"^/db/([^/]+)/homepage$", database_homepage),
-        (r"^/db/([^/]+)/delete$", delete_database),  # Use /db/{db_name}/delete
         (r"^/edit-portal-homepage$", edit_portal_homepage),
-
     ]
 
 @hookimpl
@@ -2511,86 +2672,131 @@ def permission_allowed(datasette, actor, action, resource):
         return False  # Block insecure official plugin
     return None
 
+_cleanup_task = None
+
+async def periodic_auto_cleanup(datasette, interval_hours=24):
+    """
+    Periodic background task that runs auto-cleanup at specified intervals.
+    
+    Args:
+        datasette: Datasette instance
+        interval_hours: How often to run cleanup (default: 24 hours)
+    """
+    global _cleanup_task
+    
+    logger.info(f"Starting periodic auto-cleanup (every {interval_hours} hours)")
+    
+    try:
+        while True:
+            # Wait for the specified interval
+            await asyncio.sleep(interval_hours * 3600)  # Convert hours to seconds
+            
+            try:
+                logger.info("Running scheduled auto-cleanup of expired databases")
+                
+                # Import the cleanup function from our delete module
+                from .datasette_delete_db import auto_cleanup_expired_databases
+                await auto_cleanup_expired_databases(datasette)
+                
+                logger.info("Scheduled auto-cleanup completed successfully")
+                
+            except Exception as cleanup_error:
+                logger.error(f"Error during scheduled auto-cleanup: {cleanup_error}")
+                # Continue the loop even if cleanup fails
+                
+    except asyncio.CancelledError:
+        logger.info("Periodic auto-cleanup task cancelled")
+        raise
+    except Exception as e:
+        logger.error(f"Periodic auto-cleanup task failed: {e}")
+
+async def schedule_cleanup_task(datasette):
+    """Start the background cleanup task if not already running."""
+    global _cleanup_task
+    
+    # Cancel existing task if running
+    if _cleanup_task and not _cleanup_task.done():
+        logger.debug("Cancelling existing cleanup task")
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
+    
+    # Get cleanup interval from environment (default 24 hours)
+    cleanup_interval = int(os.getenv('AUTO_CLEANUP_INTERVAL_HOURS', '24'))
+    
+    # Start new cleanup task
+    _cleanup_task = asyncio.create_task(
+        periodic_auto_cleanup(datasette, cleanup_interval)
+    )
+    
+    logger.info(f"Scheduled auto-cleanup every {cleanup_interval} hours")
+
 @hookimpl
 def startup(datasette):
-    """Startup hook - now simplified since init_db.py handles database creation"""
+    """Enhanced startup hook with proper auto-cleanup scheduling"""
     
     async def inner():
-        # Ensure directories exist
-        ensure_data_directories()
-        
-        # Get database path
-        db_path = os.getenv('PORTAL_DB_PATH', "C:/MS Data Science - WMU/EDGI/edgi-cloud/portal.db")
-        
-        # Check if portal database exists
-        if not os.path.exists(db_path):
-            logger.error(f"Portal database not found at: {db_path}")
-            logger.error("Run init_db.py first to create the database")
-            return
-        
-        query_db = datasette.get_database('portal')
-        
         try:
-            # Verify database structure
-            tables = await query_db.table_names()
-            required_tables = ['users', 'databases', 'admin_content', 'activity_logs']
-            missing_tables = [t for t in required_tables if t not in tables]
+            logger.info(" Starting EDGI Cloud Portal...")
             
-            if missing_tables:
-                logger.error(f"Missing required tables: {missing_tables}")
-                logger.error("Database may not be properly initialized")
+            # Ensure directories exist
+            ensure_data_directories()
+            
+            # Get database path
+            db_path = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
+            
+            # Check if portal database exists
+            if not os.path.exists(db_path):
+                logger.error(f"Portal database not found at: {db_path}")
+                logger.error("Run init_db.py first to create the database")
                 return
             
-            # Register existing user databases with Datasette
-            result = await query_db.execute(
-                "SELECT db_name, file_path, status FROM databases WHERE status IN ('Published', 'Draft') AND file_path IS NOT NULL"
-            )
+            logger.info(f"Using portal database: {db_path}")
+            query_db = datasette.get_database('portal')
             
-            registered_count = 0
-            failed_count = 0
+            # Verify database structure
+            await verify_database_structure(query_db)
             
-            for row in result:
-                db_name = row['db_name']
-                file_path = row['file_path']
-                status = row['status']
-                
-                if file_path and os.path.exists(file_path):
-                    try:
-                        # Check if already registered
-                        if db_name not in datasette.databases:
-                            user_db = Database(datasette, path=file_path, is_mutable=True)
-                            datasette.add_database(user_db, name=db_name)
-                            registered_count += 1
-                            logger.debug(f"Registered database: {db_name} (status: {status})")
-                        else:
-                            logger.debug(f"Database already registered: {db_name}")
-                    except Exception as reg_error:
-                        failed_count += 1
-                        logger.error(f"Failed to register database {db_name}: {reg_error}")
-                else:
-                    logger.warning(f"Database file not found for {db_name}: {file_path}")
-                    failed_count += 1
+            # Register existing user databases
+            registered_count, failed_count = await register_user_databases(datasette, query_db)
             
-            logger.info(f"Startup complete - Registered: {registered_count}, Failed: {failed_count}")
-            
-            # Log startup to activity logs
+            # Run immediate cleanup check for expired databases
+            logger.info("Running initial auto-cleanup check...")
             try:
-                await query_db.execute_write(
-                    "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                    [
-                        uuid.uuid4().hex[:20],
-                        "system",
-                        "startup",
-                        f"System started - Registered {registered_count} databases",
-                        datetime.utcnow().isoformat()
-                    ]
-                )
-            except Exception as e:
-                logger.debug(f"Could not log startup activity: {e}")
+                from .datasette_delete_db import auto_cleanup_expired_databases
                 
+                # Run initial cleanup check
+                try:
+                    from datasette_delete_db import auto_cleanup_expired_databases
+                    await auto_cleanup_expired_databases(datasette)
+                    logger.info("Initial auto-cleanup completed")
+                except ImportError:
+                    logger.warning("Could not import auto_cleanup_expired_databases - skipping initial cleanup")
+                except Exception as cleanup_error:
+                    logger.error(f"Initial auto-cleanup failed: {cleanup_error}")
+                logger.info("Initial auto-cleanup completed")
+            except Exception as cleanup_error:
+                logger.error(f"Initial auto-cleanup failed: {cleanup_error}")
+            
+            # Schedule recurring auto-cleanup
+            await schedule_cleanup_task(datasette)
+            
+            # Log startup success
+            await log_startup_success(datasette, registered_count, failed_count)
+            
+            logger.info("✅ EDGI Cloud Portal startup completed successfully")
+            
         except Exception as e:
-            logger.error(f"Error during startup initialization: {str(e)}")
+            logger.error(f" EDGI Cloud Portal startup failed: {str(e)}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
+            # Don't re-raise - let Datasette continue starting
+        # In your startup function, add this after database verification:
+        try:
+            await cleanup_database_encoding_issues(datasette)
+        except Exception as cleanup_error:
+            logger.warning(f"Database encoding cleanup failed: {cleanup_error}")
 
     return inner
