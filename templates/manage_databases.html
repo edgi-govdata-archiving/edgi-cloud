@@ -11,7 +11,7 @@
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body class="bg-background">
-    <!-- Hidden CSRF token for AJAX requests - FIXED to use Datasette's built-in function -->
+    <!-- Hidden CSRF token for AJAX requests -->
     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}" style="display: none;">
     
     <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
@@ -28,6 +28,9 @@
                     {% if actor.role == "system_admin" %}
                         <a href="/system-admin" class="text-white hover:text-accent mr-4">Admin Panel</a>
                     {% endif %}
+                    <a href="/trash" class="text-white hover:text-accent mr-4">
+                        <i class="ri-delete-bin-line mr-1"></i>Trash ({{ stats.user_trashed | default(0) }})
+                    </a>
                     <a href="/change-password" class="text-white hover:text-accent mr-4">Settings</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
@@ -37,15 +40,23 @@
     
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-6">
-            <!-- Header -->
+            <!-- Header with Filter -->
             <div class="flex justify-between items-center mb-6 w-[80%] mx-auto mt-1">
                 <div>
                     <h1 class="text-3xl font-bold text-primary">My Databases</h1>
                     <p class="text-textlight mt-2">Manage your environmental data portals</p>
                 </div>
-                <a href="/create-database" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
-                    <i class="ri-add-line mr-2"></i>Create New Database
-                </a>
+                <div class="flex gap-3">
+                    <!-- Status Filter -->
+                    <select id="status-filter" onchange="filterDatabases()" class="px-4 py-2 border border-gray-300 rounded-button text-sm">
+                        <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active Databases</option>
+                        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Databases</option>
+                        <option value="trash" {% if status_filter == 'trash' %}selected{% endif %}>Trash Bin</option>
+                    </select>
+                    <a href="/create-database" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                        <i class="ri-add-line mr-2"></i>Create New Database
+                    </a>
+                </div>
             </div>
 
             <!-- Success/Error Messages -->
@@ -60,37 +71,64 @@
                 </div>
             {% endif %}
 
-            <!-- Databases Grid -->
-            {% if user_databases %}
-            <!-- Quick Stats -->
-             <div class="w-[80%] mx-auto mt-1">
-                <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Enhanced Statistics -->
+            <div class="w-[80%] mx-auto mt-1">
+                <div class="mt-8 grid grid-cols-1 md:grid-cols-4 gap-6">
                     <div class="bg-card rounded-card p-4 border border-border text-center">
-                        <div class="text-2xl font-bold text-accent">{{ user_databases|length }}</div>
-                        <div class="text-textlight text-sm">Total Databases</div>
+                        <div class="text-2xl font-bold text-accent">{{ stats.user_databases | default(0) }}</div>
+                        <div class="text-textlight text-sm">Active Databases</div>
                     </div>
                     <div class="bg-card rounded-card p-4 border border-border text-center">
-                        <div class="text-2xl font-bold text-green-500">{{ user_databases|selectattr('status', 'equalto', 'Published')|list|length }}</div>
+                        <div class="text-2xl font-bold text-green-500">{{ stats.user_published | default(0) }}</div>
                         <div class="text-textlight text-sm">Published</div>
                     </div>
                     <div class="bg-card rounded-card p-4 border border-border text-center">
-                        <div class="text-2xl font-bold text-yellow-500">{{ user_databases|selectattr('status', 'equalto', 'Draft')|list|length }}</div>
-                        <div class="text-textlight text-sm">Drafts</div>
+                        <div class="text-2xl font-bold text-orange-500">{{ stats.user_trashed | default(0) }}</div>
+                        <div class="text-textlight text-sm">In Trash</div>
+                    </div>
+                    <div class="bg-card rounded-card p-4 border border-border text-center">
+                        <a href="/trash" class="block hover:bg-gray-50 transition rounded p-2">
+                            <div class="text-2xl font-bold text-red-500">
+                                <i class="ri-delete-bin-line"></i>
+                            </div>
+                            <div class="text-textlight text-sm">View Trash Bin</div>
+                        </a>
                     </div>
                 </div>
 
+                <!-- Databases Grid -->
+                {% if user_databases %}
                     <div class="grid grid-cols-1 lg:grid-cols-1 gap-6 mt-6">
                         {% for db in user_databases %}
-                            <div class="bg-card rounded-card border border-border hover:shadow-md transition">
+                            <div class="bg-card rounded-card border border-border hover:shadow-md transition
+                                {% if db.status == 'Trashed' %}border-red-200 bg-red-50{% endif %}">
+                                
                                 <!-- Database Header -->
                                 <div class="p-6 border-b border-border">
                                     <div class="flex items-center justify-between mb-4">
-                                        <div>
-                                            <h3 class="text-xl font-semibold text-primary">{{ db.db_name.replace('_', ' ').title() }}</h3>
+                                        <div class="flex-1">
+                                            <div class="flex items-center gap-3">
+                                                <h3 class="text-xl font-semibold text-primary">{{ db.db_name.replace('_', ' ').title() }}</h3>
+                                                {% if db.status == 'Trashed' and db.days_until_delete is not none %}
+                                                    <div class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium">
+                                                        {% if db.days_until_delete > 0 %}
+                                                            Auto-delete in {{ db.days_until_delete }} days
+                                                        {% else %}
+                                                            Expired - Will be deleted soon
+                                                        {% endif %}
+                                                    </div>
+                                                {% endif %}
+                                            </div>
                                             <div class="flex items-center gap-4 mt-2">
                                                 <span class="px-3 py-1 rounded-full text-xs font-medium 
-                                                    {% if db.status == 'Published' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
-                                                    <i class="ri-{% if db.status == 'Published' %}check-line{% else %}time-line{% endif %} mr-1"></i>
+                                                    {% if db.status == 'Published' %}bg-green-100 text-green-800
+                                                    {% elif db.status == 'Unpublished' %}bg-blue-100 text-blue-800
+                                                    {% elif db.status == 'Trashed' %}bg-red-100 text-red-800
+                                                    {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                                                    <i class="ri-{% if db.status == 'Published' %}global-line
+                                                        {% elif db.status == 'Unpublished' %}eye-off-line
+                                                        {% elif db.status == 'Trashed' %}delete-bin-line
+                                                        {% else %}draft-line{% endif %} mr-1"></i>
                                                     {{ db.status }}
                                                 </span>
                                                 <span class="text-textlight text-sm">
@@ -99,6 +137,11 @@
                                                 <span class="text-textlight text-sm">
                                                     <i class="ri-database-line mr-1"></i>{{ "%.1f"|format(db.total_size) }}KB
                                                 </span>
+                                                {% if db.status == 'Trashed' and db.trashed_at_formatted %}
+                                                    <span class="text-textlight text-sm">
+                                                        <i class="ri-time-line mr-1"></i>Trashed {{ db.trashed_at_formatted }}
+                                                    </span>
+                                                {% endif %}
                                             </div>
                                         </div>
                                         <div class="text-right">
@@ -107,65 +150,90 @@
                                         </div>
                                     </div>
 
-                                   <!-- Separated Action Buttons --> 
+                                    <!-- Action Buttons Based on Status -->
                                     <div class="flex flex-wrap gap-2">
-                                        <!-- Always show data management actions -->
-                                            <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                                <i class="ri-upload-line"></i> Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
-                                            </a>
-
-                                        <!-- Database status actions -->
-                                        {% if db.status == 'Draft' %}
-                                            <form method="post" action="/db/{{ db.db_name }}/publish" class="inline">
+                                        {% if db.status == 'Trashed' %}
+                                            <!-- Trash Actions -->
+                                            <form method="post" action="/db/{{ db.db_name }}/restore" class="inline">
                                                 <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                                                <button type="submit" class="bg-accent text-white px-3 py-2 rounded-button hover:bg-primary transition text-sm font-medium">
-                                                    <i class="ri-send-plane-line mr-1"></i>Publish Database
+                                                <button type="submit" class="bg-green-500 text-white px-3 py-2 rounded-button hover:bg-green-600 transition text-sm font-medium">
+                                                    <i class="ri-refresh-line mr-1"></i>Restore Database
                                                 </button>
                                             </form>
-                                        {% endif %}
-
-                                        {% if db.status == 'Published' %}
-                                            <a href="/{{ db.db_name }}/" target="_blank" class="bg-green-500 text-white px-3 py-2 rounded-button hover:bg-green-600 transition text-sm font-medium">
-                                                <i class="ri-external-link-line mr-1"></i>View Database
+                                            <a href="/db/{{ db.db_name }}/delete-permanent" 
+                                               class="bg-red-600 text-white px-3 py-2 rounded-button hover:bg-red-700 transition text-sm font-medium"
+                                               onclick="return confirm('This will permanently delete the database. Continue to confirmation page?')">
+                                                <i class="ri-delete-bin-line mr-1"></i>Delete Permanently
                                             </a>
-                                        {% endif %}
-
-                                        <!-- Homepage customization actions -->
-                                        {% if db.has_custom_homepage %}
-                                            <a href="/edit-content/{{ db.db_id }}" class="bg-purple-500 text-white px-3 py-2 rounded-button hover:bg-purple-600 transition text-sm font-medium">
-                                                <i class="ri-edit-line mr-1"></i>Edit Homepage
-                                            </a>
-                                            {% if db.status == 'Published' %}
-                                                <a href="/db/{{ db.db_name }}/homepage" target="_blank" class="bg-indigo-500 text-white px-3 py-2 rounded-button hover:bg-indigo-600 transition text-sm font-medium">
-                                                    <i class="ri-home-line mr-1"></i>View Homepage
+                                        {% else %}
+                                            <!-- Active Database Actions -->
+                                            {% if db.status != 'Trashed' %}
+                                                <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                    <i class="ri-upload-line"></i> Upload CSV
                                                 </a>
                                             {% endif %}
-                                        {% else %}
-                                            <form method="post" action="/db/{{ db.db_name }}/create-homepage" class="inline">
-                                                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                                                <button type="submit" class="bg-orange-500 text-white px-3 py-2 rounded-button hover:bg-orange-600 transition text-sm font-medium">
-                                                    <i class="ri-add-circle-line mr-1"></i>Create Homepage
-                                                </button>
-                                            </form>
-                                        {% endif %}
 
-                                        <!-- DELETE DATABASE BUTTON - UPDATED URL -->
-                                        <a href="/db/{{ db.db_name }}/delete" 
-                                           class="bg-red-500 text-white px-3 py-2 rounded-button hover:bg-red-600 transition text-sm font-medium"
-                                           onclick="return confirm('This will take you to a confirmation page. Continue?')">
-                                            <i class="ri-delete-bin-line mr-1"></i>Delete Database
-                                        </a>
+                                            <!-- Publication Actions -->
+                                            {% if db.status == 'Draft' or db.status == 'Unpublished' %}
+                                                <form method="post" action="/db/{{ db.db_name }}/publish" class="inline">
+                                                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                                    <button type="submit" class="bg-accent text-white px-3 py-2 rounded-button hover:bg-primary transition text-sm font-medium">
+                                                        <i class="ri-send-plane-line mr-1"></i>Publish Database
+                                                    </button>
+                                                </form>
+                                            {% endif %}
+
+                                            {% if db.status == 'Published' %}
+                                                <a href="/{{ db.db_name }}/" target="_blank" class="bg-green-500 text-white px-3 py-2 rounded-button hover:bg-green-600 transition text-sm font-medium">
+                                                    <i class="ri-external-link-line mr-1"></i>View Database
+                                                </a>
+                                                <form method="post" action="/db/{{ db.db_name }}/unpublish" class="inline">
+                                                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                                    <button type="submit" class="bg-orange-500 text-white px-3 py-2 rounded-button hover:bg-orange-600 transition text-sm font-medium"
+                                                            onclick="return confirm('This will make your database private. Continue?')">
+                                                        <i class="ri-eye-off-line mr-1"></i>Unpublish
+                                                    </button>
+                                                </form>
+                                            {% endif %}
+
+                                            <!-- Homepage Actions -->
+                                            {% if db.has_custom_homepage %}
+                                                <a href="/edit-content/{{ db.db_id }}" class="bg-purple-500 text-white px-3 py-2 rounded-button hover:bg-purple-600 transition text-sm font-medium">
+                                                    <i class="ri-edit-line mr-1"></i>Edit Homepage
+                                                </a>
+                                                {% if db.status == 'Published' %}
+                                                    <a href="/db/{{ db.db_name }}/homepage" target="_blank" class="bg-indigo-500 text-white px-3 py-2 rounded-button hover:bg-indigo-600 transition text-sm font-medium">
+                                                        <i class="ri-home-line mr-1"></i>View Homepage
+                                                    </a>
+                                                {% endif %}
+                                            {% else %}
+                                                <form method="post" action="/db/{{ db.db_name }}/create-homepage" class="inline">
+                                                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                                    <button type="submit" class="bg-orange-500 text-white px-3 py-2 rounded-button hover:bg-orange-600 transition text-sm font-medium">
+                                                        <i class="ri-add-circle-line mr-1"></i>Create Homepage
+                                                    </button>
+                                                </form>
+                                            {% endif %}
+
+                                            <!-- Trash Action -->
+                                            <a href="/db/{{ db.db_name }}/trash" 
+                                               class="bg-yellow-500 text-white px-3 py-2 rounded-button hover:bg-yellow-600 transition text-sm font-medium"
+                                               onclick="return confirm('This will move the database to trash. Continue to confirmation page?')">
+                                                <i class="ri-delete-bin-line mr-1"></i>Move to Trash
+                                            </a>
+                                        {% endif %}
                                     </div>
                                 </div>
 
                                 <!-- Data Tables Section -->
+                                {% if db.status != 'Trashed' %}
                                 <div class="p-4">
                                     <div class="flex justify-between items-center mb-4">
                                         <h4 class="font-semibold text-text">
                                             <i class="ri-table-line mr-2"></i>Data Tables
                                         </h4>
                                         <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                            <i class="ri-upload-line"></i> Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
+                                            <i class="ri-upload-line"></i> Upload CSV
                                         </a>
                                     </div>
 
@@ -190,7 +258,6 @@
                                                         class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
                                                             <i class="ri-download-line mr-1"></i>CSV
                                                         </a>
-                                                        <!-- Secure delete button that goes to confirmation page -->
                                                         <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
                                                         class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
                                                         onclick="return confirm('This will take you to a confirmation page. Continue?')">
@@ -205,11 +272,12 @@
                                             <i class="ri-table-line text-3xl text-textlight mb-2"></i>
                                             <p class="text-textlight text-sm mb-3">No data tables yet</p>
                                             <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                                <i class="ri-upload-line"></i> Upload CSV to {{ db.db_name.replace('_', ' ').title() }}
+                                                <i class="ri-upload-line"></i> Upload CSV
                                             </a>
                                         </div>
                                     {% endif %}
                                 </div>
+                                {% endif %}
 
                                 <!-- Database Info Footer -->
                                 <div class="px-6 py-4 bg-gray-50 border-t border-border">
@@ -220,6 +288,8 @@
                                         <div class="text-textlight">
                                             {% if db.status == 'Published' %}
                                                 <i class="ri-global-line mr-1"></i>Public
+                                            {% elif db.status == 'Trashed' %}
+                                                <i class="ri-delete-bin-line mr-1"></i>Trashed
                                             {% else %}
                                                 <i class="ri-draft-line mr-1"></i>Private
                                             {% endif %}
@@ -229,57 +299,84 @@
                             </div>
                         {% endfor %}
                     </div>
-
-                
-
-            {% else %}
-                <!-- Empty State -->
-                <div class="text-center py-16">
-                    <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <i class="ri-database-2-line text-4xl text-textlight"></i>
+                {% else %}
+                    <!-- Empty State -->
+                    <div class="text-center py-16">
+                        <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <i class="ri-database-2-line text-4xl text-textlight"></i>
+                        </div>
+                        <h2 class="text-2xl font-semibold text-primary mb-4">
+                            {% if status_filter == 'trash' %}
+                                No Databases in Trash
+                            {% else %}
+                                No Databases Yet
+                            {% endif %}
+                        </h2>
+                        <p class="text-textlight mb-6 max-w-md mx-auto">
+                            {% if status_filter == 'trash' %}
+                                You don't have any databases in the trash bin.
+                            {% else %}
+                                Create your first environmental data portal to get started. Upload CSV files and customize your site.
+                            {% endif %}
+                        </p>
+                        {% if status_filter != 'trash' %}
+                            <a href="/create-database" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                                <i class="ri-add-line mr-2"></i>Create Your First Database
+                            </a>
+                        {% endif %}
                     </div>
-                    <h2 class="text-2xl font-semibold text-primary mb-4">No Databases Yet</h2>
-                    <p class="text-textlight mb-6 max-w-md mx-auto">
-                        Create your first environmental data portal to get started. Upload CSV files and customize your site.
-                    </p>
-                    <a href="/create-database" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
-                        <i class="ri-add-line mr-2"></i>Create Your First Database
-                    </a>
-                </div>
-            {% endif %}
+                {% endif %}
 
-            <!-- Help Section -->
-            <div class="mt-8 bg-blue-50 border border-blue-200 rounded-card p-6 w-[80%] mx-auto">
-                <h3 class="text-lg font-semibold text-blue-800 mb-4">
-                    <i class="ri-lightbulb-line mr-2"></i>Quick Tips
-                </h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-700">
-                    <div class="space-y-2">
-                        <div class="flex items-start">
-                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
-                            <span>Both <strong>Draft</strong> and <strong>Published</strong> databases can upload CSV files via Datasette</span>
+                <!-- Three-Tier Deletion Help Section -->
+                <div class="mt-8 bg-blue-50 border border-blue-200 rounded-card p-6">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                        <i class="ri-lightbulb-line mr-2"></i>Database Lifecycle & Deletion Process
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-blue-700">
+                        <div class="space-y-2">
+                            <div class="font-semibold text-blue-800">Tier 1: Unpublish</div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Makes published databases private</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Data remains intact and accessible to owner</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Can republish immediately</span>
+                            </div>
                         </div>
-                        <div class="flex items-start">
-                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
-                            <span><strong>Publish Database</strong> makes your data publicly accessible through Datasette</span>
+                        <div class="space-y-2">
+                            <div class="font-semibold text-blue-800">Tier 2: Move to Trash</div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>30-day recovery window</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Database name becomes reserved</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Can restore anytime during grace period</span>
+                            </div>
                         </div>
-                        <div class="flex items-start">
-                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
-                            <span><strong>Create Homepage</strong> adds a custom landing page with your branding</span>
-                        </div>
-                    </div>
-                    <div class="space-y-2">
-                        <div class="flex items-start">
-                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
-                            <span>Published databases get automatic search, filtering, and API endpoints</span>
-                        </div>
-                        <div class="flex items-start">
-                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
-                            <span>Custom homepages can be edited independently of database publishing</span>
-                        </div>
-                        <div class="flex items-start">
-                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
-                            <span>Delete tables using the delete button next to each table</span>
+                        <div class="space-y-2">
+                            <div class="font-semibold text-blue-800">Tier 3: Permanent Delete</div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Irreversible data destruction</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Database name becomes available</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>Automatic after 30 days in trash</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -306,5 +403,38 @@
             </div>
         </div>
     </footer>
+
+    <script>
+        function filterDatabases() {
+            const filter = document.getElementById('status-filter').value;
+            const url = new URL(window.location);
+            url.searchParams.set('status', filter);
+            window.location.href = url.toString();
+        }
+
+        // Auto-refresh countdown for trashed databases
+        function updateCountdowns() {
+            const countdownElements = document.querySelectorAll('[data-countdown]');
+            countdownElements.forEach(element => {
+                const deadline = element.dataset.countdown;
+                const now = new Date();
+                const deadlineDate = new Date(deadline);
+                const diff = deadlineDate - now;
+                
+                if (diff > 0) {
+                    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    element.textContent = `Auto-delete in ${days}d ${hours}h`;
+                } else {
+                    element.textContent = 'Expired - Will be deleted soon';
+                    element.className = element.className.replace('bg-red-100', 'bg-red-200');
+                }
+            });
+        }
+
+        // Update countdowns every minute
+        setInterval(updateCountdowns, 60000);
+        updateCountdowns(); // Initial call
+    </script>
 </body>
 </html>
