@@ -1,448 +1,174 @@
+"""
+Database Management Module - Enhanced database creation and management
+Handles: Create, manage, publish, unpublish databases, custom homepages
+"""
+
 import json
 import logging
-from pathlib import Path
-from datetime import datetime, timedelta
-from datasette import hookimpl
-from datasette.utils.asgi import Response
-from datasette.utils import tilde_encode
-from datasette.database import Database
-import bleach
-import re
-import sqlite_utils
 import uuid
 import os
-import base64
+import sqlite_utils
+from pathlib import Path
+from datetime import datetime
+from datasette import hookimpl
+from datasette.utils.asgi import Response
+from datasette.database import Database
 from email.parser import BytesParser
 from email.policy import default
-import asyncio
+
+# Add the plugins directory to Python path for imports
+import sys
+plugins_dir = os.path.dirname(os.path.abspath(__file__))
+if plugins_dir not in sys.path:
+    sys.path.insert(0, plugins_dir)
+
+# Import from common_utils
+from common_utils import (
+    get_actor_from_request,
+    log_database_action,
+    log_user_activity,
+    verify_user_session,
+    get_portal_content,
+    get_database_content,
+    get_database_statistics,
+    check_database_name_unique,
+    check_database_name_available,
+    user_owns_database,
+    validate_database_name,
+    handle_form_errors,
+    redirect_authenticated_user,
+    generate_website_url,
+    ensure_data_directories,
+    get_all_published_databases,
+    get_success_error_from_request,
+    create_feature_cards_from_databases,
+    create_statistics_data,
+    parse_markdown_links,
+    apply_inline_formatting,
+    sanitize_text,
+    DATA_DIR,
+    STATIC_DIR,
+    MAX_DATABASES_PER_USER,
+    MAX_FILE_SIZE,
+    ALLOWED_EXTENSIONS
+)
+
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv','.txt'}
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-MAX_DATABASES_PER_USER = 10
-STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "/static")
-DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")
-TRASH_RETENTION_DAYS = 30
+async def index_page(datasette, request):
+    """Enhanced index page with improved statistics and user database info."""
+    logger.debug(f"Index request: {request.method}")
 
-def get_actor_from_request(request):
-    """Extract actor from ds_actor cookie."""
-    actor = request.scope.get("actor")
+    # Get base content using common utility
+    content = await get_portal_content(datasette)
+
+    # Get actor and check authentication
+    actor = get_actor_from_request(request)
+    
     if actor:
-        return actor
-    
-    try:
-        cookie_header = ""
-        for name, value in request.scope.get('headers', []):
-            if name == b'cookie':
-                cookie_header = value.decode('utf-8')
-                break
+        # Verify user session using common utility
+        is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
         
-        if not cookie_header:
-            return None
-            
-        cookies = {}
-        for cookie in cookie_header.split('; '):
-            if '=' in cookie:
-                key, value = cookie.split('=', 1)
-                cookies[key] = value
+        if not is_valid:
+            return redirect_response
         
-        ds_actor = cookies.get("ds_actor", "")
-        
-        if ds_actor and ds_actor != '""' and ds_actor != "":
-            if ds_actor.startswith('"') and ds_actor.endswith('"'):
-                ds_actor = ds_actor[1:-1]
-            
-            ds_actor = ds_actor.replace('\\054', ',').replace('\\"', '"')
-            
-            try:
-                decoded = base64.b64decode(ds_actor + '==').decode('utf-8')
-                actor_data = json.loads(decoded)
-                request.scope["actor"] = actor_data
-                return actor_data
-            except Exception as decode_error:
-                logger.debug(f"Could not decode actor cookie: {decode_error}")
-                return None
-                
-    except Exception as e:
-        logger.debug(f"Error parsing cookies: {e}")
-        return None
-    
-    return None
+        # Redirect authenticated users to appropriate dashboard
+        return await redirect_authenticated_user(actor)
 
-def set_actor_cookie(response, datasette, actor_data):
-    """Set actor cookie on response."""
-    try:
-        encoded = base64.b64encode(json.dumps(actor_data).encode('utf-8')).decode('utf-8')
-        response.set_cookie("ds_actor", encoded, httponly=True, max_age=3600, samesite="lax")
-    except Exception as e:
-        logger.error(f"Error setting cookie: {e}")
-        response.set_cookie("ds_actor", f"user_{actor_data.get('id', '')}", httponly=True, max_age=3600, samesite="lax")
+    # Get enhanced statistics for public homepage
+    stats = await get_database_statistics(datasette)
+    
+    # Format featured databases as cards using common utility
+    feature_cards = create_feature_cards_from_databases(stats['featured_databases'], limit=6)
+    
+    # Statistics for the cards section using common utility
+    statistics_data = create_statistics_data(stats)
 
-async def log_user_activity(datasette, user_id, action, details, metadata=None):
-    """Enhanced logging with metadata support for user actions."""
-    try:
-        query_db = datasette.get_database("portal")
-        log_data = {
-            'log_id': uuid.uuid4().hex[:20],
-            'user_id': user_id,
-            'action': action,
-            'details': details,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        if metadata:
-            log_data['action_metadata'] = json.dumps(metadata)
-        
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
+    logger.debug(f"Rendering public index with statistics: {stats}")
+
+    return Response.html(
+        await datasette.render_template(
+            "index.html",
+            {
+                "page_title": content['title'].get('content', "EDGI Datasette Cloud Portal") + " | EDGI",
+                "header_image": content['header_image'],
+                "info": content['info'],
+                "feature_cards": feature_cards,
+                "total_published": stats['published_databases'],
+                "statistics": statistics_data,
+                "content": content,
+                "actor": actor,
+                **get_success_error_from_request(request)
+            },
+            request=request
         )
-    except Exception as e:
-        logger.error(f"Error logging user action: {e}")
-
-async def log_database_action(datasette, user_id, action, details, metadata=None):
-    """Enhanced logging with metadata support."""
-    try:
-        query_db = datasette.get_database("portal")
-        log_data = {
-            'log_id': uuid.uuid4().hex[:20],
-            'user_id': user_id,
-            'action': action,
-            'details': details,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        if metadata:
-            log_data['action_metadata'] = json.dumps(metadata)
-        
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
-        )
-    except Exception as e:
-        logger.error(f"Error logging action: {e}")
-
-def sanitize_text(text):
-    """Sanitize text by stripping HTML tags while preserving safe characters."""
-    return bleach.clean(text, tags=[], strip=True)
-
-def parse_markdown_links(text):
-    """Enhanced markdown parser that handles links, bold, italic, and lists."""
-    import re
-    
-    # Split text into blocks (separated by double newlines OR single newlines for lists)
-    blocks = []
-    current_block = []
-    lines = text.split('\n')
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        if not line:  # Empty line
-            if current_block:
-                blocks.append('\n'.join(current_block))
-                current_block = []
-        else:
-            current_block.append(line)
-        i += 1
-    
-    # Don't forget the last block
-    if current_block:
-        blocks.append('\n'.join(current_block))
-    
-    parsed_blocks = []
-    
-    for block in blocks:
-        if not block.strip():
-            continue
-            
-        lines = [line.strip() for line in block.split('\n') if line.strip()]
-        
-        # Check if this block is a list
-        bullet_lines = [line for line in lines if line.startswith(('- ', '* '))]
-        numbered_lines = [line for line in lines if re.match(r'^\d+\.\s', line)]
-        
-        # More flexible list detection - if majority are list items, treat as list
-        if len(bullet_lines) >= 2:
-            # Handle as bullet list
-            list_items = []
-            for line in lines:
-                if line.startswith(('- ', '* ')):
-                    item_text = line[2:].strip()  # Remove "- " or "* "
-                    item_text = apply_inline_formatting(item_text)
-                    list_items.append(f'<li>{item_text}</li>')
-            
-            if list_items:
-                parsed_blocks.append(f'<ul>{"".join(list_items)}</ul>')
-            
-        elif len(numbered_lines) >= 2:
-            # Handle as numbered list
-            list_items = []
-            for line in lines:
-                if re.match(r'^\d+\.\s', line):
-                    item_text = re.sub(r'^\d+\.\s', '', line).strip()  # Remove "1. "
-                    item_text = apply_inline_formatting(item_text)
-                    list_items.append(f'<li>{item_text}</li>')
-            
-            if list_items:
-                parsed_blocks.append(f'<ol>{"".join(list_items)}</ol>')
-            
-        else:
-            # Handle as regular paragraph
-            paragraph_text = ' '.join(lines)
-            formatted_text = apply_inline_formatting(paragraph_text)
-            parsed_blocks.append(formatted_text)
-    
-    return parsed_blocks
-
-def apply_inline_formatting(text):
-    """Apply inline formatting (links, bold, italic) to text."""
-    import re
-    
-    # Handle links: [text](url)
-    link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
-    text = link_pattern.sub(lambda m: f'<a href="{sanitize_text(m.group(2))}">{sanitize_text(m.group(1))}</a>', text)
-    
-    # Handle bold: **text**
-    bold_pattern = re.compile(r'\*\*([^*]+)\*\*')
-    text = bold_pattern.sub(r'<strong>\1</strong>', text)
-    
-    # Handle italic: *text* (but not if it's part of **text**)
-    italic_pattern = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
-    text = italic_pattern.sub(r'<em>\1</em>', text)
-    
-    return text
-
-async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
-    """Check if database name is globally unique, including trashed databases."""
-    db = datasette.get_database("portal")
-    if exclude_db_id:
-        result = await db.execute(
-            "SELECT COUNT(*) FROM databases WHERE db_name = ? AND db_id != ? AND status != 'Deleted'", 
-            [db_name, exclude_db_id]
-        )
-    else:
-        result = await db.execute(
-            "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status != 'Deleted'", 
-            [db_name]
-        )
-    return result.first()[0] == 0
-
-async def check_database_name_available(datasette, db_name):
-    """Check if database name is available for new creation (not reserved by trash)."""
-    db = datasette.get_database("portal")
-    result = await db.execute(
-        "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')", 
-        [db_name]
     )
-    return result.first()[0] == 0
 
-async def get_database_content(datasette, db_name):
-    """Get homepage content for a database with proper header image handling."""
-    query_db = datasette.get_database('portal')
-    content = {}
-    
-    try:
-        db_result = await query_db.execute("SELECT db_id FROM databases WHERE db_name = ?", [db_name])
-        db_row = db_result.first()
-        if not db_row:
-            logger.error(f"Database {db_name} not found")
-            return {}
-        
-        db_id = db_row['db_id']
-        
-        result = await query_db.execute("SELECT section, content FROM admin_content WHERE db_id = ?", [db_id])
-        for row in result:
-            try:
-                content[row['section']] = json.loads(row['content'])
-            except json.JSONDecodeError:
-                content[row['section']] = {'content': row['content']}
-    except Exception as e:
-        logger.error(f"Error loading admin content for {db_name}: {e}")
-    
-    # Set defaults
-    if 'title' not in content:
-        content['title'] = {'content': db_name.replace('_', ' ').replace('-', ' ').title()}
-    
-    if 'description' not in content:
-        content['description'] = {'content': 'Environmental data dashboard powered by Datasette.'}
-    
-    # FIXED: Proper header image handling with correct paths
-    if 'header_image' not in content:
-        db_result = await query_db.execute("SELECT db_id FROM databases WHERE db_name = ?", [db_name])
-        db_row = db_result.first()
-        if db_row:
-            db_id = db_row['db_id']
-            # Check if custom header exists in the correct location
-            custom_header_path = os.path.join(DATA_DIR, db_id, 'header.jpg')
-            if os.path.exists(custom_header_path):
-                content['header_image'] = {
-                    'image_url': f'/data/{db_id}/header.jpg',  # Use our custom route
-                    'alt_text': 'Environmental Data',
-                    'credit_text': 'Environmental Data Portal',
-                    'credit_url': ''
-                }
-            else:
-                content['header_image'] = {
-                    'image_url': '/static/default_header.jpg',
-                    'alt_text': 'Environmental Data',
-                    'credit_text': 'Environmental Data Portal',
-                    'credit_url': ''
-                }
-    
-    if 'footer' not in content:
-        content['footer'] = {
-            'content': 'Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.',
-            'odbl_text': 'Data licensed under ODbL',
-            'odbl_url': 'https://opendatacommons.org/licenses/odbl/',
-            'paragraphs': ['Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.']
-        }
-    
-    # Parse markdown for description and footer
-    if 'content' in content.get('description', {}):
-        content['description']['paragraphs'] = parse_markdown_links(content['description']['content'])
-        content['info'] = {
-            'content': content['description']['content'],
-            'paragraphs': content['description']['paragraphs']
-        }
-    
-    if 'content' in content.get('footer', {}):
-        content['footer']['paragraphs'] = parse_markdown_links(content['footer']['content'])
-    
-    return content
+async def all_databases_page(datasette, request):
+    """Show all published databases - custom page."""
+    logger.debug(f"All Databases request: method={request.method}")
 
-async def get_database_statistics(datasette, user_id=None):
-    """Get enhanced database statistics for homepage with encoding safety."""
+    # Get base content using common utility
+    content = await get_portal_content(datasette)
+    actor = get_actor_from_request(request)
+
     try:
-        db = datasette.get_database("portal")
+        # Get all published databases using common utility
+        all_databases = await get_all_published_databases(datasette)
         
-        # Initialize default values
-        stats = {
-            'total_databases': 0,
-            'published_databases': 0,
-            'featured_databases': [],
-            'user_databases': 0,
-            'user_published': 0,
-            'user_trashed': 0
-        }
-        
-        try:
-            # Total active databases (not deleted or trashed)
-            total_result = await db.execute(
-                "SELECT COUNT(*) FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
+        return Response.html(
+            await datasette.render_template(
+                "all_databases.html",
+                {
+                    "page_title": "All Environmental Datasets | EDGI",
+                    "content": content,
+                    "databases": all_databases,
+                    "total_count": len(all_databases),
+                    "actor": actor,
+                    **get_success_error_from_request(request)
+                },
+                request=request
             )
-            stats['total_databases'] = total_result.first()[0] if total_result.first() else 0
-        except Exception as e:
-            logger.error(f"Error getting total databases: {e}")
-        
-        try:
-            # Published databases
-            published_result = await db.execute(
-                "SELECT COUNT(*) FROM databases WHERE status = 'Published'"
-            )
-            stats['published_databases'] = published_result.first()[0] if published_result.first() else 0
-        except Exception as e:
-            logger.error(f"Error getting published databases: {e}")
-        
-        # User-specific statistics if user_id provided
-        if user_id:
-            try:
-                # User active databases
-                user_result = await db.execute(
-                    "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished')", 
-                    [user_id]
-                )
-                stats['user_databases'] = user_result.first()[0] if user_result.first() else 0
-            except Exception as e:
-                logger.error(f"Error getting user databases for {user_id}: {e}")
-            
-            try:
-                # User published databases
-                user_published_result = await db.execute(
-                    "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Published'", 
-                    [user_id]
-                )
-                stats['user_published'] = user_published_result.first()[0] if user_published_result.first() else 0
-            except Exception as e:
-                logger.error(f"Error getting user published databases for {user_id}: {e}")
-            
-            try:
-                # User trashed databases
-                user_trashed_result = await db.execute(
-                    "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Trashed'", 
-                    [user_id]
-                )
-                stats['user_trashed'] = user_trashed_result.first()[0] if user_trashed_result.first() else 0
-            except Exception as e:
-                logger.error(f"Error getting user trashed databases for {user_id}: {e}")
-        
-        try:
-            # Featured databases for homepage - only get essential fields
-            featured_result = await db.execute(
-                "SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 6"
-            )
-            stats['featured_databases'] = []
-            for row in featured_result:
-                try:
-                    # Safely convert each row
-                    db_dict = {
-                        'db_id': str(row['db_id']) if row['db_id'] else '',
-                        'db_name': str(row['db_name']) if row['db_name'] else '',
-                        'website_url': str(row['website_url']) if row['website_url'] else '',
-                        'status': str(row['status']) if row['status'] else ''
-                    }
-                    stats['featured_databases'].append(db_dict)
-                except Exception as row_error:
-                    logger.error(f"Error processing featured database row: {row_error}")
-                    continue
-        except Exception as e:
-            logger.error(f"Error getting featured databases: {e}")
-        
-        logger.debug(f"Database statistics calculated: {stats}")
-        return stats
+        )
         
     except Exception as e:
-        logger.error(f"Error fetching database statistics: {str(e)}")
-        # Return safe defaults
-        return {
-            'total_databases': 0,
-            'published_databases': 0,
-            'featured_databases': [],
-            'user_databases': 0,
-            'user_published': 0,
-            'user_trashed': 0
-        }
+        logger.error(f"Error in all_databases_page: {str(e)}")
+        return Response.html(
+            await datasette.render_template(
+                "all_databases.html",
+                {
+                    "page_title": "All Environmental Datasets | EDGI",
+                    "content": content,
+                    "databases": [],
+                    "total_count": 0,
+                    "actor": actor,
+                    "error": f"Error loading databases: {str(e)}"
+                },
+                request=request
+            )
+        )
 
 async def manage_databases(datasette, request):
     """Enhanced manage databases with three-tier deletion system."""
     logger.debug(f"Manage Databases request: method={request.method}")
 
     actor = get_actor_from_request(request)
-
     if not actor:
         logger.warning(f"Unauthorized manage databases attempt: actor=None")
         return Response.redirect("/login?error=Session expired or invalid")
 
-    query_db = datasette.get_database('portal')
-    try:
-        result = await query_db.execute("SELECT user_id, username FROM users WHERE user_id = ?", [actor.get("id")])
-        user = result.first()
-        if not user:
-            logger.error(f"No user found for user_id: {actor.get('id')}")
-            response = Response.redirect("/login?error=User not found")
-            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-            return response
-    except Exception as e:
-        logger.error(f"Error verifying user in manage_databases: {str(e)}")
-        return Response.redirect("/login?error=Authentication error")
+    # Verify user session
+    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+    if not is_valid:
+        return redirect_response
 
     # Get filter parameter
     status_filter = request.args.get('status', 'active')
     
     # Build query based on filter
+    query_db = datasette.get_database('portal')
     if status_filter == 'active':
         query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished')"
     elif status_filter == 'trash':
@@ -453,13 +179,8 @@ async def manage_databases(datasette, request):
     result = await query_db.execute(query, [actor.get("id")])
     user_databases = [dict(row) for row in result]
     
-    title = await query_db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'},
-        'footer': {'content': 'Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.', 'odbl_text': 'Data licensed under ODbL', 'odbl_url': 'https://opendatacommons.org/licenses/odbl/', 'paragraphs': ['Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.']}
-    }
+    # Get content using common utility
+    content = await get_portal_content(datasette)
 
     # Enhanced database processing with better error handling
     databases_with_tables = []
@@ -476,6 +197,7 @@ async def manage_databases(datasette, request):
             [db_id]
         )
         has_custom_homepage = homepage_result.first()[0] > 0
+        
         try:
             db_path = db_info["file_path"]
             if db_path and os.path.exists(db_path):
@@ -521,11 +243,12 @@ async def manage_databases(datasette, request):
             'tables': tables,
             'table_count': table_count,
             'total_size': total_size,
-            'website_url': f"/{db_name}/", # Datasette URL format
-            'upload_url': f"/upload-secure/{db_name}",  # 
-            'has_custom_homepage': has_custom_homepage  # Indicate if custom homepage exists
+            'website_url': f"/{db_name}/",
+            'upload_url': f"/upload-secure/{db_name}",
+            'has_custom_homepage': has_custom_homepage
         })
 
+    # Get user statistics
     stats = await get_database_statistics(datasette, actor.get("id"))
 
     return Response.html(
@@ -538,115 +261,79 @@ async def manage_databases(datasette, request):
                 "user_databases": databases_with_tables,
                 "status_filter": status_filter,
                 "stats": stats,
-                "success": request.args.get('success'),
-                "error": request.args.get('error'),
+                **get_success_error_from_request(request)
             },
             request=request
         )
     )
 
 async def create_database(datasette, request):
-    """Create new database."""
+    """Create new database with validation."""
     logger.debug(f"Create Database request: method={request.method}")
 
     actor = get_actor_from_request(request)
-
     if not actor:
         logger.warning(f"Unauthorized create database attempt: actor=None")
         return Response.redirect("/login?error=Session expired or invalid")
 
-    query_db = datasette.get_database('portal')
-    try:
-        result = await query_db.execute("SELECT user_id, username FROM users WHERE user_id = ?", [actor.get("id")])
-        user = result.first()
-        if not user:
-            logger.error(f"No user found for user_id: {actor.get('id')}")
-            response = Response.redirect("/login?error=User not found")
-            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-            return response
-    except Exception as e:
-        logger.error(f"Error verifying user in create_database: {str(e)}")
-        return Response.redirect("/login?error=Authentication error")
+    # Verify user session
+    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+    if not is_valid:
+        return redirect_response
 
-    title = await query_db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
+    # Get content for template
+    content = await get_portal_content(datasette)
 
     if request.method == "POST":
         post_vars = await request.post_vars()
         db_name = post_vars.get("db_name", "").strip()
         
-        if not db_name:
-            return Response.html(
-                await datasette.render_template(
-                    "create_database.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "error": "Database name is required"
-                    },
-                    request=request
-                )
+        # Validate database name
+        is_valid_name, name_error = validate_database_name(db_name)
+        if not is_valid_name:
+            return await handle_form_errors(
+                datasette, "create_database.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                    "actor": actor,
+                },
+                request, name_error
             )
 
-        # Validate database name format
-        if not re.match(r'^[a-z0-9_]+$', db_name):
-            return Response.html(
-                await datasette.render_template(
-                    "create_database.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "error": "Database name must contain only lowercase letters, numbers, and underscores"
-                    },
-                    request=request
-                )
-            )
-
-        is_unique = await check_database_name_unique(datasette, db_name)
-        if not is_unique:
-            return Response.html(
-                await datasette.render_template(
-                    "create_database.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "error": f"Database name '{db_name}' already exists. Please choose a different name."
-                    },
-                    request=request
-                )
+        # Check if name is available
+        is_available = await check_database_name_available(datasette, db_name)
+        if not is_available:
+            return await handle_form_errors(
+                datasette, "create_database.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                    "actor": actor,
+                },
+                request, f"Database name '{db_name}' already exists. Please choose a different name."
             )
 
         user_id = actor.get("id")
         
         # Check database limit
+        query_db = datasette.get_database('portal')
         result = await query_db.execute("SELECT COUNT(*) FROM databases WHERE user_id = ? AND status != 'Deleted'", [user_id])
         db_count = result.first()[0]
         if db_count >= MAX_DATABASES_PER_USER:
-            return Response.html(
-                await datasette.render_template(
-                    "create_database.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "error": f"Maximum {MAX_DATABASES_PER_USER} databases per user reached"
-                    },
-                    request=request
-                )
+            return await handle_form_errors(
+                datasette, "create_database.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                    "actor": actor,
+                },
+                request, f"Maximum {MAX_DATABASES_PER_USER} databases per user reached"
             )
 
         try:
             db_id = uuid.uuid4().hex[:20]
-            scheme = request.scheme
-            host = request.headers.get('host', 'localhost:8001')
-            website_url = f"{scheme}://{host}/{db_name}/"
+            website_url = generate_website_url(request, db_name)
             
             # Create user directory and database file
             user_dir = os.path.join(DATA_DIR, user_id)
@@ -662,7 +349,7 @@ async def create_database(datasette, request):
                 [db_id, user_id, db_name, website_url, "Draft", datetime.utcnow(), db_path]
             )
             
-            # CRITICAL: Register database with Datasette immediately (even for drafts)
+            # Register database with Datasette immediately (even for drafts)
             try:
                 db_instance = Database(datasette, path=db_path, is_mutable=True)
                 datasette.add_database(db_instance, name=db_name)
@@ -686,17 +373,14 @@ async def create_database(datasette, request):
 
         except Exception as e:
             logger.error(f"Create database error: {str(e)}")
-            return Response.html(
-                await datasette.render_template(
-                    "create_database.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "actor": actor,
-                        "error": f"Create database error: {str(e)}"
-                    },
-                    request=request
-                )
+            return await handle_form_errors(
+                datasette, "create_database.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                    "actor": actor,
+                },
+                request, f"Create database error: {str(e)}"
             )
 
     return Response.html(
@@ -772,6 +456,56 @@ async def publish_database(datasette, request):
     except Exception as e:
         logger.error(f"Error publishing database {db_name}: {str(e)}")
         return Response.text(f"Error publishing database: {str(e)}", status=500)
+
+async def unpublish_database(datasette, request):
+    """Unpublish database (make it private)."""
+    logger.debug(f"Unpublish Database request: method={request.method}, path={request.path}")
+
+    actor = get_actor_from_request(request)
+    if not actor:
+        return Response.redirect("/login?error=Session expired or invalid")
+
+    # Handle /db/{db_name}/unpublish path
+    path_parts = request.path.strip('/').split('/')
+    if path_parts[0] == 'db' and len(path_parts) >= 3:
+        db_name = path_parts[1]
+    else:
+        return Response.text("Invalid URL format", status=400)
+    
+    query_db = datasette.get_database('portal')
+    try:
+        result = await query_db.execute(
+            "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
+            [db_name, actor.get("id")]
+        )
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found or you do not have permission", status=404)
+        
+        if db_info['status'] != 'Published':
+            return Response.redirect(f"/manage-databases?error=Database '{db_name}' is not published")
+        
+        # Update status to Unpublished
+        await query_db.execute_write(
+            "UPDATE databases SET status = 'Unpublished' WHERE db_name = ?",
+            [db_name]
+        )
+        
+        await log_database_action(
+            datasette, actor.get("id"), "unpublish_database", 
+            f"Unpublished database {db_name}",
+            {
+                "db_name": db_name,
+                "previous_status": "Published",
+                "new_status": "Unpublished"
+            }
+        )
+        
+        return Response.redirect(f"/manage-databases?success=Database '{db_name}' unpublished successfully! It's now private.")
+        
+    except Exception as e:
+        logger.error(f"Error unpublishing database {db_name}: {str(e)}")
+        return Response.text(f"Error unpublishing database: {str(e)}", status=500)
 
 async def delete_table(datasette, request):
     """Delete table from database."""
@@ -954,7 +688,7 @@ async def database_homepage(datasette, request):
         if db_info['status'] != 'Published' and (not actor or actor['id'] != db_info['user_id']):
             return Response.text("Database not found or not published", status=404)
         
-        # FIXED: Check if database is registered correctly
+        # Check if database is registered correctly
         try:
             # Try to get the database - this will work if it's registered
             user_db = datasette.get_database(db_name)
@@ -1130,7 +864,7 @@ async def create_homepage(datasette, request):
             ("header_image", {
                 "image_url": "/static/default_header.jpg",
                 "alt_text": f"{db_name.replace('_', ' ').title()} EDGI Portal Header by J. Alex Lang",
-                "credit_text": "Image by J. Alex Lang. Used by permission udated.",
+                "credit_text": "Image by J. Alex Lang. Used by permission updated.",
                 "credit_url": "https://www.flickr.com/photos/jalexlang/21359307802/"
             }),
             ("footer", {
@@ -1363,8 +1097,7 @@ async def edit_content(datasette, request):
                 "db": {"db_name": db_name, "status": db_status},
                 "content": content,
                 "actor": actor,
-                "success": request.args.get('success'),
-                "error": request.args.get('error')
+                **get_success_error_from_request(request)
             },
             request=request
         )
@@ -1442,8 +1175,8 @@ async def serve_database_image(datasette, request):
                 content, 
                 content_type=content_type,
                 headers={
-                    'Cache-Control': 'public, max-age=300',  # 5 minutes instead of 1 hour
-                    'ETag': etag,  # Enable proper cache validation
+                    'Cache-Control': 'public, max-age=300',  # 5 minutes
+                    'ETag': etag,
                     'Content-Length': str(len(content)),
                     'Last-Modified': time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(file_mtime))
                 }
@@ -1457,19 +1190,6 @@ async def serve_database_image(datasette, request):
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return Response.text("Internal server error", status=500)
-
-async def user_owns_database(datasette, user_id, db_name):
-    """Verify user owns the database"""
-    try:     
-        portal_db = datasette.get_database("portal")
-        result = await portal_db.execute(
-            "SELECT 1 FROM databases WHERE db_name = ? AND user_id = ?",
-            [db_name, user_id]
-        )     
-        return len(result.rows) > 0
-    except Exception as e:
-        logger.error(f"Database ownership check failed: {e}")
-        return False
 
 async def verify_database_structure(query_db):
     """Verify the database has the required structure."""
@@ -1554,9 +1274,12 @@ async def log_startup_success(datasette, registered_count, failed_count):
 def register_routes():
     """Register datasette admin panel routes."""
     return [
+        (r"^/$", index_page),
+        (r"^/all-databases$", all_databases_page),
         (r"^/manage-databases$", manage_databases),
         (r"^/create-database$", create_database),
         (r"^/db/([^/]+)/publish$", publish_database),
+        (r"^/db/([^/]+)/unpublish$", unpublish_database),
         (r"^/db/([^/]+)/homepage$", database_homepage),
         (r"^/db/([^/]+)/create-homepage$", create_homepage),
         (r"^/edit-content/([^/]+)$", edit_content),
@@ -1572,69 +1295,16 @@ def permission_allowed(datasette, actor, action, resource):
         return False  # Block insecure official plugin
     return None
 
-# Cleanup task management
-_cleanup_task = None
-
-async def periodic_auto_cleanup(datasette, interval_hours=24):
-    """Periodic background task that runs auto-cleanup at specified intervals."""
-    global _cleanup_task
-    
-    logger.info(f"Starting periodic auto-cleanup (every {interval_hours} hours)")
-    
-    try:
-        while True:
-            # Wait for the specified interval
-            await asyncio.sleep(interval_hours * 3600)  # Convert hours to seconds
-            
-            try:
-                logger.info("Running scheduled auto-cleanup of expired databases")
-                
-                # Import the cleanup function from delete module
-                from delete_db import auto_cleanup_expired_databases
-                await auto_cleanup_expired_databases(datasette)
-                
-                logger.info("Scheduled auto-cleanup completed successfully")
-                
-            except Exception as cleanup_error:
-                logger.error(f"Error during scheduled auto-cleanup: {cleanup_error}")
-                # Continue the loop even if cleanup fails
-                
-    except asyncio.CancelledError:
-        logger.info("Periodic auto-cleanup task cancelled")
-        raise
-    except Exception as e:
-        logger.error(f"Periodic auto-cleanup task failed: {e}")
-
-async def schedule_cleanup_task(datasette):
-    """Start the background cleanup task if not already running."""
-    global _cleanup_task
-    
-    # Cancel existing task if running
-    if _cleanup_task and not _cleanup_task.done():
-        logger.debug("Cancelling existing cleanup task")
-        _cleanup_task.cancel()
-        try:
-            await _cleanup_task
-        except asyncio.CancelledError:
-            pass
-    
-    # Get cleanup interval from environment (default 24 hours)
-    cleanup_interval = int(os.getenv('AUTO_CLEANUP_INTERVAL_HOURS', '24'))
-    
-    # Start new cleanup task
-    _cleanup_task = asyncio.create_task(
-        periodic_auto_cleanup(datasette, cleanup_interval)
-    )
-    
-    logger.info(f"Scheduled auto-cleanup every {cleanup_interval} hours")
-
 @hookimpl
 def startup(datasette):
-    """Enhanced startup hook with proper auto-cleanup scheduling"""
+    """Enhanced startup hook with proper database registration"""
     
     async def inner():
         try:
-            logger.info("Starting Datasette Admin Panel Module...")
+            logger.info("Starting Datasette Database Management Module...")
+            
+            # Ensure directories exist
+            ensure_data_directories()
             
             # Get database path
             db_path = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
@@ -1654,27 +1324,13 @@ def startup(datasette):
             # Register existing user databases
             registered_count, failed_count = await register_user_databases(datasette, query_db)
             
-            # Run initial cleanup check for expired databases
-            logger.info("Running initial auto-cleanup check...")
-            try:
-                from .delete_db import auto_cleanup_expired_databases
-                await auto_cleanup_expired_databases(datasette)
-                logger.info("Initial auto-cleanup completed")
-            except ImportError:
-                logger.warning("Could not import auto_cleanup_expired_databases - skipping initial cleanup")
-            except Exception as cleanup_error:
-                logger.error(f"Initial auto-cleanup failed: {cleanup_error}")
-            
-            # Schedule recurring auto-cleanup
-            await schedule_cleanup_task(datasette)
-            
             # Log startup success
             await log_startup_success(datasette, registered_count, failed_count)
             
-            logger.info("Datasette Admin Panel Module startup completed successfully")
+            logger.info("Datasette Database Management Module startup completed successfully")
             
         except Exception as e:
-            logger.error(f"Datasette Admin Panel Module startup failed: {str(e)}")
+            logger.error(f"Datasette Database Management Module startup failed: {str(e)}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             # Don't re-raise - let Datasette continue starting

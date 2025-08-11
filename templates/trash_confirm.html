@@ -75,7 +75,7 @@
                             </div>
                             <div class="flex justify-between">
                                 <span class="text-gray-600">Size:</span>
-                                <span class="font-medium">{{ "%.1f".format(database_size | default(0)) }} KB</span>
+                                <span class="font-medium">{{ "%.1f"|format(database_size | default(0)) }} KB</span>
                             </div>
                         </div>
                     </div>

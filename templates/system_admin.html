@@ -123,25 +123,43 @@
                 <div id="users-content" class="tab-content p-6">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="text-xl font-semibold text-primary">User Management</h3>
-                        <a href="/register" class="bg-accent text-white px-4 py-2 rounded-button hover:bg-primary transition text-sm">
-                            <i class="ri-user-add-line mr-1"></i>Add User
-                        </a>
+                        <div class="flex gap-3">
+                            <!-- User Search -->
+                            <div class="relative">
+                                <input type="text" id="user-search" placeholder="Search users..." 
+                                       class="pl-10 pr-4 py-2 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent text-sm"
+                                       onkeyup="filterUsers()">
+                                <i class="ri-search-line absolute left-3 top-2.5 text-gray-400"></i>
+                            </div>
+                            <!-- Role Filter -->
+                            <select id="role-filter" onchange="filterUsers()" class="px-3 py-2 border rounded-button text-sm focus:outline-none focus:ring-2 focus:ring-accent">
+                                <option value="">All Roles</option>
+                                <option value="system_user">System User</option>
+                                <option value="system_admin">System Admin</option>
+                            </select>
+                            <a href="/register" class="bg-accent text-white px-4 py-2 rounded-button hover:bg-primary transition text-sm">
+                                <i class="ri-user-add-line mr-1"></i>Add User
+                            </a>
+                        </div>
                     </div>
                     
                     <div class="overflow-x-auto">
                         <table class="w-full">
                             <thead>
                                 <tr class="bg-gray-50">
-                                    <th class="text-left p-3 font-medium text-text">Username</th>
-                                    <th class="text-left p-3 font-medium text-text">Email</th>
-                                    <th class="text-left p-3 font-medium text-text">Role</th>
-                                    <th class="text-left p-3 font-medium text-text">Created</th>
-                                    <th class="text-left p-3 font-medium text-text">Actions</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Username</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Email</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Role</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Created</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="users-table-body">
                                 {% for user in users %}
-                                    <tr class="border-b hover:bg-gray-50 transition">
+                                    <tr class="border-b hover:bg-gray-50 transition user-row" 
+                                        data-username="{{ user.username.lower() }}" 
+                                        data-email="{{ user.email.lower() }}" 
+                                        data-role="{{ user.role }}">
                                         <td class="p-3">
                                             <div class="flex items-center">
                                                 <div class="w-8 h-8 bg-accent rounded-full flex items-center justify-center mr-3">
@@ -184,10 +202,10 @@
                     </div>
                 </div>
 
-                <!-- Databases Tab (View Only) -->
+                <!-- Databases Tab -->
                 <div id="databases-content" class="tab-content p-6 hidden">
                     <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-xl font-semibold text-primary">Database Overview (View Only)</h3>
+                        <h3 class="text-xl font-semibold text-primary">Database Overview</h3>
                         <div class="flex gap-2">
                             <select id="status-filter" onchange="filterDatabases()" class="px-3 py-2 border rounded text-sm">
                                 <option value="">All Statuses</option>
@@ -199,6 +217,9 @@
                             <a href="/trash" class="bg-red-500 text-white px-3 py-2 rounded text-sm hover:bg-red-600 transition">
                                 <i class="ri-delete-bin-line mr-1"></i>View System Trash
                             </a>
+                            <button onclick="cleanupExpiredDatabases()" class="bg-orange-500 text-white px-3 py-2 rounded text-sm hover:bg-orange-600 transition">
+                                <i class="ri-broom-line mr-1"></i>Cleanup Expired
+                            </button>
                         </div>
                     </div>
                     
@@ -206,11 +227,11 @@
                         <table class="w-full">
                             <thead>
                                 <tr class="bg-gray-50">
-                                    <th class="text-left p-3 font-medium text-text">Database Name</th>
-                                    <th class="text-left p-3 font-medium text-text">Owner</th>
-                                    <th class="text-left p-3 font-medium text-text">Status</th>
-                                    <th class="text-left p-3 font-medium text-text">Created</th>
-                                    <th class="text-left p-3 font-medium text-text">Actions</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Database Name</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Owner</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Status</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Created</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="databases-table-body">
@@ -237,18 +258,26 @@
                                         <td class="p-3 text-textlight">{{ db.created_at[:10] if db.created_at else 'N/A' }}</td>
                                         <td class="p-3">
                                             <div class="flex gap-2">
+                                                <!-- View Homepage Button (for Published databases) -->
+                                                {% if db.status == 'Published' %}
+                                                    <a href="/db/{{ db.db_name }}/homepage" target="_blank" 
+                                                       class="text-purple-500 hover:text-purple-700 text-sm px-2 py-1 rounded transition">
+                                                        <i class="ri-home-line mr-1"></i>View Homepage
+                                                    </a>
+                                                {% endif %}
+                                                
                                                 <!-- View Database Button -->
                                                 {% if db.status == 'Published' %}
                                                     <a href="{{ db.website_url }}" target="_blank" 
                                                        class="text-green-500 hover:text-green-700 text-sm px-2 py-1 rounded transition">
-                                                        <i class="ri-external-link-line mr-1"></i>View Public
+                                                        <i class="ri-external-link-line mr-1"></i>View Database
                                                     </a>
                                                 {% endif %}
                                                 
-                                                <!-- View Database Details -->
-                                                <button onclick="viewDatabaseDetails('{{ db.db_id }}', '{{ db.db_name }}')" 
+                                                <!-- View Details Button -->
+                                                <button onclick="toggleDatabaseDetails('{{ db.db_id }}')" 
                                                         class="text-blue-500 hover:text-blue-700 text-sm px-2 py-1 rounded transition">
-                                                    <i class="ri-eye-line mr-1"></i>Details
+                                                    <i class="ri-eye-line mr-1"></i>View Details
                                                 </button>
                                                 
                                                 <!-- Database Management Link -->
@@ -256,6 +285,40 @@
                                                    class="text-accent hover:text-primary text-sm px-2 py-1 rounded transition">
                                                     <i class="ri-settings-line mr-1"></i>Manage
                                                 </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <!-- Expandable Details Section -->
+                                    <tr id="details-{{ db.db_id }}" class="hidden database-details bg-gray-50">
+                                        <td colspan="5" class="p-4">
+                                            <div class="bg-white rounded border border-gray-200 p-4">
+                                                <h4 class="font-semibold text-gray-800 mb-3">Database Details</h4>
+                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                    <div>
+                                                        <div class="space-y-2">
+                                                            <div><strong>Database ID:</strong> {{ db.db_id }}</div>
+                                                            <div><strong>Name:</strong> {{ db.db_name }}</div>
+                                                            <div><strong>Owner:</strong> {{ db.username }}</div>
+                                                            <div><strong>Status:</strong> {{ db.status }}</div>
+                                                            <div><strong>Created:</strong> {{ db.created_at[:19] if db.created_at else 'N/A' }}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div class="space-y-2">
+                                                            <div><strong>Website URL:</strong> 
+                                                                {% if db.website_url %}
+                                                                    <a href="{{ db.website_url }}" target="_blank" class="text-blue-500 hover:text-blue-700">{{ db.website_url }}</a>
+                                                                {% else %}
+                                                                    Not available
+                                                                {% endif %}
+                                                            </div>
+                                                            <div><strong>File Path:</strong> <span class="font-mono text-xs">{{ db.db_name }}.db</span></div>
+                                                            <div id="stats-{{ db.db_id }}" class="text-gray-600">
+                                                                <i class="ri-loader-line animate-spin mr-1"></i>Loading database statistics...
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -328,7 +391,7 @@
         <div class="flex items-center justify-center min-h-screen p-4">
             <div class="bg-white rounded-lg max-w-md w-full p-6">
                 <h3 class="text-lg font-semibold mb-4">Edit User Role</h3>
-                <form id="edit-user-form" method="post" action="/admin/edit-user">
+                <form id="edit-user-form" method="post" action="/edit-user-role">
                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     <input type="hidden" id="edit-user-id" name="user_id" value="">
                     
@@ -378,7 +441,7 @@
         </div>
     </footer>
 
-    <script>
+<script>
         function showTab(tabName) {
             // Hide all tab contents
             const contents = document.querySelectorAll('.tab-content');
@@ -393,11 +456,32 @@
             
             // Show selected tab content
             document.getElementById(tabName + '-content').classList.remove('hidden');
-            
+                     
             // Add active class to selected tab
             const activeTab = document.getElementById(tabName + '-tab');
             activeTab.classList.add('active', 'text-accent', 'border-accent');
             activeTab.classList.remove('text-textlight');
+        }
+
+        function filterUsers() {
+            const searchInput = document.getElementById('user-search').value.toLowerCase();
+            const roleFilter = document.getElementById('role-filter').value;
+            const rows = document.querySelectorAll('.user-row');
+            
+            rows.forEach(row => {
+                const username = row.getAttribute('data-username');
+                const email = row.getAttribute('data-email');
+                const role = row.getAttribute('data-role');
+                
+                const matchesSearch = username.includes(searchInput) || email.includes(searchInput);
+                const matchesRole = !roleFilter || role === roleFilter;
+                
+                if (matchesSearch && matchesRole) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
         }
 
         function filterDatabases() {
@@ -426,6 +510,39 @@
             });
         }
 
+        function toggleDatabaseDetails(dbId) {
+            const detailsRow = document.getElementById(`details-${dbId}`);
+            const button = event.target.closest('button');
+            const icon = button.querySelector('i');
+            
+            if (detailsRow.classList.contains('hidden')) {
+                detailsRow.classList.remove('hidden');
+                icon.className = 'ri-eye-off-line mr-1';
+                button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>Hide Details';
+                
+                // Load database statistics
+                loadDatabaseStats(dbId);
+            } else {
+                detailsRow.classList.add('hidden');
+                icon.className = 'ri-eye-line mr-1';
+                button.innerHTML = '<i class="ri-eye-line mr-1"></i>View Details';
+            }
+        }
+
+        function loadDatabaseStats(dbId) {
+            const statsDiv = document.getElementById(`stats-${dbId}`);
+            if (statsDiv && statsDiv.innerHTML.includes('Loading')) {
+                // Simulate loading database stats (you would implement actual API call)
+                setTimeout(() => {
+                    statsDiv.innerHTML = `
+                        <div><strong>Tables:</strong> Loading...</div>
+                        <div><strong>Records:</strong> Loading...</div>
+                        <div><strong>File Size:</strong> Loading...</div>
+                    `;
+                }, 500);
+            }
+        }
+
         function editUserRole(userId, username, currentRole) {
             document.getElementById('edit-user-id').value = userId;
             document.getElementById('edit-username').value = username;
@@ -441,7 +558,7 @@
             if (confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.action = '/admin/delete-user';
+                form.action = '/delete-user';
                 
                 const csrfInput = document.createElement('input');
                 csrfInput.type = 'hidden';
@@ -460,9 +577,11 @@
             }
         }
 
-        function viewDatabaseDetails(dbId, dbName) {
-            // This could open a modal or redirect to a details page
-            alert(`Database Details for: ${dbName}\nID: ${dbId}\n\nThis feature can be enhanced to show more details.`);
+        function cleanupExpiredDatabases() {
+            if (confirm('Clean up all expired databases? This will permanently delete databases that have exceeded their trash retention period.')) {
+                // You would implement this endpoint
+                alert('Cleanup expired databases functionality would be implemented here');
+            }
         }
 
         // Initialize with users tab active
