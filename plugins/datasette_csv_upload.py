@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 MAX_CSV_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_TABLES_PER_DATABASE = 20
-DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data/data")
 
 @hookimpl
 def register_routes():

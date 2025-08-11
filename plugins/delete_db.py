@@ -20,28 +20,6 @@ logger = logging.getLogger(__name__)
 TRASH_RETENTION_DAYS = 30
 DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")
 
-async def log_database_action(datasette, user_id, action, details, metadata=None):
-    """Enhanced logging with metadata support."""
-    try:
-        query_db = datasette.get_database("portal")
-        log_data = {
-            'log_id': uuid.uuid4().hex[:20],
-            'user_id': user_id,
-            'action': action,
-            'details': details,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        if metadata:
-            log_data['action_metadata'] = json.dumps(metadata)
-        
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
-        )
-    except Exception as e:
-        logger.error(f"Error logging action: {e}")
-
 def get_actor_from_request(request):
     """Extract actor from ds_actor cookie."""
     actor = request.scope.get("actor")
@@ -73,7 +51,6 @@ def get_actor_from_request(request):
             ds_actor = ds_actor.replace('\\054', ',').replace('\\"', '"')
             
             try:
-                import base64
                 decoded = base64.b64decode(ds_actor + '==').decode('utf-8')
                 actor_data = json.loads(decoded)
                 request.scope["actor"] = actor_data
@@ -87,6 +64,59 @@ def get_actor_from_request(request):
         return None
     
     return None
+
+def set_actor_cookie(response, datasette, actor_data):
+    """Set actor cookie on response."""
+    try:
+        encoded = base64.b64encode(json.dumps(actor_data).encode('utf-8')).decode('utf-8')
+        response.set_cookie("ds_actor", encoded, httponly=True, max_age=3600, samesite="lax")
+    except Exception as e:
+        logger.error(f"Error setting cookie: {e}")
+        response.set_cookie("ds_actor", f"user_{actor_data.get('id', '')}", httponly=True, max_age=3600, samesite="lax")
+
+async def log_user_activity(datasette, user_id, action, details, metadata=None):
+    """Enhanced logging with metadata support for user actions."""
+    try:
+        query_db = datasette.get_database("portal")
+        log_data = {
+            'log_id': uuid.uuid4().hex[:20],
+            'user_id': user_id,
+            'action': action,
+            'details': details,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        if metadata:
+            log_data['action_metadata'] = json.dumps(metadata)
+        
+        await query_db.execute_write(
+            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
+        )
+    except Exception as e:
+        logger.error(f"Error logging user action: {e}")
+
+async def log_database_action(datasette, user_id, action, details, metadata=None):
+    """Enhanced logging with metadata support."""
+    try:
+        query_db = datasette.get_database("portal")
+        log_data = {
+            'log_id': uuid.uuid4().hex[:20],
+            'user_id': user_id,
+            'action': action,
+            'details': details,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        if metadata:
+            log_data['action_metadata'] = json.dumps(metadata)
+        
+        await query_db.execute_write(
+            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
+        )
+    except Exception as e:
+        logger.error(f"Error logging action: {e}")
 
 async def unpublish_database(datasette, request):
     """Tier 1: Unpublish database (Published -> Unpublished)"""
@@ -240,7 +270,6 @@ async def trash_bin_page(datasette, request):
         )
     )
 
-
 async def trash_database(datasette, request):
     """Tier 2: Move database to trash"""
     logger.debug(f"Trash Database request: method={request.method}, path={request.path}")
@@ -285,7 +314,7 @@ async def trash_database(datasette, request):
             trashed_at = datetime.utcnow()
             restore_deadline = trashed_at + timedelta(days=TRASH_RETENTION_DAYS)
             
-            # Update status to Trashed (FIXED: removed deletion_reason)
+            # Update status to Trashed
             await query_db.execute_write(
                 """UPDATE databases SET 
                 status = 'Trashed', 

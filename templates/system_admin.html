@@ -25,7 +25,8 @@
                     <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
                     <a href="/edit-portal-homepage" class="text-white hover:text-accent mr-4">Edit Portal</a>
                     <a href="/register" class="text-white hover:text-accent mr-4">Add User</a>
-                    <a href="/change-password" class="text-white hover:text-accent mr-4">Settings</a>
+                    <a href="/trash" class="text-white hover:text-accent mr-4">System Trash</a>
+                    <a href="/profile" class="text-white hover:text-accent mr-4">Profile</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
             {% endif %}
@@ -158,14 +159,23 @@
                                         </td>
                                         <td class="p-3 text-textlight">{{ user.created_at[:10] if user.created_at else 'N/A' }}</td>
                                         <td class="p-3">
-                                            <button class="text-accent hover:text-primary text-sm mr-3">
-                                                <i class="ri-edit-line mr-1"></i>Edit
-                                            </button>
-                                            {% if user.username != actor.username %}
-                                                <button class="text-red-500 hover:text-red-700 text-sm">
-                                                    <i class="ri-delete-bin-line mr-1"></i>Delete
+                                            <div class="flex gap-2">
+                                                <!-- Edit User Role Button -->
+                                                <button onclick="editUserRole('{{ user.user_id }}', '{{ user.username }}', '{{ user.role }}')" 
+                                                        class="text-accent hover:text-primary text-sm px-2 py-1 rounded transition">
+                                                    <i class="ri-edit-line mr-1"></i>Edit Role
                                                 </button>
-                                            {% endif %}
+                                                
+                                                <!-- Delete User Button (only if not current user) -->
+                                                {% if user.username != actor.username %}
+                                                    <button onclick="deleteUser('{{ user.user_id }}', '{{ user.username }}')" 
+                                                            class="text-red-500 hover:text-red-700 text-sm px-2 py-1 rounded transition">
+                                                        <i class="ri-delete-bin-line mr-1"></i>Delete
+                                                    </button>
+                                                {% else %}
+                                                    <span class="text-gray-400 text-sm px-2 py-1">Current User</span>
+                                                {% endif %}
+                                            </div>
                                         </td>
                                     </tr>
                                 {% endfor %}
@@ -174,16 +184,21 @@
                     </div>
                 </div>
 
-                <!-- Databases Tab -->
+                <!-- Databases Tab (View Only) -->
                 <div id="databases-content" class="tab-content p-6 hidden">
                     <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-xl font-semibold text-primary">Database Management</h3>
+                        <h3 class="text-xl font-semibold text-primary">Database Overview (View Only)</h3>
                         <div class="flex gap-2">
-                            <select class="px-3 py-2 border rounded text-sm">
+                            <select id="status-filter" onchange="filterDatabases()" class="px-3 py-2 border rounded text-sm">
                                 <option value="">All Statuses</option>
                                 <option value="Published">Published</option>
                                 <option value="Draft">Draft</option>
+                                <option value="Unpublished">Unpublished</option>
+                                <option value="Trashed">Trashed</option>
                             </select>
+                            <a href="/trash" class="bg-red-500 text-white px-3 py-2 rounded text-sm hover:bg-red-600 transition">
+                                <i class="ri-delete-bin-line mr-1"></i>View System Trash
+                            </a>
                         </div>
                     </div>
                     
@@ -198,9 +213,9 @@
                                     <th class="text-left p-3 font-medium text-text">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="databases-table-body">
                                 {% for db in databases %}
-                                    <tr class="border-b hover:bg-gray-50 transition">
+                                    <tr class="border-b hover:bg-gray-50 transition database-row" data-status="{{ db.status }}">
                                         <td class="p-3">
                                             <div class="flex items-center">
                                                 <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center mr-3">
@@ -212,23 +227,36 @@
                                         <td class="p-3 text-textlight">{{ db.username }}</td>
                                         <td class="p-3">
                                             <span class="px-2 py-1 rounded-full text-xs font-medium 
-                                                {% if db.status == 'Published' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                                                {% if db.status == 'Published' %}bg-green-100 text-green-800
+                                                {% elif db.status == 'Unpublished' %}bg-blue-100 text-blue-800
+                                                {% elif db.status == 'Trashed' %}bg-red-100 text-red-800
+                                                {% else %}bg-yellow-100 text-yellow-800{% endif %}">
                                                 {{ db.status }}
                                             </span>
                                         </td>
                                         <td class="p-3 text-textlight">{{ db.created_at[:10] if db.created_at else 'N/A' }}</td>
                                         <td class="p-3">
-                                            {% if db.status == 'Published' %}
-                                                <a href="{{ db.website_url }}" target="_blank" class="text-green-500 hover:text-green-700 text-sm mr-3">
-                                                    <i class="ri-external-link-line mr-1"></i>View
+                                            <div class="flex gap-2">
+                                                <!-- View Database Button -->
+                                                {% if db.status == 'Published' %}
+                                                    <a href="{{ db.website_url }}" target="_blank" 
+                                                       class="text-green-500 hover:text-green-700 text-sm px-2 py-1 rounded transition">
+                                                        <i class="ri-external-link-line mr-1"></i>View Public
+                                                    </a>
+                                                {% endif %}
+                                                
+                                                <!-- View Database Details -->
+                                                <button onclick="viewDatabaseDetails('{{ db.db_id }}', '{{ db.db_name }}')" 
+                                                        class="text-blue-500 hover:text-blue-700 text-sm px-2 py-1 rounded transition">
+                                                    <i class="ri-eye-line mr-1"></i>Details
+                                                </button>
+                                                
+                                                <!-- Database Management Link -->
+                                                <a href="/manage-databases" 
+                                                   class="text-accent hover:text-primary text-sm px-2 py-1 rounded transition">
+                                                    <i class="ri-settings-line mr-1"></i>Manage
                                                 </a>
-                                            {% endif %}
-                                            <a href="/edit-content/{{ db.db_id }}" class="text-accent hover:text-primary text-sm mr-3">
-                                                <i class="ri-edit-line mr-1"></i>Edit
-                                            </a>
-                                            <button class="text-red-500 hover:text-red-700 text-sm">
-                                                <i class="ri-delete-bin-line mr-1"></i>Delete
-                                            </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 {% endfor %}
@@ -241,31 +269,40 @@
                 <div id="activity-content" class="tab-content p-6 hidden">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="text-xl font-semibold text-primary">Recent Activity</h3>
-                        <select class="px-3 py-2 border rounded text-sm">
+                        <select id="activity-filter" onchange="filterActivity()" class="px-3 py-2 border rounded text-sm">
                             <option value="">All Actions</option>
                             <option value="login">Login</option>
+                            <option value="register">Register</option>
                             <option value="create_database">Create Database</option>
                             <option value="publish_database">Publish Database</option>
-                            <option value="upload_csv">Upload CSV</option>
+                            <option value="csv_upload">Upload CSV</option>
                             <option value="edit_portal_homepage">Edit Portal</option>
+                            <option value="trash_database">Trash Database</option>
+                            <option value="restore_database">Restore Database</option>
                         </select>
                     </div>
                     
-                    <div class="space-y-4 max-h-96 overflow-y-auto">
+                    <div class="space-y-4 max-h-96 overflow-y-auto" id="activity-logs-container">
                         {% for log in activity_logs %}
-                            <div class="flex items-start p-4 bg-gray-50 rounded">
+                            <div class="flex items-start p-4 bg-gray-50 rounded activity-log" data-action="{{ log.action }}">
                                 <div class="w-10 h-10 rounded-full flex items-center justify-center mr-4
                                     {% if log.action == 'login' %}bg-blue-100 text-blue-600
+                                    {% elif log.action == 'register' %}bg-green-100 text-green-600
                                     {% elif log.action == 'create_database' %}bg-green-100 text-green-600
                                     {% elif log.action == 'publish_database' %}bg-purple-100 text-purple-600
-                                    {% elif log.action == 'upload_csv' %}bg-orange-100 text-orange-600
+                                    {% elif log.action == 'csv_upload' %}bg-orange-100 text-orange-600
                                     {% elif log.action == 'edit_portal_homepage' %}bg-indigo-100 text-indigo-600
+                                    {% elif log.action == 'trash_database' %}bg-red-100 text-red-600
+                                    {% elif log.action == 'restore_database' %}bg-yellow-100 text-yellow-600
                                     {% else %}bg-gray-100 text-gray-600{% endif %}">
                                     <i class="ri-{% if log.action == 'login' %}login-circle-line
+                                        {% elif log.action == 'register' %}user-add-line
                                         {% elif log.action == 'create_database' %}database-line
                                         {% elif log.action == 'publish_database' %}global-line
-                                        {% elif log.action == 'upload_csv' %}upload-line
+                                        {% elif log.action == 'csv_upload' %}upload-line
                                         {% elif log.action == 'edit_portal_homepage' %}palette-line
+                                        {% elif log.action == 'trash_database' %}delete-bin-line
+                                        {% elif log.action == 'restore_database' %}refresh-line
                                         {% else %}activity-line{% endif %} text-sm"></i>
                                 </div>
                                 <div class="flex-1">
@@ -285,6 +322,41 @@
             </div>
         </section>
     </main>
+
+    <!-- User Edit Modal -->
+    <div id="edit-user-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4">Edit User Role</h3>
+                <form id="edit-user-form" method="post" action="/admin/edit-user">
+                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                    <input type="hidden" id="edit-user-id" name="user_id" value="">
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                        <input type="text" id="edit-username" readonly class="w-full p-2 border rounded bg-gray-100">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                        <select id="edit-role" name="role" class="w-full p-2 border rounded">
+                            <option value="system_user">System User</option>
+                            <option value="system_admin">System Admin</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex gap-3">
+                        <button type="submit" class="bg-accent text-white px-4 py-2 rounded hover:bg-primary transition">
+                            Save Changes
+                        </button>
+                        <button type="button" onclick="closeEditModal()" class="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 transition">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <footer class="bg-gray-50 border-t border-gray-100 py-8">
         <div class="container mx-auto px-4">
@@ -328,9 +400,81 @@
             activeTab.classList.remove('text-textlight');
         }
 
+        function filterDatabases() {
+            const filter = document.getElementById('status-filter').value;
+            const rows = document.querySelectorAll('.database-row');
+            
+            rows.forEach(row => {
+                if (!filter || row.getAttribute('data-status') === filter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        function filterActivity() {
+            const filter = document.getElementById('activity-filter').value;
+            const logs = document.querySelectorAll('.activity-log');
+            
+            logs.forEach(log => {
+                if (!filter || log.getAttribute('data-action') === filter) {
+                    log.style.display = '';
+                } else {
+                    log.style.display = 'none';
+                }
+            });
+        }
+
+        function editUserRole(userId, username, currentRole) {
+            document.getElementById('edit-user-id').value = userId;
+            document.getElementById('edit-username').value = username;
+            document.getElementById('edit-role').value = currentRole;
+            document.getElementById('edit-user-modal').classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-user-modal').classList.add('hidden');
+        }
+
+        function deleteUser(userId, username) {
+            if (confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/admin/delete-user';
+                
+                const csrfInput = document.createElement('input');
+                csrfInput.type = 'hidden';
+                csrfInput.name = 'csrftoken';
+                csrfInput.value = '{{ csrftoken() }}';
+                
+                const userIdInput = document.createElement('input');
+                userIdInput.type = 'hidden';
+                userIdInput.name = 'user_id';
+                userIdInput.value = userId;
+                
+                form.appendChild(csrfInput);
+                form.appendChild(userIdInput);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function viewDatabaseDetails(dbId, dbName) {
+            // This could open a modal or redirect to a details page
+            alert(`Database Details for: ${dbName}\nID: ${dbId}\n\nThis feature can be enhanced to show more details.`);
+        }
+
         // Initialize with users tab active
         document.addEventListener('DOMContentLoaded', function() {
             showTab('users');
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('edit-user-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeEditModal();
+            }
         });
     </script>
 
