@@ -10,95 +10,178 @@
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
 </head>
-<body class="bg-background">
-    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
-        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
-            <div class="flex items-center">
-                <div class="w-10 h-10 flex items-center justify-center mr-3">
-                    <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
-                </div>
-                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+<body class="bg-background min-h-screen flex items-center justify-center">
+    <div class="w-full max-w-md">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="w-16 h-16 bg-accent rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="ri-login-circle-line text-white ri-2x" aria-hidden="true"></i>
             </div>
-            <div>
-                <a href="/" class="text-white hover:text-accent mr-4">Home</a>
-                <a href="/register" class="text-white hover:text-accent">Register</a>
-            </div>
+            <h1 class="text-3xl font-bold text-primary">Sign In</h1>
+            <p class="text-textlight mt-2">Access your environmental data portal</p>
         </div>
-    </header>
-    
-    <main class="flex-grow pt-20 pb-6">
-        <section class="container mx-auto px-4 mt-8">
-            <div class="bg-card rounded-card p-6 border border-border max-w-md mx-auto">
-                <div class="text-center mb-6">
-                    <i class="ri-user-line text-primary ri-3x mb-4"></i>
-                    <h2 class="text-2xl font-semibold text-primary">Login to Your Account</h2>
-                    <p class="text-textlight mt-2">Access your environmental databases</p>
+
+        <!-- Login Form -->
+        <div class="bg-card rounded-card border border-border p-8 shadow-lg">
+            <!-- Success Message -->
+            {% if request.args.get('success') %}
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+                    <p class="text-sm">{{ request.args.get('success') }}</p>
                 </div>
+            {% endif %}
 
-                {% if success %}
-                    <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
-                        <p class="text-sm">{{ success }}</p>
-                    </div>
-                {% endif %}
-
-                {% if error %}
-                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                        <p class="text-sm">{{ error }}</p>
-                    </div>
-                {% endif %}
-
-                <form action="/login" method="post">
-                    <!-- FIXED: Use Datasette's built-in CSRF token function -->
-                    <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                    
-                    <div class="mb-4">
-                        <label class="block text-text mb-2 font-medium">Username:</label>
-                        <div class="relative">
-                            <input type="text" name="username" class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" required>
-                            <i class="ri-user-line absolute left-3 top-3 text-textlight"></i>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-6">
-                        <label class="block text-text mb-2 font-medium">Password:</label>
-                        <div class="relative">
-                            <input type="password" name="password" class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" required>
-                            <i class="ri-lock-line absolute left-3 top-3 text-textlight"></i>
-                        </div>
-                    </div>
-                    
-                    <button type="submit" class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
-                        <i class="ri-login-circle-line mr-2"></i>Login
-                    </button>
-                </form>
-
-                <div class="mt-6 text-center">
-                    <p class="text-textlight">Don't have an account? 
-                        <a href="/register" class="text-accent hover:text-primary font-medium">Register here</a>
-                    </p>
+            <!-- Error Message -->
+            {% if error %}
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                    <p class="text-sm">{{ error }}</p>
                 </div>
-            </div>
-        </section>
-    </main>
+            {% endif %}
 
-    <footer class="bg-gray-50 border-t border-gray-100 py-8">
-        <div class="container mx-auto px-4">
-            <div class="flex flex-col md:flex-row justify-between items-center">
-                <div class="flex items-center mb-4 md:mb-0">
-                    <div class="w-8 h-8 flex items-center justify-center mr-2">
-                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
-                    </div>
-                    <p class="text-primary">
-                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
-                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
-                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
-                    </p>
-                </div>
+            <form method="post" class="space-y-6">
+                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                
+                <!-- Username Field -->
                 <div>
-                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                    <label for="username" class="block text-sm font-medium text-text mb-2">
+                        <i class="ri-user-line mr-2"></i>Username
+                    </label>
+                    <input type="text" 
+                           id="username" 
+                           name="username" 
+                           required 
+                           class="w-full p-3 border border-border rounded-button focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
+                           placeholder="Enter your username"
+                           autocomplete="username">
+                </div>
+
+                <!-- Password Field -->
+                <div>
+                    <label for="password" class="block text-sm font-medium text-text mb-2">
+                        <i class="ri-lock-line mr-2"></i>Password
+                    </label>
+                    <div class="relative">
+                        <input type="password" 
+                               id="password" 
+                               name="password" 
+                               required 
+                               class="w-full p-3 border border-border rounded-button focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent pr-12"
+                               placeholder="Enter your password"
+                               autocomplete="current-password">
+                        <button type="button" 
+                                onclick="togglePassword()" 
+                                class="absolute right-3 top-1/2 transform -translate-y-1/2 text-textlight hover:text-accent">
+                            <i id="password-icon" class="ri-eye-off-line"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Forgot Password Link -->
+                <div class="text-right">
+                    <a href="/forgot-password" class="text-accent hover:text-primary text-sm font-medium">
+                        <i class="ri-question-line mr-1"></i>Forgot your password?
+                    </a>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" 
+                        class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
+                    <i class="ri-login-circle-line mr-2"></i>Sign In
+                </button>
+            </form>
+
+            <!-- Divider -->
+            <div class="my-6">
+                <div class="relative">
+                    <div class="absolute inset-0 flex items-center">
+                        <div class="w-full border-t border-border"></div>
+                    </div>
+                    <div class="relative flex justify-center text-sm">
+                        <span class="px-2 bg-card text-textlight">Don't have an account?</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Register Link -->
+            <div class="text-center">
+                <a href="/register" 
+                   class="w-full bg-gray-100 text-text py-3 px-4 rounded-button hover:bg-gray-200 transition font-medium block">
+                    <i class="ri-user-add-line mr-2"></i>Create New Account
+                </a>
+            </div>
+
+            <!-- Additional Links -->
+            <div class="mt-6 pt-6 border-t border-border">
+                <div class="flex justify-center space-x-6 text-sm">
+                    <a href="/" class="text-textlight hover:text-accent">
+                        <i class="ri-home-line mr-1"></i>Home
+                    </a>
+                    <a href="/all-databases" class="text-textlight hover:text-accent">
+                        <i class="ri-database-line mr-1"></i>Browse Data
+                    </a>
+                    <a href="https://envirodatagov.org" target="_blank" class="text-textlight hover:text-accent">
+                        <i class="ri-external-link-line mr-1"></i>About EDGI
+                    </a>
                 </div>
             </div>
         </div>
-    </footer>
+
+        <!-- Footer -->
+        <div class="text-center mt-8 text-textlight text-sm">
+            <p>
+                Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                <a href="https://envirodatagov.org" target="_blank" class="text-accent hover:text-primary">EDGI</a> and 
+                <a href="https://screening-tools.com/" target="_blank" class="text-accent hover:text-primary">Public Environmental Data Partners</a>
+            </p>
+            <div class="mt-2">
+                <a href="https://opendatacommons.org/licenses/odbl/" target="_blank" class="text-accent hover:text-primary">
+                    Data licensed under ODbL
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const passwordIcon = document.getElementById('password-icon');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                passwordIcon.className = 'ri-eye-line';
+            } else {
+                passwordInput.type = 'password';
+                passwordIcon.className = 'ri-eye-off-line';
+            }
+        }
+
+        // Auto-focus on username field
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('username').focus();
+        });
+
+        // Handle form submission with loading state
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const submitButton = this.querySelector('button[type="submit"]');
+            submitButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Signing In...';
+            submitButton.disabled = true;
+        });
+
+        // Handle Enter key in password field
+        document.getElementById('password').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                this.form.submit();
+            }
+        });
+
+        // Clear any success/error messages after 5 seconds
+        setTimeout(function() {
+            const alerts = document.querySelectorAll('.bg-green-100, .bg-red-100');
+            alerts.forEach(alert => {
+                alert.style.transition = 'opacity 0.5s';
+                alert.style.opacity = '0';
+                setTimeout(() => alert.remove(), 500);
+            });
+        }, 5000);
+    </script>
 </body>
 </html>
