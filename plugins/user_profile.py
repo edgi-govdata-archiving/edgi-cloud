@@ -8,118 +8,36 @@ import bcrypt
 import logging
 import uuid
 import os
-import base64
 from datetime import datetime
 from datasette import hookimpl
 from datasette.utils.asgi import Response
-import bleach
-import re
+
+# Add the plugins directory to Python path for imports
+import sys
+plugins_dir = os.path.dirname(os.path.abspath(__file__))
+if plugins_dir not in sys.path:
+    sys.path.insert(0, plugins_dir)
+
+# Import from common_utils
+from common_utils import (
+    get_actor_from_request,
+    set_actor_cookie,
+    log_user_activity,
+    verify_user_session,
+    get_portal_content,
+    handle_form_errors,
+    redirect_authenticated_user,
+    get_success_error_from_request,
+    validate_email,
+    validate_username,
+    validate_password,
+    get_database_statistics,
+    sanitize_text
+)
 
 # Configuration
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-def sanitize_text(text):
-    """Sanitize text by stripping HTML tags while preserving safe characters."""
-    return bleach.clean(text, tags=[], strip=True)
-
-def get_actor_from_request(request):
-    """Extract actor from ds_actor cookie."""
-    actor = request.scope.get("actor")
-    if actor:
-        return actor
-    
-    try:
-        cookie_header = ""
-        for name, value in request.scope.get('headers', []):
-            if name == b'cookie':
-                cookie_header = value.decode('utf-8')
-                break
-        
-        if not cookie_header:
-            return None
-            
-        cookies = {}
-        for cookie in cookie_header.split('; '):
-            if '=' in cookie:
-                key, value = cookie.split('=', 1)
-                cookies[key] = value
-        
-        ds_actor = cookies.get("ds_actor", "")
-        
-        if ds_actor and ds_actor != '""' and ds_actor != "":
-            if ds_actor.startswith('"') and ds_actor.endswith('"'):
-                ds_actor = ds_actor[1:-1]
-            
-            ds_actor = ds_actor.replace('\\054', ',').replace('\\"', '"')
-            
-            try:
-                decoded = base64.b64decode(ds_actor + '==').decode('utf-8')
-                actor_data = json.loads(decoded)
-                request.scope["actor"] = actor_data
-                return actor_data
-            except Exception as decode_error:
-                logger.debug(f"Could not decode actor cookie: {decode_error}")
-                return None
-                
-    except Exception as e:
-        logger.debug(f"Error parsing cookies: {e}")
-        return None
-    
-    return None
-
-def set_actor_cookie(response, datasette, actor_data):
-    """Set actor cookie on response."""
-    try:
-        encoded = base64.b64encode(json.dumps(actor_data).encode('utf-8')).decode('utf-8')
-        response.set_cookie("ds_actor", encoded, httponly=True, max_age=3600, samesite="lax")
-    except Exception as e:
-        logger.error(f"Error setting cookie: {e}")
-        response.set_cookie("ds_actor", f"user_{actor_data.get('id', '')}", httponly=True, max_age=3600, samesite="lax")
-
-async def log_user_activity(datasette, user_id, action, details, metadata=None):
-    """Enhanced logging with metadata support for user actions."""
-    try:
-        query_db = datasette.get_database("portal")
-        log_data = {
-            'log_id': uuid.uuid4().hex[:20],
-            'user_id': user_id,
-            'action': action,
-            'details': details,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        if metadata:
-            log_data['action_metadata'] = json.dumps(metadata)
-        
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
-        )
-    except Exception as e:
-        logger.error(f"Error logging user action: {e}")
-
-async def log_database_action(datasette, user_id, action, details, metadata=None):
-    """Enhanced logging with metadata support."""
-    try:
-        query_db = datasette.get_database("portal")
-        log_data = {
-            'log_id': uuid.uuid4().hex[:20],
-            'user_id': user_id,
-            'action': action,
-            'details': details,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        if metadata:
-            log_data['action_metadata'] = json.dumps(metadata)
-        
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], log_data['timestamp'], log_data.get('action_metadata')]
-        )
-    except Exception as e:
-        logger.error(f"Error logging action: {e}")
 
 async def get_user_statistics(datasette, user_id):
     """Get user-specific statistics."""
@@ -172,14 +90,8 @@ async def login_page(datasette, request):
     """User login page and authentication."""
     logger.debug(f"Login request: method={request.method}")
 
-    db = datasette.get_database('portal')
-    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
-
+    # Get content for template
+    content = await get_portal_content(datasette)
     actor = get_actor_from_request(request)
 
     if request.method == "POST":
@@ -188,16 +100,13 @@ async def login_page(datasette, request):
         password = post_vars.get("password")
         
         if not username or not password:
-            return Response.html(
-                await datasette.render_template(
-                    "login.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": "Username and password are required"
-                    },
-                    request=request
-                )
+            return await handle_form_errors(
+                datasette, "login.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                },
+                request, "Username and password are required"
             )
         
         try:
@@ -226,29 +135,23 @@ async def login_page(datasette, request):
                     {"username": username, "ip": request.headers.get('x-forwarded-for', 'unknown')}
                 )
                 
-                return Response.html(
-                    await datasette.render_template(
-                        "login.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "error": "Invalid username or password"
-                        },
-                        request=request
-                    )
-                )
-        except Exception as e:
-            logger.error(f"Login error: {str(e)}")
-            return Response.html(
-                await datasette.render_template(
-                    "login.html",
+                return await handle_form_errors(
+                    datasette, "login.html",
                     {
                         "metadata": datasette.metadata(),
                         "content": content,
-                        "error": f"Login error: {str(e)}"
                     },
-                    request=request
+                    request, "Invalid username or password"
                 )
+        except Exception as e:
+            logger.error(f"Login error: {str(e)}")
+            return await handle_form_errors(
+                datasette, "login.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                },
+                request, f"Login error: {str(e)}"
             )
 
     # GET request - show login form
@@ -268,14 +171,7 @@ async def register_page(datasette, request):
     logger.debug(f"Register request: method={request.method}")
 
     actor = get_actor_from_request(request)
-
-    db = datasette.get_database('portal')
-    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
+    content = await get_portal_content(datasette)
 
     # Determine available roles based on who is accessing the page
     is_admin = actor and actor.get("role") == "system_admin"
@@ -291,20 +187,18 @@ async def register_page(datasette, request):
         email = post_vars.get("email")
         role = post_vars.get("role")
         
+        template_data = {
+            "metadata": datasette.metadata(),
+            "content": content,
+            "actor": actor,
+            "is_admin": is_admin,
+            "available_roles": available_roles
+        }
+        
         if not username or not password or not email or not role:
-            return Response.html(
-                await datasette.render_template(
-                    "register.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": "Username, password, email, and role are required",
-                        "actor": actor,
-                        "is_admin": is_admin,
-                        "available_roles": available_roles
-                    },
-                    request=request
-                )
+            return await handle_form_errors(
+                datasette, "register.html", template_data,
+                request, "Username, password, email, and role are required"
             )
         
         # Role validation based on who is registering
@@ -313,71 +207,33 @@ async def register_page(datasette, request):
             if role == "system_admin" and not is_admin:
                 error_msg = "Only system administrators can create admin accounts"
             
-            return Response.html(
-                await datasette.render_template(
-                    "register.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": error_msg,
-                        "actor": actor,
-                        "is_admin": is_admin,
-                        "available_roles": available_roles
-                    },
-                    request=request
-                )
+            return await handle_form_errors(
+                datasette, "register.html", template_data,
+                request, error_msg
             )
         
         # Validate username format
-        if not re.match(r'^[a-zA-Z0-9_]{3,20}$', username):
-            return Response.html(
-                await datasette.render_template(
-                    "register.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": "Username must be 3-20 characters long and contain only letters, numbers, and underscores",
-                        "actor": actor,
-                        "is_admin": is_admin,
-                        "available_roles": available_roles
-                    },
-                    request=request
-                )
+        is_valid_username, username_error = validate_username(username)
+        if not is_valid_username:
+            return await handle_form_errors(
+                datasette, "register.html", template_data,
+                request, username_error
             )
         
         # Validate email format
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, email):
-            return Response.html(
-                await datasette.render_template(
-                    "register.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": "Please enter a valid email address",
-                        "actor": actor,
-                        "is_admin": is_admin,
-                        "available_roles": available_roles
-                    },
-                    request=request
-                )
+        is_valid_email, email_error = validate_email(email)
+        if not is_valid_email:
+            return await handle_form_errors(
+                datasette, "register.html", template_data,
+                request, email_error
             )
         
         # Validate password strength
-        if len(password) < 6:
-            return Response.html(
-                await datasette.render_template(
-                    "register.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": "Password must be at least 6 characters long",
-                        "actor": actor,
-                        "is_admin": is_admin,
-                        "available_roles": available_roles
-                    },
-                    request=request
-                )
+        is_valid_password, password_error = validate_password(password)
+        if not is_valid_password:
+            return await handle_form_errors(
+                datasette, "register.html", template_data,
+                request, password_error
             )
         
         try:
@@ -386,37 +242,17 @@ async def register_page(datasette, request):
             # Check if username already exists
             existing_user = await db.execute("SELECT username FROM users WHERE username = ?", [username])
             if existing_user.first():
-                return Response.html(
-                    await datasette.render_template(
-                        "register.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "error": "Username already exists. Please choose a different username.",
-                            "actor": actor,
-                            "is_admin": is_admin,
-                            "available_roles": available_roles
-                        },
-                        request=request
-                    )
+                return await handle_form_errors(
+                    datasette, "register.html", template_data,
+                    request, "Username already exists. Please choose a different username."
                 )
             
             # Check if email already exists
             existing_email = await db.execute("SELECT email FROM users WHERE email = ?", [email])
             if existing_email.first():
-                return Response.html(
-                    await datasette.render_template(
-                        "register.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "error": "Email already registered. Please use a different email address.",
-                            "actor": actor,
-                            "is_admin": is_admin,
-                            "available_roles": available_roles
-                        },
-                        request=request
-                    )
+                return await handle_form_errors(
+                    datasette, "register.html", template_data,
+                    request, "Email already registered. Please use a different email address."
                 )
             
             hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -452,19 +288,9 @@ async def register_page(datasette, request):
                 
         except Exception as e:
             logger.error(f"Registration error: {str(e)}")
-            return Response.html(
-                await datasette.render_template(
-                    "register.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": f"Registration error: {str(e)}",
-                        "actor": actor,
-                        "is_admin": is_admin,
-                        "available_roles": available_roles
-                    },
-                    request=request
-                )
+            return await handle_form_errors(
+                datasette, "register.html", template_data,
+                request, f"Registration error: {str(e)}"
             )
 
     return Response.html(
@@ -506,31 +332,25 @@ async def profile_page(datasette, request):
         logger.warning(f"Unauthorized profile attempt: actor={actor}")
         return Response.redirect("/login")
 
-    db = datasette.get_database('portal')
-    
-    # Get user details
-    try:
-        result = await db.execute("SELECT user_id, username, email, role, created_at FROM users WHERE user_id = ?", [actor.get("id")])
-        user = result.first()
-        if not user:
-            logger.error(f"No user found for user_id: {actor.get('id')}")
-            response = Response.redirect("/login?error=User not found")
-            response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
-            return response
-    except Exception as e:
-        logger.error(f"Error getting user profile: {str(e)}")
-        return Response.redirect("/login?error=Profile error")
+    # Verify user session
+    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+    if not is_valid:
+        return redirect_response
 
-    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
+    content = await get_portal_content(datasette)
+    db = datasette.get_database('portal')
 
     if request.method == "POST":
         post_vars = await request.post_vars()
         action = post_vars.get("action")
+        
+        template_data = {
+            "metadata": datasette.metadata(),
+            "content": content,
+            "user": user_data,
+            "actor": actor,
+            "stats": await get_user_statistics(datasette, actor.get("id"))
+        }
         
         if action == "change_password":
             current_password = post_vars.get("current_password")
@@ -538,36 +358,17 @@ async def profile_page(datasette, request):
             confirm_password = post_vars.get("confirm_password")
             
             if not current_password or not new_password or new_password != confirm_password:
-                return Response.html(
-                    await datasette.render_template(
-                        "profile.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "user": dict(user),
-                            "actor": actor,
-                            "stats": await get_user_statistics(datasette, actor.get("id")),
-                            "error": "All fields are required and new passwords must match"
-                        },
-                        request=request
-                    )
+                return await handle_form_errors(
+                    datasette, "profile.html", template_data,
+                    request, "All fields are required and new passwords must match"
                 )
             
             # Validate new password strength
-            if len(new_password) < 6:
-                return Response.html(
-                    await datasette.render_template(
-                        "profile.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "user": dict(user),
-                            "actor": actor,
-                            "stats": await get_user_statistics(datasette, actor.get("id")),
-                            "error": "New password must be at least 6 characters long"
-                        },
-                        request=request
-                    )
+            is_valid_password, password_error = validate_password(new_password)
+            if not is_valid_password:
+                return await handle_form_errors(
+                    datasette, "profile.html", template_data,
+                    request, password_error
                 )
             
             try:
@@ -577,19 +378,9 @@ async def profile_page(datasette, request):
                 
                 # Verify current password
                 if not password_row or not bcrypt.checkpw(current_password.encode('utf-8'), password_row["password_hash"].encode('utf-8')):
-                    return Response.html(
-                        await datasette.render_template(
-                            "profile.html",
-                            {
-                                "metadata": datasette.metadata(),
-                                "content": content,
-                                "user": dict(user),
-                                "actor": actor,
-                                "stats": await get_user_statistics(datasette, actor.get("id")),
-                                "error": "Current password is incorrect"
-                            },
-                            request=request
-                        )
+                    return await handle_form_errors(
+                        datasette, "profile.html", template_data,
+                        request, "Current password is incorrect"
                     )
                 
                 # Update password
@@ -608,75 +399,35 @@ async def profile_page(datasette, request):
                 
             except Exception as e:
                 logger.error(f"Password change error: {str(e)}")
-                return Response.html(
-                    await datasette.render_template(
-                        "profile.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "user": dict(user),
-                            "actor": actor,
-                            "stats": await get_user_statistics(datasette, actor.get("id")),
-                            "error": f"Password change failed: {str(e)}"
-                        },
-                        request=request
-                    )
+                return await handle_form_errors(
+                    datasette, "profile.html", template_data,
+                    request, f"Password change failed: {str(e)}"
                 )
         
         elif action == "update_email":
             new_email = post_vars.get("new_email")
             
             if not new_email:
-                return Response.html(
-                    await datasette.render_template(
-                        "profile.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "user": dict(user),
-                            "actor": actor,
-                            "stats": await get_user_statistics(datasette, actor.get("id")),
-                            "error": "Email is required"
-                        },
-                        request=request
-                    )
+                return await handle_form_errors(
+                    datasette, "profile.html", template_data,
+                    request, "Email is required"
                 )
             
             # Validate email format
-            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-            if not re.match(email_pattern, new_email):
-                return Response.html(
-                    await datasette.render_template(
-                        "profile.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "user": dict(user),
-                            "actor": actor,
-                            "stats": await get_user_statistics(datasette, actor.get("id")),
-                            "error": "Please enter a valid email address"
-                        },
-                        request=request
-                    )
+            is_valid_email, email_error = validate_email(new_email)
+            if not is_valid_email:
+                return await handle_form_errors(
+                    datasette, "profile.html", template_data,
+                    request, email_error
                 )
             
             try:
                 # Check if email already exists
                 existing_email = await db.execute("SELECT user_id FROM users WHERE email = ? AND user_id != ?", [new_email, actor.get("id")])
                 if existing_email.first():
-                    return Response.html(
-                        await datasette.render_template(
-                            "profile.html",
-                            {
-                                "metadata": datasette.metadata(),
-                                "content": content,
-                                "user": dict(user),
-                                "actor": actor,
-                                "stats": await get_user_statistics(datasette, actor.get("id")),
-                                "error": "Email already in use by another account"
-                            },
-                            request=request
-                        )
+                    return await handle_form_errors(
+                        datasette, "profile.html", template_data,
+                        request, "Email already in use by another account"
                     )
                 
                 # Update email
@@ -687,27 +438,17 @@ async def profile_page(datasette, request):
                 
                 await log_user_activity(
                     datasette, actor.get("id"), "update_email", 
-                    f"User {actor.get('username')} updated email from {user['email']} to {new_email}",
-                    {"old_email": user['email'], "new_email": new_email}
+                    f"User {actor.get('username')} updated email from {user_data['email']} to {new_email}",
+                    {"old_email": user_data['email'], "new_email": new_email}
                 )
                 
                 return Response.redirect("/profile?success=Email updated successfully")
                 
             except Exception as e:
                 logger.error(f"Email update error: {str(e)}")
-                return Response.html(
-                    await datasette.render_template(
-                        "profile.html",
-                        {
-                            "metadata": datasette.metadata(),
-                            "content": content,
-                            "user": dict(user),
-                            "actor": actor,
-                            "stats": await get_user_statistics(datasette, actor.get("id")),
-                            "error": f"Email update failed: {str(e)}"
-                        },
-                        request=request
-                    )
+                return await handle_form_errors(
+                    datasette, "profile.html", template_data,
+                    request, f"Email update failed: {str(e)}"
                 )
     
     # GET request - show profile page
@@ -717,11 +458,82 @@ async def profile_page(datasette, request):
             {
                 "metadata": datasette.metadata(),
                 "content": content,
-                "user": dict(user),
+                "user": user_data,
                 "actor": actor,
                 "stats": await get_user_statistics(datasette, actor.get("id")),
-                "success": request.args.get('success'),
-                "error": request.args.get('error')
+                **get_success_error_from_request(request)
+            },
+            request=request
+        )
+    )
+
+async def change_password_page(datasette, request):
+    """Standalone change password page."""
+    logger.debug(f"Change Password request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor:
+        logger.warning(f"Unauthorized change password attempt: actor={actor}")
+        return Response.redirect("/login")
+
+    content = await get_portal_content(datasette)
+
+    if request.method == "POST":
+        post_vars = await request.post_vars()
+        logger.debug(f"Change password POST vars keys: {list(post_vars.keys())}")
+        current_password = post_vars.get("current_password")
+        new_password = post_vars.get("new_password")
+        confirm_password = post_vars.get("confirm_password")
+        username = actor.get("username")
+        
+        template_data = {
+            "metadata": datasette.metadata(),
+            "content": content,
+            "actor": actor,
+        }
+        
+        if not current_password or not new_password or new_password != confirm_password:
+            return await handle_form_errors(
+                datasette, "change_password.html", template_data,
+                request, "All fields are required and new passwords must match"
+            )
+
+        try:
+            db = datasette.get_database("portal")
+            result = await db.execute("SELECT password_hash FROM users WHERE username = ?", [username])
+            user = result.first()
+            if user and bcrypt.checkpw(current_password.encode('utf-8'), user["password_hash"].encode('utf-8')):
+                hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                await db.execute_write(
+                    "UPDATE users SET password_hash = ? WHERE username = ?",
+                    [hashed_password, username]
+                )
+                await log_user_activity(
+                    datasette, actor.get("id"), "change_password", 
+                    f"User {username} changed password"
+                )
+                logger.debug("Password changed for user: %s", username)
+                return Response.redirect("/manage-databases?success=Password changed successfully")
+            else:
+                logger.warning("Invalid current password for user: %s", username)
+                return await handle_form_errors(
+                    datasette, "change_password.html", template_data,
+                    request, "Invalid current password"
+                )
+        except Exception as e:
+            logger.error(f"Password change error: {str(e)}")
+            return await handle_form_errors(
+                datasette, "change_password.html", template_data,
+                request, f"Password change error: {str(e)}"
+            )
+
+    return Response.html(
+        await datasette.render_template(
+            "change_password.html",
+            {
+                "metadata": datasette.metadata(),
+                "content": content,
+                "actor": actor,
             },
             request=request
         )
@@ -731,29 +543,20 @@ async def forgot_password_page(datasette, request):
     """Forgot password page (placeholder for future implementation)."""
     logger.debug(f"Forgot Password request: method={request.method}")
     
-    db = datasette.get_database('portal')
-    title = await db.execute("SELECT content FROM admin_content WHERE db_id IS NULL AND section = ?", ["title"])
-    title_row = title.first()
-    content = {
-        'title': json.loads(title_row["content"]) if title_row else {'content': 'EDGI Datasette Cloud Portal'},
-        'description': {'content': 'Environmental data dashboard.'}
-    }
+    content = await get_portal_content(datasette)
     
     if request.method == "POST":
         post_vars = await request.post_vars()
         email = post_vars.get("email")
         
         if not email:
-            return Response.html(
-                await datasette.render_template(
-                    "forgot_password.html",
-                    {
-                        "metadata": datasette.metadata(),
-                        "content": content,
-                        "error": "Email address is required"
-                    },
-                    request=request
-                )
+            return await handle_form_errors(
+                datasette, "forgot_password.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                },
+                request, "Email address is required"
             )
         
         # TODO: Implement actual password reset functionality
@@ -796,6 +599,7 @@ def register_routes():
         (r"^/register$", register_page),
         (r"^/logout$", logout_page),
         (r"^/profile$", profile_page),
+        (r"^/change-password$", change_password_page),
         (r"^/forgot-password$", forgot_password_page),
     ]
 

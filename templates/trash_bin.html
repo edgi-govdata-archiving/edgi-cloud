@@ -46,7 +46,7 @@
                     </h1>
                     <p class="text-textlight mt-2">
                         {% if is_admin %}
-                            Manage all trashed databases across the system
+                            View all trashed databases across the system. You can only restore/delete your own databases.
                         {% else %}
                             Restore or permanently delete your trashed databases
                         {% endif %}
@@ -78,7 +78,11 @@
                         <h3 class="font-semibold text-orange-800">30-Day Recovery Window</h3>
                         <p class="text-orange-700 text-sm">
                             Databases in trash will be automatically deleted after 30 days. 
-                            You can restore them anytime before the deadline or delete them permanently.
+                            {% if is_admin %}
+                                Administrators can view all trashed databases but can only restore/delete their own databases.
+                            {% else %}
+                                You can restore them anytime before the deadline or delete them permanently.
+                            {% endif %}
                         </p>
                     </div>
                 </div>
@@ -99,6 +103,11 @@
                                             <h3 class="text-xl font-semibold text-red-800">
                                                 {{ db.db_name.replace('_', ' ').title() }}
                                             </h3>
+                                            {% if not db.is_own_database %}
+                                                <span class="bg-blue-200 text-blue-900 px-2 py-1 rounded text-xs font-bold">
+                                                    VIEW ONLY
+                                                </span>
+                                            {% endif %}
                                             {% if db.is_expired %}
                                                 <span class="bg-red-200 text-red-900 px-2 py-1 rounded text-xs font-bold">
                                                     EXPIRED
@@ -151,40 +160,38 @@
 
                                 <!-- Action Buttons -->
                                 <div class="flex flex-wrap gap-3">
-                                    {% if not db.is_expired or is_admin %}
-                                        <!-- Restore Button -->
+                                    {% if db.is_own_database and (not db.is_expired) %}
+                                        <!-- Restore Button - Only for own databases -->
                                         <form method="post" action="/db/{{ db.db_name }}/restore?from=trash" class="inline">
                                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                                             <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition font-medium"
-                                                    {% if db.is_expired and not is_admin %}disabled{% endif %}
                                                     onclick="return confirm('Restore {{ db.db_name.replace('_', ' ').title() }}? It will be moved back to your active databases.')">
-                                                <i class="ri-refresh-line mr-2"></i>
-                                                {% if is_admin and db.is_expired %}Admin Restore{% else %}Restore Database{% endif %}
+                                                <i class="ri-refresh-line mr-2"></i>Restore Database
                                             </button>
                                         </form>
                                     {% endif %}
 
-                                    <!-- Permanent Delete Button -->
-                                    <a href="/db/{{ db.db_name }}/delete-permanent?from=trash" 
-                                       class="bg-red-600 text-white px-4 py-2 rounded-button hover:bg-red-700 transition font-medium"
-                                       onclick="return confirm('This will permanently delete {{ db.db_name.replace('_', ' ').title() }}. Continue to confirmation page?')">
-                                        <i class="ri-delete-bin-line mr-2"></i>Delete Permanently
-                                    </a>
-
-                                    {% if is_admin %}
-                                        <!-- Admin Force Delete -->
-                                        <a href="/db/{{ db.db_name }}/delete-permanent/force?from=admin" 
-                                           class="bg-red-800 text-white px-4 py-2 rounded-button hover:bg-red-900 transition font-medium"
-                                           onclick="return confirm('ADMIN FORCE DELETE: This will immediately and permanently delete {{ db.db_name.replace('_', ' ').title() }}. Continue to confirmation page?')">
-                                            <i class="ri-skull-line mr-2"></i>Force Delete
+                                    {% if db.is_own_database %}
+                                        <!-- Permanent Delete Button - Only for own databases -->
+                                        <a href="/db/{{ db.db_name }}/delete-permanent?from=trash" 
+                                           class="bg-red-600 text-white px-4 py-2 rounded-button hover:bg-red-700 transition font-medium"
+                                           onclick="return confirm('This will permanently delete {{ db.db_name.replace('_', ' ').title() }}. Continue to confirmation page?')">
+                                            <i class="ri-delete-bin-line mr-2"></i>Delete Permanently
                                         </a>
                                     {% endif %}
 
-                                    <!-- View Details Button -->
+                                    <!-- View Details Button - Available for all -->
                                     <button onclick="toggleDetails('{{ db.db_name }}')" 
                                             class="bg-blue-500 text-white px-4 py-2 rounded-button hover:bg-blue-600 transition font-medium">
                                         <i class="ri-eye-line mr-2"></i>View Details
                                     </button>
+
+                                    {% if not db.is_own_database %}
+                                        <!-- Info for non-owned databases -->
+                                        <span class="text-gray-600 text-sm px-4 py-2 bg-gray-100 rounded-button">
+                                            <i class="ri-information-line mr-1"></i>View Only
+                                        </span>
+                                    {% endif %}
                                 </div>
 
                                 <!-- Expandable Details Section -->
@@ -197,6 +204,9 @@
                                                 <div><strong>Original Status:</strong> {{ db.status }}</div>
                                                 <div><strong>Tables:</strong> {{ db.table_count }}</div>
                                                 <div><strong>Size:</strong> {{ "%.1f"|format(db.database_size) }}KB</div>
+                                                {% if is_admin %}
+                                                    <div><strong>Owner:</strong> {{ db.username if db.username else 'Unknown' }}</div>
+                                                {% endif %}
                                                 {% if db.file_path %}
                                                     <div><strong>File Path:</strong> {{ db.file_path }}</div>
                                                 {% endif %}
@@ -220,6 +230,13 @@
                                                         {{ db.days_until_delete }}
                                                     {% endif %}
                                                 </div>
+                                                <div><strong>Can Manage:</strong> 
+                                                    {% if db.is_own_database %}
+                                                        <span class="text-green-700 font-bold">YES (Your Database)</span>
+                                                    {% else %}
+                                                        <span class="text-gray-600">NO (View Only)</span>
+                                                    {% endif %}
+                                                </div>
                                                 {% if db.deletion_reason %}
                                                     <div><strong>Deletion Reason:</strong> {{ db.deletion_reason }}</div>
                                                 {% endif %}
@@ -227,21 +244,25 @@
                                         </div>
                                     </div>
                                     
-                                    {% if db.is_expired %}
+                                    {% if db.is_expired and not db.is_own_database %}
                                         <div class="mt-4 p-3 bg-red-200 border border-red-300 rounded">
                                             <div class="flex items-center text-red-900">
                                                 <i class="ri-alert-line mr-2"></i>
                                                 <strong>This database has expired and will be automatically deleted soon.</strong>
                                             </div>
-                                            {% if is_admin %}
-                                                <p class="text-red-800 text-sm mt-1">
-                                                    As a system administrator, you can still restore this database using the Admin Restore button.
-                                                </p>
-                                            {% else %}
-                                                <p class="text-red-800 text-sm mt-1">
-                                                    Contact a system administrator if you need to recover this database.
-                                                </p>
-                                            {% endif %}
+                                            <p class="text-red-800 text-sm mt-1">
+                                                This is not your database. Only the owner could have restored it before expiration.
+                                            </p>
+                                        </div>
+                                    {% elif db.is_expired and db.is_own_database %}
+                                        <div class="mt-4 p-3 bg-red-200 border border-red-300 rounded">
+                                            <div class="flex items-center text-red-900">
+                                                <i class="ri-alert-line mr-2"></i>
+                                                <strong>Your database has expired and will be automatically deleted soon.</strong>
+                                            </div>
+                                            <p class="text-red-800 text-sm mt-1">
+                                                The restore deadline has passed. The database will be permanently deleted during the next cleanup cycle.
+                                            </p>
                                         </div>
                                     {% endif %}
                                 </div>
@@ -270,24 +291,23 @@
                     </div>
                 {% endif %}
 
-                <!-- Bulk Actions (Admin Only) -->
+                <!-- Admin Bulk Actions (Admin Only) -->
                 {% if is_admin and trashed_databases %}
                     <div class="mt-8 p-6 bg-gray-50 border border-gray-200 rounded-card">
                         <h3 class="text-lg font-semibold text-gray-800 mb-4">
                             <i class="ri-admin-line mr-2"></i>Admin Bulk Actions
                         </h3>
                         <div class="flex flex-wrap gap-3">
-                            <button onclick="confirmBulkAction('cleanup')" 
-                                    class="bg-orange-500 text-white px-4 py-2 rounded-button hover:bg-orange-600 transition font-medium">
-                                <i class="ri-broom-line mr-2"></i>Cleanup Expired Databases
-                            </button>
-                            <button onclick="confirmBulkAction('force-cleanup')" 
-                                    class="bg-red-600 text-white px-4 py-2 rounded-button hover:bg-red-700 transition font-medium">
-                                <i class="ri-skull-line mr-2"></i>Force Delete All Expired
-                            </button>
+                            <form method="post" action="/cleanup-expired" class="inline">
+                                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                <button type="submit" onclick="return confirm('Clean up all expired databases? This will permanently delete databases that have exceeded their retention period. This action cannot be undone.')"
+                                        class="bg-orange-500 text-white px-4 py-2 rounded-button hover:bg-orange-600 transition font-medium">
+                                    <i class="ri-broom-line mr-2"></i>Cleanup Expired Databases
+                                </button>
+                            </form>
                         </div>
                         <p class="text-gray-600 text-sm mt-2">
-                            Use bulk actions carefully. These operations cannot be undone.
+                            Cleanup removes only expired databases. Active databases in trash are preserved until their deadline.
                         </p>
                     </div>
                 {% endif %}
@@ -319,8 +339,8 @@
                             </div>
                             {% if is_admin %}
                             <div>
-                                <div class="font-semibold text-blue-800">Admin Privileges</div>
-                                <p>Administrators can restore expired databases and force delete immediately.</p>
+                                <div class="font-semibold text-blue-800">Admin Permissions</div>
+                                <p>Administrators can view all trashed databases but can only manage their own databases.</p>
                             </div>
                             {% endif %}
                             <div>
@@ -370,25 +390,6 @@
                 button.innerHTML = '<i class="ri-eye-line mr-2"></i>View Details';
             }
         }
-
-        {% if is_admin %}
-        function confirmBulkAction(action) {
-            let message, url;
-            
-            if (action === 'cleanup') {
-                message = 'Delete all expired databases? This action cannot be undone.';
-                url = '/admin/cleanup-expired';
-            } else if (action === 'force-cleanup') {
-                message = 'FORCE DELETE all expired databases immediately? This is irreversible!';
-                url = '/admin/force-cleanup-expired';
-            }
-            
-            if (confirm(message)) {
-                // You would implement these admin endpoints
-                alert('This feature would be implemented with proper admin endpoints');
-            }
-        }
-        {% endif %}
 
         // Auto-refresh countdown timers
         function updateCountdowns() {

@@ -69,11 +69,20 @@
                             </div>
                             <div class="flex justify-between">
                                 <span class="text-gray-600">Records:</span>
-                                <span class="font-medium">{{ "{:,}".format(total_records | default(0)) }} total rows</span>
+                                <!-- FIXED: Handle both string and number cases -->
+                                <span class="font-medium">
+                                    {% if total_records == "Calculated during deletion" %}
+                                        {{ total_records }}
+                                    {% elif total_records is number %}
+                                        {{ "{:,}".format(total_records) }} total rows
+                                    {% else %}
+                                        {{ total_records | default("Unknown") }}
+                                    {% endif %}
+                                </span>
                             </div>
                             <div class="flex justify-between">
                                 <span class="text-gray-600">Size:</span>
-                                <span class="font-medium">{{ "%.1f".format(database_size | default(0)) }} KB</span>
+                                <span class="font-medium">{{ "%.1f"|format(database_size | float | default(0)) }} KB</span>
                             </div>
                         </div>
                     </div>
@@ -97,7 +106,16 @@
                         </div>
                         <div class="flex items-start text-sm">
                             <i class="ri-close-circle-line text-red-500 mr-2 mt-0.5"></i>
-                            <span>{{ "{:,}".format(total_records | default(0)) }} records will be lost forever</span>
+                            <!-- FIXED: Handle record count safely -->
+                            <span>
+                                {% if total_records == "Calculated during deletion" %}
+                                    All records will be lost forever
+                                {% elif total_records is number %}
+                                    {{ "{:,}".format(total_records) }} records will be lost forever
+                                {% else %}
+                                    All records will be lost forever
+                                {% endif %}
+                            </span>
                         </div>
                         <div class="flex items-start text-sm">
                             <i class="ri-close-circle-line text-red-500 mr-2 mt-0.5"></i>
@@ -137,7 +155,7 @@
                         </form>
                         
                         <div class="flex-1">
-                            <a href="/manage-databases" 
+                            <a href="/trash" 
                                class="w-full bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium block">
                                 <i class="ri-close-line mr-2"></i>Cancel
                             </a>
@@ -188,27 +206,11 @@
     </footer>
 
     <script>
-        const confirmationInput = document.getElementById('confirmation-input');
-        const deleteButton = document.getElementById('delete-button');
-        const hiddenConfirm = document.getElementById('hidden-confirm');
+        // Global variables and function
+        let confirmationInput, deleteButton, hiddenConfirm;
         const requiredDbName = '{{ db_name }}';
 
-        // Enable delete button only when correct database name is entered
-        confirmationInput.addEventListener('input', function() {
-            const isMatch = this.value.trim() === requiredDbName;
-            deleteButton.disabled = !isMatch;
-            hiddenConfirm.value = this.value.trim();
-            
-            if (isMatch) {
-                deleteButton.classList.remove('bg-gray-400');
-                deleteButton.classList.add('bg-red-600', 'hover:bg-red-700');
-            } else {
-                deleteButton.classList.add('bg-gray-400');
-                deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
-            }
-        });
-
-        // Final confirmation before deletion
+        // SIMPLIFIED - No browser confirm dialog
         function confirmDeletion(event) {
             if (confirmationInput.value.trim() !== requiredDbName) {
                 event.preventDefault();
@@ -216,29 +218,66 @@
                 return false;
             }
             
-            const finalConfirm = confirm(
-                `Are you absolutely sure you want to delete the database "${requiredDbName}"?\n\n` +
-                `This will permanently delete:\n` +
-                `• {{ table_count | default(0) }} data tables\n` +
-                `• {{ "{:,}".format(total_records | default(0)) }} records\n` +
-                `• All custom content and settings\n\n` +
-                `This action cannot be undone!`
-            );
-            
-            if (!finalConfirm) {
-                event.preventDefault();
-                return false;
-            }
-            
-            // Show loading state
+            // Show loading state immediately
             deleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Deleting Database...';
             deleteButton.disabled = true;
             
             return true;
         }
 
-        // Focus on confirmation input
-        confirmationInput.focus();
+        // Add delay when page loads to allow file handle cleanup
+        window.addEventListener('DOMContentLoaded', function() {
+            // Initialize elements
+            confirmationInput = document.getElementById('confirmation-input');
+            deleteButton = document.getElementById('delete-button');
+            hiddenConfirm = document.getElementById('hidden-confirm');
+            
+            const originalText = deleteButton.innerHTML;
+            
+            // Disable button for 3 seconds to allow file cleanup
+            deleteButton.disabled = true;
+            deleteButton.classList.add('bg-gray-400');
+            deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+            deleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Preparing deletion...';
+            
+            // Set up input validation (but keep button disabled during preparation)
+            confirmationInput.addEventListener('input', function() {
+                const isMatch = this.value.trim() === requiredDbName;
+                hiddenConfirm.value = this.value.trim();
+                
+                // Only enable if preparation is complete AND text matches
+                if (isMatch && !deleteButton.innerHTML.includes('Preparing deletion')) {
+                    deleteButton.disabled = false;
+                    deleteButton.classList.remove('bg-gray-400');
+                    deleteButton.classList.add('bg-red-600', 'hover:bg-red-700');
+                } else {
+                    deleteButton.disabled = true;
+                    deleteButton.classList.add('bg-gray-400');
+                    deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+                }
+            });
+            
+            // Re-enable after 3 seconds with proper validation
+            setTimeout(function() {
+                deleteButton.innerHTML = originalText;
+                
+                // Check if input already matches to enable button
+                const isMatch = confirmationInput.value.trim() === requiredDbName;
+                if (isMatch) {
+                    deleteButton.disabled = false;
+                    deleteButton.classList.remove('bg-gray-400');
+                    deleteButton.classList.add('bg-red-600', 'hover:bg-red-700');
+                } else {
+                    deleteButton.disabled = true;
+                    deleteButton.classList.add('bg-gray-400');
+                    deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+                }
+                
+                // Focus on input after preparation is complete
+                confirmationInput.focus();
+            }, 3000); // 3 second delay
+        });
     </script>
+
 </body>
 </html>
