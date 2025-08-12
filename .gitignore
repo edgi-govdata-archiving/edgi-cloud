@@ -14,7 +14,7 @@ node_modules/
 package-lock.json
 
 # uv
-.python_version
+.python-version
 hello.py
 pyproject.toml
 uv.lock
