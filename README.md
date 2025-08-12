@@ -15,18 +15,21 @@ Making environmental data accessible to everyone. The EDGI Datasette Cloud Porta
 ## ✨ Key Features
 
 ### 📊 **Easy Data Upload**
+
 - **Secure CSV Upload**: Upload environmental datasets up to 10MB with built-in validation
 - **Auto-Type Detection**: Automatically detects column types (INTEGER, REAL, TEXT)
 - **Batch Processing**: Handles large datasets efficiently with progress tracking
 - **Data Validation**: Real-time CSV validation and error reporting
 
 ### 🎨 **Custom Data Portals**
+
 - **Homepage Customization**: Create branded landing pages with custom images and descriptions
 - **Markdown Support**: Rich text formatting with link support `[text](url)`
 - **Header Images**: Upload custom header images with proper attribution
 - **SEO Optimization**: Custom titles and descriptions for better discoverability
 
 ### 🔒 **Enterprise Security**
+
 - **CSRF Protection**: Complete Cross-Site Request Forgery protection on all forms
 - **Role-Based Access**: System admin and user roles with appropriate permissions
 - **Secure File Upload**: Validated file types and size limits
@@ -34,6 +37,7 @@ Making environmental data accessible to everyone. The EDGI Datasette Cloud Porta
 - **Audit Logging**: Complete activity tracking for security and compliance
 
 ### 🚀 **Instant Publishing**
+
 - **Draft Mode**: Work privately before publishing
 - **One-Click Publishing**: Make databases publicly accessible instantly
 - **Auto-Generated APIs**: RESTful JSON APIs for all published data
@@ -43,6 +47,7 @@ Making environmental data accessible to everyone. The EDGI Datasette Cloud Porta
 ## 🏗️ Architecture
 
 ### Technology Stack
+
 - **Backend**: Python with Datasette framework
 - **Database**: SQLite with extension support
 - **Frontend**: Tailwind CSS with Remix Icon
@@ -51,6 +56,7 @@ Making environmental data accessible to everyone. The EDGI Datasette Cloud Porta
 - **File Storage**: Local filesystem with configurable paths
 
 ### Core Components
+
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Web Frontend  │    │  Admin Panel    │    │  CSV Upload     │
@@ -85,6 +91,7 @@ Making environmental data accessible to everyone. The EDGI Datasette Cloud Porta
 ### For Developers
 
 #### Prerequisites
+
 - Python 3.8+
 - Node.js (for Tailwind CSS)
 - SQLite3
@@ -108,7 +115,7 @@ export PORTAL_DB_PATH="/path/to/portal.db"
 python init_db.py
 
 # Run the development server
-datasette serve portal.db --plugins-dir=plugins --template-dir=templates
+datasette serve portal.db --plugins-dir=plugins --template-dir=templates  --static static:static
 ```
 
 #### Environment Configuration
@@ -116,7 +123,7 @@ datasette serve portal.db --plugins-dir=plugins --template-dir=templates
 ```bash
 # Required environment variables
 EDGI_DATA_DIR=/data/databases          # Database storage location
-EDGI_STATIC_DIR=/static               # Static files location  
+EDGI_STATIC_DIR=/static               # Static files location
 PORTAL_DB_PATH=/data/portal.db        # Main portal database
 FLY_APP_NAME=your-app-name           # For dynamic URL generation
 ```
@@ -124,18 +131,21 @@ FLY_APP_NAME=your-app-name           # For dynamic URL generation
 ## 🛡️ Security Features
 
 ### Authentication & Authorization
+
 - **bcrypt Password Hashing**: Industry-standard password security
 - **Role-Based Access Control**: Separate admin and user permissions
 - **Session Management**: Secure cookie-based authentication
 - **Database Ownership**: Users can only access their own databases
 
 ### CSRF Protection
+
 - **Complete Form Protection**: All POST requests require valid CSRF tokens
 - **AJAX Security**: Secure AJAX endpoints with token validation
 - **Token Generation**: Cryptographically signed tokens with expiration
 - **Automatic Validation**: Server-side token verification on all submissions
 
 ### File Upload Security
+
 - **File Type Validation**: Only CSV files accepted
 - **Size Limits**: Configurable upload limits (default 10MB)
 - **Content Validation**: CSV structure and data validation
@@ -144,18 +154,21 @@ FLY_APP_NAME=your-app-name           # For dynamic URL generation
 ## 📊 Use Cases
 
 ### Environmental Research
+
 - **Air Quality Monitoring**: Share pollution measurements and trends
 - **Water Quality Data**: Publish watershed and drinking water analyses
 - **Climate Data**: Distribute temperature, precipitation, and weather data
 - **Biodiversity Studies**: Share species occurrence and habitat data
 
 ### Government & NGOs
+
 - **Public Health Data**: Environmental health impact assessments
 - **Compliance Monitoring**: Regulatory compliance and violation data
 - **Community Engagement**: Public participation in environmental monitoring
 - **Policy Support**: Data-driven environmental policy development
 
 ### Academic Institutions
+
 - **Research Publication**: Share research datasets with proper attribution
 - **Student Projects**: Enable student-led environmental monitoring
 - **Collaboration**: Multi-institutional data sharing platforms
@@ -164,12 +177,14 @@ FLY_APP_NAME=your-app-name           # For dynamic URL generation
 ## 🎯 User Experience
 
 ### Intuitive Interface
+
 - **Clean Design**: Modern, accessible interface with Tailwind CSS
 - **Responsive Layout**: Works seamlessly on desktop and mobile devices
 - **Clear Navigation**: Logical workflow from upload to publication
 - **Real-time Feedback**: Immediate validation and progress indicators
 
 ### Workflow Optimization
+
 ```
 Upload CSV → Validate Data → Preview Results → Customize Portal → Publish
      ↓            ↓              ↓              ↓            ↓
@@ -177,6 +192,7 @@ Upload CSV → Validate Data → Preview Results → Customize Portal → Publis
 ```
 
 ### Accessibility Features
+
 - **Keyboard Navigation**: Full keyboard accessibility
 - **Screen Reader Support**: Semantic HTML with proper ARIA labels
 - **High Contrast**: Accessible color schemes
@@ -185,6 +201,7 @@ Upload CSV → Validate Data → Preview Results → Customize Portal → Publis
 ## 🔧 Configuration
 
 ### Database Settings
+
 ```python
 # Maximum databases per user
 MAX_DATABASES_PER_USER = 5
@@ -197,6 +214,7 @@ ALLOWED_EXTENSIONS = {'.csv', '.txt'}
 ```
 
 ### Security Configuration
+
 ```python
 # CSRF token expiration
 CSRF_TOKEN_EXPIRY = 3600  # 1 hour
@@ -211,12 +229,14 @@ SESSION_TIMEOUT = 3600  # 1 hour
 ## 📈 Monitoring & Analytics
 
 ### Activity Logging
+
 - **User Actions**: Complete audit trail of user activities
 - **System Events**: Database creation, publishing, and modifications
 - **Security Events**: Failed logins, permission violations
 - **Performance Metrics**: Upload times, query performance
 
 ### System Health
+
 - **Database Monitoring**: SQLite performance and integrity checks
 - **File System**: Storage usage and availability monitoring
 - **Application Metrics**: Request rates, response times, error rates
@@ -260,18 +280,21 @@ CMD ["datasette", "serve", "portal.db", "--host", "0.0.0.0", "--port", "8000"]
 We welcome contributions from the environmental data community!
 
 ### Development Setup
+
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make changes with proper tests
 4. Submit a pull request with detailed description
 
 ### Code Standards
+
 - **Python**: Follow PEP 8 style guidelines
 - **JavaScript**: ES6+ with proper error handling
 - **HTML/CSS**: Semantic markup with accessibility considerations
 - **Security**: All contributions must maintain security standards
 
 ### Testing
+
 ```bash
 # Run security tests
 python test_security.py
@@ -305,4 +328,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ by EDGI and Public Environmental Data Partners**
 
-*Empowering environmental transparency through accessible data sharing.*
+_Empowering environmental transparency through accessible data sharing._
