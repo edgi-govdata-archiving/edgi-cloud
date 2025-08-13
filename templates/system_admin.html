@@ -171,16 +171,16 @@
                                         <td class="p-3">
                                             <div class="flex gap-2">
                                                 <!-- View Homepage Button (for Published databases) -->
-                                                {% if db.status == 'Published' %}
-                                                    <a href="/db/{{ db.db_name }}/homepage" target="_blank" 
+                                                {% if db.status != 'Trashed' %}
+                                                    <a href="{{ db.website_url }}" target="_blank" 
                                                        class="text-purple-500 hover:text-purple-700 text-sm px-2 py-1 rounded transition">
                                                         <i class="ri-home-line mr-1"></i>View Homepage
                                                     </a>
                                                 {% endif %}
                                                 
                                                 <!-- View Database Button -->
-                                                {% if db.status == 'Published' %}
-                                                    <a href="{{ db.website_url }}" target="_blank" 
+                                                {% if db.status != 'Trashed' %}
+                                                    <a href="/{{ db.db_name }}" target="_blank" 
                                                        class="text-green-500 hover:text-green-700 text-sm px-2 py-1 rounded transition">
                                                         <i class="ri-external-link-line mr-1"></i>View Database
                                                     </a>

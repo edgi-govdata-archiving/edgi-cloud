@@ -1,9 +1,22 @@
-<!DOCTYPE html>
+function updateButtonState() {
+            const confirmText = confirmationInput.value.trim();
+            let canSubmit = confirmText === requiredText;
+            
+            if (isAdminForceDelete) {
+                const hasReason = adminReason && adminReason.value !== '';
+                canSubmit = canSubmit && hasReason;
+            }
+            
+            if (canSubmit) {
+                deleteButton.disabled = false;
+                deleteButton.classList.remove('bg-gray-400');
+                deleteButton.classList.add(isAdminForceDelete ? 'bg-red-700' : 'bg-red-600', 
+                                           isAdminForceDelete ? 'hover:bg-red-800' : 'hover:bg-red-700');<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Delete Database - {{ db_name }} | EDGI Portal</title>
+    <title>{% if is_admin_force_delete %}Admin Force Delete{% else %}Delete Database{% endif %} - {{ db_name }} | EDGI Portal</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -15,13 +28,13 @@
         <div class="container mx-auto px-4 h-20 flex items-center justify-between">
             <div class="flex items-center">
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
-                    <i class="ri-delete-bin-line text-white ri-2x" aria-hidden="true"></i>
+                    <i class="ri-{% if is_admin_force_delete %}shield-cross-line{% else %}delete-bin-line{% endif %} text-white ri-2x" aria-hidden="true"></i>
                 </div>
-                <div class="text-xl font-semibold">Delete Database</div>
+                <div class="text-xl font-semibold">{% if is_admin_force_delete %}Admin Force Delete{% else %}Delete Database{% endif %}</div>
             </div>
             <div>
-                <a href="/manage-databases" class="text-white hover:text-accent">
-                    <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+                <a href="{% if is_admin_force_delete %}/system-trash{% else %}{% if request.args.get('from') == 'system-trash' %}/system-trash{% else %}/manage-databases{% endif %}{% endif %}" class="text-white hover:text-accent">
+                    <i class="ri-arrow-left-line mr-1"></i>Back to {% if is_admin_force_delete %}System Trash{% else %}{% if request.args.get('from') == 'system-trash' %}System Trash{% else %}Databases{% endif %}{% endif %}
                 </a>
             </div>
         </div>
@@ -30,21 +43,33 @@
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-6">
             <div class="max-w-2xl mx-auto">
-                <!-- Danger Warning Card -->
-                <div class="bg-red-50 border border-red-200 rounded-card p-6 mb-6">
+                <!-- Warning Card -->
+                <div class="bg-{% if is_admin_force_delete %}red-100 border-2 border-red-300{% else %}red-50 border border-red-200{% endif %} rounded-card p-6 mb-6">
                     <div class="flex items-center mb-4">
-                        <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mr-4">
-                            <i class="ri-alert-line text-red-600 ri-xl"></i>
+                        <div class="w-12 h-12 bg-{% if is_admin_force_delete %}red-200{% else %}red-100{% endif %} rounded-full flex items-center justify-center mr-4">
+                            <i class="ri-{% if is_admin_force_delete %}shield-cross-line{% else %}alert-line{% endif %} text-red-{% if is_admin_force_delete %}700{% else %}600{% endif %} ri-xl"></i>
                         </div>
                         <div>
-                            <h1 class="text-2xl font-bold text-red-800">Confirm Database Deletion</h1>
-                            <p class="text-red-600">This action cannot be undone</p>
+                            <h1 class="text-2xl font-bold text-red-800">
+                                {% if is_admin_force_delete %}
+                                    Administrator Force Delete
+                                {% else %}
+                                    Confirm Database Deletion
+                                {% endif %}
+                            </h1>
+                            <p class="text-red-600">
+                                {% if is_admin_force_delete %}
+                                    ⚠️ CRITICAL: This action bypasses normal user permissions
+                                {% else %}
+                                    This action cannot be undone
+                                {% endif %}
+                            </p>
                         </div>
                     </div>
                     
-                    <div class="bg-white rounded border border-red-200 p-4">
+                    <div class="bg-white rounded border{% if is_admin_force_delete %}-2{% endif %} border-red-{% if is_admin_force_delete %}300{% else %}200{% endif %} p-4">
                         <h2 class="text-lg font-semibold text-gray-900 mb-3">
-                            You are about to permanently delete:
+                            You are about to {% if is_admin_force_delete %}FORCE DELETE{% else %}permanently delete{% endif %}:
                         </h2>
                         
                         <div class="space-y-3">
@@ -52,11 +77,19 @@
                                 <span class="text-gray-600">Database:</span>
                                 <span class="font-medium text-red-600">{{ db_name.replace('_', ' ').title() }}</span>
                             </div>
+                            {% if is_admin_force_delete %}
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Owner:</span>
+                                <span class="font-medium text-orange-600">{{ owner_username }}</span>
+                            </div>
+                            {% endif %}
                             <div class="flex justify-between">
                                 <span class="text-gray-600">Status:</span>
                                 <span class="font-medium 
                                     {% if db_status == 'Published' %}
                                         text-green-600
+                                    {% elif db_status == 'Trashed' %}
+                                        text-red-600
                                     {% else %}
                                         text-yellow-600
                                     {% endif %}">
@@ -69,9 +102,8 @@
                             </div>
                             <div class="flex justify-between">
                                 <span class="text-gray-600">Records:</span>
-                                <!-- FIXED: Handle both string and number cases -->
                                 <span class="font-medium">
-                                    {% if total_records == "Calculated during deletion" %}
+                                    {% if total_records == "Calculated during deletion" or total_records == "Will be calculated" %}
                                         {{ total_records }}
                                     {% elif total_records is number %}
                                         {{ "{:,}".format(total_records) }} total rows
@@ -95,8 +127,49 @@
                     </div>
                 {% endif %}
 
+                <!-- Admin Override Warning (only for force delete) -->
+                {% if is_admin_force_delete %}
+                <div class="bg-orange-50 border-2 border-orange-300 rounded-card p-6 mb-6">
+                    <div class="flex items-center mb-4">
+                        <i class="ri-admin-line text-orange-600 text-2xl mr-3"></i>
+                        <h3 class="text-lg font-semibold text-orange-800">Administrative Override Notice</h3>
+                    </div>
+                    
+                    <div class="space-y-3 mb-4 text-sm text-orange-700">
+                        <div class="flex items-start">
+                            <i class="ri-shield-line text-orange-600 mr-2 mt-0.5"></i>
+                            <span><strong>Bypassing user permissions:</strong> You are deleting another user's database</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-alert-line text-red-600 mr-2 mt-0.5"></i>
+                            <span><strong>No recovery period:</strong> This action skips the 30-day trash recovery window</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-close-circle-line text-red-600 mr-2 mt-0.5"></i>
+                            <span><strong>Immediate deletion:</strong> All data will be permanently destroyed</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-file-list-line text-blue-600 mr-2 mt-0.5"></i>
+                            <span><strong>Audit trail:</strong> This action will be logged with your admin credentials</span>
+                        </div>
+                        {% if db_status == 'Published' %}
+                        <div class="flex items-start">
+                            <i class="ri-link-unlink text-purple-600 mr-2 mt-0.5"></i>
+                            <span><strong>Public links broken:</strong> All public access to <strong>/{{ db_name }}/</strong> will immediately cease</span>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="bg-orange-100 border border-orange-200 rounded p-3">
+                        <p class="text-orange-800 text-sm font-medium">
+                            ⚠️ Use this power responsibly. Consider contacting the database owner first unless this is an emergency security measure.
+                        </p>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Actions -->
-                <div class="bg-card rounded-card p-6 border border-border">
+                <div class="bg-card rounded-card p-6 border{% if is_admin_force_delete %}-2{% endif %} border-{% if is_admin_force_delete %}red-200{% else %}border{% endif %}">
                     <h3 class="text-lg font-semibold text-gray-900 mb-4">What happens when you delete this database?</h3>
                     
                     <div class="space-y-3 mb-6">
@@ -106,9 +179,8 @@
                         </div>
                         <div class="flex items-start text-sm">
                             <i class="ri-close-circle-line text-red-500 mr-2 mt-0.5"></i>
-                            <!-- FIXED: Handle record count safely -->
                             <span>
-                                {% if total_records == "Calculated during deletion" %}
+                                {% if total_records == "Calculated during deletion" or total_records == "Will be calculated" %}
                                     All records will be lost forever
                                 {% elif total_records is number %}
                                     {{ "{:,}".format(total_records) }} records will be lost forever
@@ -127,60 +199,138 @@
                             <span>Public links to <strong>/{{ db_name }}/</strong> will no longer work</span>
                         </div>
                         {% endif %}
+                        {% if not is_admin_force_delete %}
                         <div class="flex items-start text-sm">
                             <i class="ri-information-line text-blue-500 mr-2 mt-0.5"></i>
                             <span>You can recreate the database later if you have backup CSV files</span>
                         </div>
+                        {% endif %}
                     </div>
 
                     <!-- Confirmation Input -->
                     <div class="mb-6">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Type the database name <strong>{{ db_name }}</strong> to confirm deletion:
-                        </label>
-                        <input type="text" id="confirmation-input" 
-                               class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                               placeholder="Enter database name exactly">
+                        {% if is_admin_force_delete %}
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Type <strong>FORCE DELETE {{ db_name }}</strong> to confirm this administrative action:
+                            </label>
+                            <input type="text" id="confirmation-input" 
+                                   class="w-full p-3 border-2 border-red-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 font-mono"
+                                   placeholder="FORCE DELETE {{ db_name }}">
+                            <p class="text-red-600 text-xs mt-1">
+                                Must match exactly: <strong>FORCE DELETE {{ db_name }}</strong>
+                            </p>
+
+                            <!-- Admin Reason -->
+                            <div class="mt-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Administrative Reason (required for audit log):
+                                </label>
+                                <select id="admin-reason" class="w-full p-3 border border-gray-300 rounded mb-2">
+                                    <option value="">Select reason...</option>
+                                    <option value="security_threat">Security Threat/Malicious Content</option>
+                                    <option value="policy_violation">Policy Violation</option>
+                                    <option value="legal_request">Legal/Compliance Request</option>
+                                    <option value="data_corruption">Data Corruption/Technical Issue</option>
+                                    <option value="user_request">User Request (Unable to Delete)</option>
+                                    <option value="system_maintenance">System Maintenance</option>
+                                    <option value="other">Other (specify below)</option>
+                                </select>
+                                <textarea id="admin-notes" placeholder="Additional details for audit log (optional)" 
+                                          class="w-full p-3 border border-gray-300 rounded h-20 text-sm"></textarea>
+                            </div>
+                        {% else %}
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Type the database name <strong>{{ db_name }}</strong> to confirm deletion:
+                            </label>
+                            <input type="text" id="confirmation-input" 
+                                   class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                                   placeholder="Enter database name exactly">
+                        {% endif %}
                     </div>
 
                     <!-- Action Buttons -->
                     <div class="flex flex-col sm:flex-row gap-3">
                         <form method="post" class="flex-1" onsubmit="return confirmDeletion(event)">
                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                            <input type="hidden" name="confirm_db_name" id="hidden-confirm" value="">
+                            {% if is_admin_force_delete %}
+                                <input type="hidden" name="confirm_text" id="hidden-confirm" value="">
+                                <input type="hidden" name="admin_reason" id="hidden-reason" value="">
+                                <input type="hidden" name="admin_notes" id="hidden-notes" value="">
+                            {% else %}
+                                <input type="hidden" name="confirm_db_name" id="hidden-confirm" value="">
+                            {% endif %}
                             <button type="submit" id="delete-button" disabled
-                                    class="w-full bg-red-600 text-white py-3 px-4 rounded-button hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition font-medium">
-                                <i class="ri-delete-bin-line mr-2"></i>Delete Database Permanently
+                                    class="w-full bg-red-{% if is_admin_force_delete %}700{% else %}600{% endif %} text-white py-3 px-4 rounded-button hover:bg-red-{% if is_admin_force_delete %}800{% else %}700{% endif %} disabled:bg-gray-400 disabled:cursor-not-allowed transition font-{% if is_admin_force_delete %}bold{% else %}medium{% endif %}">
+                                <i class="ri-{% if is_admin_force_delete %}shield-cross-line{% else %}delete-bin-line{% endif %} mr-2"></i>{% if is_admin_force_delete %}FORCE DELETE DATABASE (ADMIN OVERRIDE){% else %}Delete Database Permanently{% endif %}
                             </button>
                         </form>
                         
                         <div class="flex-1">
-                            <a href="/trash" 
+                            <a href="{% if is_admin_force_delete %}/system-trash{% else %}{% if request.args.get('from') == 'system-trash' %}/system-trash{% else %}/trash{% endif %}{% endif %}" 
                                class="w-full bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium block">
-                                <i class="ri-close-line mr-2"></i>Cancel
+                                <i class="ri-close-line mr-2"></i>Cancel {% if is_admin_force_delete %}Force Delete{% else %}Deletion{% endif %}
                             </a>
                         </div>
                     </div>
 
-                    <!-- Quick Actions -->
-                    {% if db_status == 'Published' %}
-                    <div class="mt-6 pt-6 border-t border-gray-200">
-                        <h4 class="text-sm font-medium text-gray-700 mb-3">Before you delete, consider:</h4>
-                        <div class="flex flex-wrap gap-2">
-                            <a href="/{{ db_name }}/" target="_blank"
-                               class="text-blue-600 hover:text-blue-800 text-sm flex items-center">
-                                <i class="ri-eye-line mr-1"></i>View database
-                            </a>
-                            {% if table_count > 0 %}
-                            <a href="/{{ db_name }}" target="_blank"
-                               class="text-green-600 hover:text-green-800 text-sm flex items-center">
-                                <i class="ri-download-line mr-1"></i>Export all data
-                            </a>
-                            {% endif %}
+                    <!-- Alternative Actions -->
+                    {% if not is_admin_force_delete %}
+                        {% if db_status == 'Published' %}
+                        <div class="mt-6 pt-6 border-t border-gray-200">
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">Before you delete, consider:</h4>
+                            <div class="flex flex-wrap gap-2">
+                                <a href="/{{ db_name }}/" target="_blank"
+                                   class="text-blue-600 hover:text-blue-800 text-sm flex items-center">
+                                    <i class="ri-eye-line mr-1"></i>View database
+                                </a>
+                                {% if table_count > 0 %}
+                                <a href="/{{ db_name }}" target="_blank"
+                                   class="text-green-600 hover:text-green-800 text-sm flex items-center">
+                                    <i class="ri-download-line mr-1"></i>Export all data
+                                </a>
+                                {% endif %}
+                            </div>
                         </div>
-                    </div>
+                        {% endif %}
+                    {% else %}
+                        <!-- Admin Alternative Actions -->
+                        <div class="mt-6 pt-6 border-t border-gray-200">
+                            <h4 class="text-sm font-medium text-gray-700 mb-3">Consider these alternatives first:</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <div>
+                                    <div class="bg-blue-50 p-3 rounded">
+                                        <div class="font-medium text-blue-800">Contact Database Owner</div>
+                                        <div class="text-blue-700">Email: {{ owner_email | default('Not available') }}</div>
+                                        <div class="text-blue-700">Ask them to delete it themselves</div>
+                                    </div>
+                                </div>
+                                {% if db_status == 'Published' %}
+                                <div>
+                                    <div class="bg-yellow-50 p-3 rounded">
+                                        <div class="font-medium text-yellow-800">Unpublish Instead</div>
+                                        <div class="text-yellow-700">Make database private</div>
+                                        <div class="text-yellow-700">Preserves data but removes public access</div>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
                     {% endif %}
                 </div>
+
+                <!-- Audit Information (only for admin force delete) -->
+                {% if is_admin_force_delete %}
+                <div class="mt-6 bg-gray-50 border border-gray-200 rounded p-4">
+                    <h4 class="font-medium text-gray-800 mb-2">Audit Information</h4>
+                    <div class="text-sm text-gray-600 space-y-1">
+                        <div><strong>Admin User:</strong> {{ actor.username }} ({{ actor.id }})</div>
+                        <div><strong>Action:</strong> Administrative Force Delete</div>
+                        <div><strong>Target Database:</strong> {{ db_name }}</div>
+                        <div><strong>Database Owner:</strong> {{ owner_username }}</div>
+                        <div><strong>Timestamp:</strong> <span id="current-time"></span></div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </section>
     </main>
@@ -207,75 +357,147 @@
 
     <script>
         // Global variables and function
-        let confirmationInput, deleteButton, hiddenConfirm;
-        const requiredDbName = '{{ db_name }}';
+        let confirmationInput, deleteButton, isAdminForceDelete;
+        let hiddenConfirm, hiddenReason, hiddenNotes, adminReason, adminNotes;
+        
+        {% if is_admin_force_delete %}
+            const requiredText = 'FORCE DELETE {{ db_name }}';
+            isAdminForceDelete = true;
+        {% else %}
+            const requiredText = '{{ db_name }}';
+            isAdminForceDelete = false;
+        {% endif %}
 
-        // SIMPLIFIED - No browser confirm dialog
         function confirmDeletion(event) {
-            if (confirmationInput.value.trim() !== requiredDbName) {
+            if (confirmationInput.value.trim() !== requiredText) {
                 event.preventDefault();
-                alert('Please enter the exact database name to confirm deletion.');
+                alert('Please enter the exact confirmation text to proceed.');
                 return false;
             }
             
+            if (isAdminForceDelete) {
+                const selectedReason = adminReason.value;
+                if (!selectedReason) {
+                    event.preventDefault();
+                    alert('Please select an administrative reason for the audit log.');
+                    adminReason.focus();
+                    return false;
+                }
+                
+                // Set hidden fields for admin
+                hiddenConfirm.value = confirmationInput.value.trim();
+                hiddenReason.value = selectedReason;
+                hiddenNotes.value = adminNotes.value.trim();
+                
+                // Final confirmation dialog for admin
+                const confirmMessage = 
+                    `⚠️ CRITICAL ADMINISTRATIVE ACTION ⚠️\n\n` +
+                    `You are about to FORCE DELETE:\n` +
+                    `Database: "${'{{ db_name }}'}}"\n` +
+                    `Owner: "${'{{ owner_username }}'}}"\n` +
+                    `Reason: "${selectedReason}"\n\n` +
+                    `This action will:\n` +
+                    `• Permanently destroy all data immediately\n` +
+                    `• Bypass normal user permissions and recovery period\n` +
+                    `• Be logged in the audit trail with your admin credentials\n` +
+                    `• Cannot be undone\n\n` +
+                    `Are you absolutely certain you want to proceed?`;
+                
+                if (!confirm(confirmMessage)) {
+                    event.preventDefault();
+                    return false;
+                }
+            } else {
+                // Set hidden field for regular user
+                hiddenConfirm.value = confirmationInput.value.trim();
+            }
+            
             // Show loading state immediately
-            deleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Deleting Database...';
+            deleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>' + 
+                (isAdminForceDelete ? 'FORCE DELETING...' : 'Deleting Database...');
             deleteButton.disabled = true;
             
             return true;
         }
 
-        // Add delay when page loads to allow file handle cleanup
+        function updateButtonState() {
+            const confirmText = confirmationInput.value.trim();
+            let canSubmit = confirmText === requiredText;
+            
+            if (isAdminForceDelete) {
+                const hasReason = adminReason && adminReason.value !== '';
+                canSubmit = canSubmit && hasReason;
+            }
+            
+            if (canSubmit) {
+                deleteButton.disabled = false;
+                deleteButton.classList.remove('bg-gray-400');
+                deleteButton.classList.add(isAdminForceDelete ? 'bg-red-700' : 'bg-red-600', 
+                                           isAdminForceDelete ? 'hover:bg-red-800' : 'hover:bg-red-700');
+                confirmationInput.classList.remove(isAdminForceDelete ? 'border-red-300' : 'border-gray-300');
+                confirmationInput.classList.add('border-green-500', 'bg-green-50');
+            } else {
+                deleteButton.disabled = true;
+                deleteButton.classList.add('bg-gray-400');
+                deleteButton.classList.remove(isAdminForceDelete ? 'bg-red-700' : 'bg-red-600', 
+                                              isAdminForceDelete ? 'hover:bg-red-800' : 'hover:bg-red-700');
+                confirmationInput.classList.remove('border-green-500', 'bg-green-50');
+                confirmationInput.classList.add(isAdminForceDelete ? 'border-red-300' : 'border-gray-300');
+            }
+        }
+
+        // Add delay when page loads to allow file handle cleanup (for regular deletes)
         window.addEventListener('DOMContentLoaded', function() {
             // Initialize elements
             confirmationInput = document.getElementById('confirmation-input');
             deleteButton = document.getElementById('delete-button');
             hiddenConfirm = document.getElementById('hidden-confirm');
             
+            if (isAdminForceDelete) {
+                adminReason = document.getElementById('admin-reason');
+                adminNotes = document.getElementById('admin-notes');
+                hiddenReason = document.getElementById('hidden-reason');
+                hiddenNotes = document.getElementById('hidden-notes');
+                
+                // Set current time for admin
+                const currentTimeEl = document.getElementById('current-time');
+                if (currentTimeEl) {
+                    currentTimeEl.textContent = new Date().toLocaleString();
+                }
+            }
+            
             const originalText = deleteButton.innerHTML;
             
-            // Disable button for 3 seconds to allow file cleanup
-            deleteButton.disabled = true;
-            deleteButton.classList.add('bg-gray-400');
-            deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
-            deleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Preparing deletion...';
+            // Only add delay for regular deletes (not admin force delete)
+            if (!isAdminForceDelete) {
+                // Disable button for 3 seconds to allow file cleanup
+                deleteButton.disabled = true;
+                deleteButton.classList.add('bg-gray-400');
+                deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+                deleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>Preparing deletion...';
+            }
             
-            // Set up input validation (but keep button disabled during preparation)
-            confirmationInput.addEventListener('input', function() {
-                const isMatch = this.value.trim() === requiredDbName;
-                hiddenConfirm.value = this.value.trim();
-                
-                // Only enable if preparation is complete AND text matches
-                if (isMatch && !deleteButton.innerHTML.includes('Preparing deletion')) {
-                    deleteButton.disabled = false;
-                    deleteButton.classList.remove('bg-gray-400');
-                    deleteButton.classList.add('bg-red-600', 'hover:bg-red-700');
-                } else {
-                    deleteButton.disabled = true;
-                    deleteButton.classList.add('bg-gray-400');
-                    deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
-                }
-            });
+            // Set up input validation
+            confirmationInput.addEventListener('input', updateButtonState);
+            if (isAdminForceDelete && adminReason) {
+                adminReason.addEventListener('change', updateButtonState);
+            }
             
-            // Re-enable after 3 seconds with proper validation
-            setTimeout(function() {
-                deleteButton.innerHTML = originalText;
-                
-                // Check if input already matches to enable button
-                const isMatch = confirmationInput.value.trim() === requiredDbName;
-                if (isMatch) {
-                    deleteButton.disabled = false;
-                    deleteButton.classList.remove('bg-gray-400');
-                    deleteButton.classList.add('bg-red-600', 'hover:bg-red-700');
-                } else {
-                    deleteButton.disabled = true;
-                    deleteButton.classList.add('bg-gray-400');
-                    deleteButton.classList.remove('bg-red-600', 'hover:bg-red-700');
-                }
-                
-                // Focus on input after preparation is complete
+            // Re-enable after delay (only for regular deletes)
+            if (!isAdminForceDelete) {
+                setTimeout(function() {
+                    deleteButton.innerHTML = originalText;
+                    updateButtonState(); // Check if input already matches to enable button
+                    confirmationInput.focus();
+                }, 3000); // 3 second delay
+            } else {
+                // For admin force delete, enable immediately and fix the button state
+                deleteButton.disabled = true; // Start disabled
+                deleteButton.classList.add('bg-gray-400');
+                deleteButton.classList.remove('bg-red-700', 'hover:bg-red-800');
+                updateButtonState();
                 confirmationInput.focus();
-            }, 3000); // 3 second delay
+            }
         });
     </script>
 

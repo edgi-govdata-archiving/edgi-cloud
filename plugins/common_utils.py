@@ -293,7 +293,7 @@ async def get_database_content(datasette, db_name):
     return content
 
 async def get_database_statistics(datasette, user_id=None):
-    """Get enhanced database statistics for homepage with encoding safety."""
+    """Get enhanced database statistics for homepage with encoding safety - excludes deleted databases."""
     try:
         db = datasette.get_database("portal")
         
@@ -308,7 +308,7 @@ async def get_database_statistics(datasette, user_id=None):
         }
         
         try:
-            # Total active databases (not deleted or trashed)
+            # Total active databases (not deleted or trashed) - EXCLUDE 'Deleted' status
             total_result = await db.execute(
                 "SELECT COUNT(*) FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
             )
@@ -317,7 +317,7 @@ async def get_database_statistics(datasette, user_id=None):
             logger.error(f"Error getting total databases: {e}")
         
         try:
-            # Published databases
+            # Published databases - EXCLUDE 'Deleted' status
             published_result = await db.execute(
                 "SELECT COUNT(*) FROM databases WHERE status = 'Published'"
             )
@@ -328,7 +328,7 @@ async def get_database_statistics(datasette, user_id=None):
         # User-specific statistics if user_id provided
         if user_id:
             try:
-                # User active databases
+                # User active databases - EXCLUDE 'Deleted' status
                 user_result = await db.execute(
                     "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished')", 
                     [user_id]
@@ -338,7 +338,7 @@ async def get_database_statistics(datasette, user_id=None):
                 logger.error(f"Error getting user databases for {user_id}: {e}")
             
             try:
-                # User published databases
+                # User published databases - EXCLUDE 'Deleted' status
                 user_published_result = await db.execute(
                     "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Published'", 
                     [user_id]
@@ -348,7 +348,7 @@ async def get_database_statistics(datasette, user_id=None):
                 logger.error(f"Error getting user published databases for {user_id}: {e}")
             
             try:
-                # User trashed databases
+                # User trashed databases - EXCLUDE 'Deleted' status
                 user_trashed_result = await db.execute(
                     "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Trashed'", 
                     [user_id]
@@ -358,7 +358,7 @@ async def get_database_statistics(datasette, user_id=None):
                 logger.error(f"Error getting user trashed databases for {user_id}: {e}")
         
         try:
-            # Featured databases for homepage - only get essential fields
+            # Featured databases for homepage - only get essential fields, EXCLUDE 'Deleted' status
             featured_result = await db.execute(
                 "SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 6"
             )
@@ -394,6 +394,66 @@ async def get_database_statistics(datasette, user_id=None):
             'user_trashed': 0
         }
 
+async def get_all_published_databases(datasette):
+    """Get all published databases with metadata for public listing - excludes deleted databases."""
+    try:
+        db = datasette.get_database("portal")
+        
+        # Get all published databases with user info - EXCLUDE 'Deleted' status
+        all_dbs_result = await db.execute(
+            """SELECT d.db_id, d.db_name, d.website_url, d.created_at, u.username
+               FROM databases d 
+               JOIN users u ON d.user_id = u.user_id 
+               WHERE d.status = 'Published'
+               ORDER BY d.created_at DESC"""
+        )
+        
+        all_databases = []
+        for row in all_dbs_result:
+            # Get database content for custom titles/descriptions
+            try:
+                db_content = await get_database_content(datasette, row['db_name'])
+            except Exception as content_error:
+                logger.error(f"Error getting content for {row['db_name']}: {content_error}")
+                db_content = {}
+            
+            # Get table count and record count for each database
+            table_count = 0
+            total_records = 0
+            try:
+                user_db = datasette.get_database(row['db_name'])
+                if user_db:
+                    table_names_result = await user_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    table_names = [t['name'] for t in table_names_result.rows]
+                    table_count = len(table_names)
+                    
+                    for table_name in table_names:
+                        try:
+                            count_result = await user_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
+                            record_count = count_result.first()['count'] if count_result.first() else 0
+                            total_records += record_count
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.error(f"Error getting stats for database {row['db_name']}: {e}")
+
+            all_databases.append({
+                'title': db_content.get('title', {}).get('content', row['db_name'].replace('_', ' ').title()),
+                'description': db_content.get('description', {}).get('content', 'Environmental data dashboard'),
+                'url': row['website_url'],
+                'created_at': row['created_at'],
+                'username': row['username'],
+                'table_count': table_count,
+                'total_records': total_records,
+                'icon': 'ri-database-line'
+            })
+        
+        return all_databases
+        
+    except Exception as e:
+        logger.error(f"Error getting all published databases: {e}")
+        return []
+    
 def sanitize_text(text):
     """Sanitize text by stripping HTML tags while preserving safe characters."""
     return bleach.clean(text, tags=[], strip=True)
@@ -611,73 +671,13 @@ def generate_website_url(request, db_name):
     """Generate website URL for database."""
     scheme = request.scheme
     host = request.headers.get('host', 'localhost:8001')
-    return f"{scheme}://{host}/{db_name}/"
+    return f"{scheme}://{host}/db/{db_name}/"
 
 def ensure_data_directories():
     """Ensure required directories exist."""
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(STATIC_DIR, exist_ok=True)
     logger.debug(f"Ensured data directories exist: {DATA_DIR}, {STATIC_DIR}")
-
-async def get_all_published_databases(datasette):
-    """Get all published databases with metadata for public listing."""
-    try:
-        db = datasette.get_database("portal")
-        
-        # Get all published databases with user info
-        all_dbs_result = await db.execute(
-            """SELECT d.db_id, d.db_name, d.website_url, d.created_at, u.username
-               FROM databases d 
-               JOIN users u ON d.user_id = u.user_id 
-               WHERE d.status = 'Published' 
-               ORDER BY d.created_at DESC"""
-        )
-        
-        all_databases = []
-        for row in all_dbs_result:
-            # Get database content for custom titles/descriptions
-            try:
-                db_content = await get_database_content(datasette, row['db_name'])
-            except Exception as content_error:
-                logger.error(f"Error getting content for {row['db_name']}: {content_error}")
-                db_content = {}
-            
-            # Get table count and record count for each database
-            table_count = 0
-            total_records = 0
-            try:
-                user_db = datasette.get_database(row['db_name'])
-                if user_db:
-                    table_names_result = await user_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                    table_names = [t['name'] for t in table_names_result.rows]
-                    table_count = len(table_names)
-                    
-                    for table_name in table_names:
-                        try:
-                            count_result = await user_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
-                            record_count = count_result.first()['count'] if count_result.first() else 0
-                            total_records += record_count
-                        except Exception:
-                            continue
-            except Exception as e:
-                logger.error(f"Error getting stats for database {row['db_name']}: {e}")
-
-            all_databases.append({
-                'title': db_content.get('title', {}).get('content', row['db_name'].replace('_', ' ').title()),
-                'description': db_content.get('description', {}).get('content', 'Environmental data dashboard'),
-                'url': row['website_url'],
-                'created_at': row['created_at'],
-                'username': row['username'],
-                'table_count': table_count,
-                'total_records': total_records,
-                'icon': 'ri-database-line'
-            })
-        
-        return all_databases
-        
-    except Exception as e:
-        logger.error(f"Error getting all published databases: {e}")
-        return []
 
 # Template data helpers
 def get_success_error_from_request(request):

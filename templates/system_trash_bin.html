@@ -116,9 +116,6 @@
                                                 <i class="ri-mail-line mr-1"></i>{{ db.email }}
                                             </span>
                                             <span>
-                                                <i class="ri-table-line mr-1"></i>{{ db.table_count }} tables
-                                            </span>
-                                            <span>
                                                 <i class="ri-database-line mr-1"></i>{{ "%.1f"|format(db.database_size) }}KB
                                             </span>
                                             <span>
@@ -184,11 +181,8 @@
                                                 <div><strong>Owner:</strong> {{ db.username }} ({{ db.email }})</div>
                                                 <div><strong>User ID:</strong> {{ db.user_id[:8] }}...</div>
                                                 <div><strong>Original Status:</strong> {{ db.status }}</div>
-                                                <div><strong>Tables:</strong> {{ db.table_count }}</div>
                                                 <div><strong>Size:</strong> {{ "%.1f"|format(db.database_size) }}KB</div>
-                                                {% if db.file_path %}
-                                                    <div><strong>File Path:</strong> {{ db.file_path }}</div>
-                                                {% endif %}
+
                                             </div>
                                         </div>
                                         <div>
@@ -263,31 +257,7 @@
 
                 <!-- Admin Bulk Actions -->
                 {% if trashed_databases %}
-                    <div class="mt-8 p-6 bg-gray-50 border border-gray-200 rounded-card">
-                        <h3 class="text-lg font-semibold text-gray-800 mb-4">
-                            <i class="ri-admin-line mr-2"></i>System Administrator Actions
-                        </h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
-                            <div>
-                                <h4 class="font-semibold text-gray-800 mb-2">Available Actions</h4>
-                                <ul class="space-y-1">
-                                    <li>• <strong>Force Delete:</strong> Immediately delete any user's database</li>
-                                    <li>• <strong>Restore Own:</strong> Restore your own databases only</li>
-                                    <li>• <strong>Regular Delete:</strong> Delete your own databases only</li>
-                                    <li>• <strong>View Details:</strong> Inspect any database information</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <h4 class="font-semibold text-gray-800 mb-2">Administrative Notes</h4>
-                                <ul class="space-y-1">
-                                    <li>• All force delete actions are logged for audit</li>
-                                    <li>• Force delete bypasses 30-day recovery window</li>
-                                    <li>• Regular users cannot see this system-wide view</li>
-                                    <li>• Consider contacting database owners before force deletion</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+
                 {% endif %}
 
                 <!-- Help Section -->

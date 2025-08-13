@@ -130,9 +130,6 @@
                                                 </span>
                                             {% endif %}
                                             <span>
-                                                <i class="ri-table-line mr-1"></i>{{ db.table_count }} tables
-                                            </span>
-                                            <span>
                                                 <i class="ri-database-line mr-1"></i>{{ "%.1f"|format(db.database_size) }}KB
                                             </span>
                                             <span>
@@ -180,6 +177,15 @@
                                         </a>
                                     {% endif %}
 
+                                    {% if is_admin and not db.is_own_database %}
+                                        <!-- Admin Force Delete Button - Only for admin viewing other users' databases -->
+                                        <a href="/admin-force-delete/{{ db.db_name }}" 
+                                           class="bg-red-800 text-white px-4 py-2 rounded-button hover:bg-red-900 transition font-medium"
+                                           onclick="return confirm('This will take you to the admin force delete confirmation page. Continue?')">
+                                            <i class="ri-shield-cross-line mr-2"></i>Force Delete (Admin)
+                                        </a>
+                                    {% endif %}
+
                                     <!-- View Details Button - Available for all -->
                                     <button onclick="toggleDetails('{{ db.db_name }}')" 
                                             class="bg-blue-500 text-white px-4 py-2 rounded-button hover:bg-blue-600 transition font-medium">
@@ -202,7 +208,6 @@
                                             <div class="space-y-1 text-red-700">
                                                 <div><strong>Database ID:</strong> {{ db.db_id[:8] }}...</div>
                                                 <div><strong>Original Status:</strong> {{ db.status }}</div>
-                                                <div><strong>Tables:</strong> {{ db.table_count }}</div>
                                                 <div><strong>Size:</strong> {{ "%.1f"|format(db.database_size) }}KB</div>
                                                 {% if is_admin %}
                                                     <div><strong>Owner:</strong> {{ db.username if db.username else 'Unknown' }}</div>

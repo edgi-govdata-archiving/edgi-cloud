@@ -74,12 +74,12 @@ def force_close_database_connections(datasette, db_name):
                 logger.error(f"Error during database unregistration: {unreg_error}")
         
         # Step 2: Force garbage collection multiple times
-        for i in range(5):
+        for i in range(3):  # Reduced from 5 to 3
             gc.collect()
-            time.sleep(0.2)
+            time.sleep(0.1)  # Reduced from 0.2 to 0.1
         
         # Step 3: Wait for Windows to release file handles
-        time.sleep(2.0)
+        time.sleep(1.0)  # Reduced from 2.0 to 1.0
         
         logger.info(f"Completed connection cleanup for {db_name}")
         return True
@@ -87,9 +87,9 @@ def force_close_database_connections(datasette, db_name):
     except Exception as e:
         logger.error(f"Error in force_close_database_connections: {e}")
         return False
-
+    
 def enhanced_file_deletion(file_path, db_name):
-    """ENHANCED: Multi-strategy file deletion for Windows"""
+    """ENHANCED: Multi-strategy file deletion for Windows - REDUCED DELAYS"""
     import time
     import tempfile
     import shutil
@@ -119,7 +119,7 @@ def enhanced_file_deletion(file_path, db_name):
         
         # Try to delete from temp location
         try:
-            time.sleep(0.5)
+            time.sleep(0.5)  # Keep this delay for temp cleanup
             os.remove(temp_path)
             logger.info(f"Temp file deleted: {temp_path}")
         except OSError:
@@ -140,7 +140,7 @@ def enhanced_file_deletion(file_path, db_name):
         
         # Try to delete renamed file
         try:
-            time.sleep(0.5)
+            time.sleep(0.5)  # Keep this delay for rename cleanup
             os.remove(deleted_name)
             logger.info(f"Renamed file deleted: {deleted_name}")
         except OSError:
@@ -160,7 +160,7 @@ def enhanced_file_deletion(file_path, db_name):
         
         # Try rename after truncate
         try:
-            time.sleep(0.5)
+            time.sleep(0.5)  # Keep this delay for truncate
             truncated_name = f"{file_path}.TRUNCATED_{int(time.time())}"
             os.rename(file_path, truncated_name)
             logger.info(f"Truncated file renamed: {truncated_name}")
@@ -172,113 +172,7 @@ def enhanced_file_deletion(file_path, db_name):
     except OSError as e:
         logger.error(f"All deletion strategies failed: {e}")
         return False
-
-async def trash_bin_page(datasette, request):
-    """Dedicated trash bin page for managing trashed databases."""
-    logger.debug(f"Trash Bin request: method={request.method}")
-
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login?error=Session expired or invalid")
-
-    # Verify user session
-    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
-    if not is_valid:
-        return redirect_response
-
-    query_db = datasette.get_database('portal')
-    is_admin = actor.get("role") == "system_admin"
     
-    # Get trashed databases - admin sees all, users see their own
-    if is_admin:
-        query = """SELECT d.db_id, d.db_name, d.status, d.user_id, d.trashed_at, d.restore_deadline, 
-                          d.file_path, u.username
-                   FROM databases d 
-                   JOIN users u ON d.user_id = u.user_id 
-                   WHERE d.status = 'Trashed'
-                   ORDER BY d.trashed_at DESC"""
-        result = await query_db.execute(query)
-    else:
-        query = """SELECT db_id, db_name, status, user_id, trashed_at, restore_deadline, file_path
-                   FROM databases 
-                   WHERE user_id = ? AND status = 'Trashed'
-                   ORDER BY trashed_at DESC"""
-        result = await query_db.execute(query, [actor.get("id")])
-    
-    trashed_databases = []
-    for row in result:
-        db_info = dict(row)
-        
-        # Only allow restore/delete for own databases
-        is_own_database = db_info["user_id"] == actor.get("id")
-        
-        # Calculate days until auto-delete
-        days_until_delete = 0
-        if db_info["restore_deadline"]:
-            try:
-                deadline = datetime.fromisoformat(db_info["restore_deadline"].replace('Z', '+00:00'))
-                now = datetime.utcnow()
-                delta = deadline - now
-                days_until_delete = max(0, delta.days)
-            except Exception as e:
-                logger.error(f"Error calculating restore deadline: {e}")
-        
-        # Get database size safely (no database access)
-        table_count = 0
-        total_records = 0
-        database_size = 0
-        
-        if db_info["file_path"] and os.path.exists(db_info["file_path"]):
-            try:
-                # Only get file size (doesn't open database)
-                database_size = os.path.getsize(db_info['file_path']) / 1024  # KB
-                
-                # Use placeholder values to avoid file locking
-                table_count = "?"
-                total_records = "?"
-                
-                logger.debug(f"Safe stats for {db_info['db_name']}: file size {database_size}KB")
-            except Exception as e:
-                logger.error(f"Error getting file size for {db_info['db_name']}: {e}")
-                database_size = 0
-                table_count = 0
-                total_records = 0
-        else:
-            database_size = 0
-            table_count = 0
-            total_records = 0
-
-        db_info.update({
-            'days_until_delete': days_until_delete,
-            'table_count': table_count,
-            'total_records': total_records,
-            'database_size': database_size,
-            'trashed_at_formatted': db_info.get("trashed_at", "").split('T')[0] if db_info.get("trashed_at") else None,
-            'is_expired': days_until_delete <= 0,
-            'is_own_database': is_own_database
-        })
-        
-        trashed_databases.append(db_info)
-
-    # Get content for page
-    content = await get_portal_content(datasette)
-
-    return Response.html(
-        await datasette.render_template(
-            "trash_bin.html",
-            {
-                "metadata": datasette.metadata(),
-                "content": content,
-                "actor": actor,
-                "is_admin": is_admin,
-                "trashed_databases": trashed_databases,
-                "total_trashed": len(trashed_databases),
-                **get_success_error_from_request(request)
-            },
-            request=request
-        )
-    )
-
 async def trash_database(datasette, request):
     """Tier 2: Move database to trash"""
     logger.debug(f"Trash Database request: method={request.method}, path={request.path}")
@@ -497,174 +391,6 @@ async def restore_database(datasette, request):
         logger.error(f"Error restoring database {db_name}: {str(e)}")
         return Response.text(f"Error restoring database: {str(e)}", status=500)
 
-async def permanent_delete_database(datasette, request):
-    """Tier 3: Permanent deletion - ENHANCED Windows-compatible version"""
-    logger.debug(f"Permanent Delete Database request: method={request.method}, path={request.path}")
-
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login?error=Session expired or invalid")
-
-    path_parts = request.path.strip('/').split('/')
-    if path_parts[0] == 'db' and len(path_parts) >= 3:
-        db_name = path_parts[1]
-    else:
-        return Response.text("Invalid URL format", status=400)
-    
-    query_db = datasette.get_database('portal')
-    
-    if request.method == "POST":
-        post_vars = await request.post_vars()
-        confirm_input = post_vars.get("confirm_db_name", "").strip()
-        
-        if confirm_input != db_name:
-            return Response.redirect(f"{request.path}?error=Confirmation text does not match")
-        
-        try:
-            result = await query_db.execute(
-                "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
-                [db_name, actor.get("id")]
-            )
-            
-            db_info = result.first()
-            if not db_info:
-                return Response.text("Database not found or you do not have permission", status=404)
-            
-            if db_info['status'] != 'Trashed':
-                return Response.redirect(f"/manage-databases?error=Database must be in trash before permanent deletion")
-            
-            # Get basic file size only (no database access)
-            database_size = 0
-            actual_file_path = None
-            
-            file_paths_to_try = [
-                db_info['file_path'],
-                os.path.join(DATA_DIR, db_info['user_id'], f"{db_name}.db")
-            ]
-            
-            for path in file_paths_to_try:
-                if path and os.path.exists(path):
-                    actual_file_path = path
-                    break
-            
-            if actual_file_path:
-                try:
-                    database_size = os.path.getsize(actual_file_path) / 1024  # KB
-                except Exception as e:
-                    logger.error(f"Error getting file size: {e}")
-            
-            logger.debug(f"File deletion attempt for: {actual_file_path}")
-            
-            # CRITICAL: Force close all database connections
-            success = force_close_database_connections(datasette, db_name)
-            if not success:
-                logger.warning(f"Connection cleanup had issues for {db_name}")
-            
-            # ENHANCED FILE DELETION
-            file_deleted = False
-            if actual_file_path and os.path.exists(actual_file_path):
-                file_deleted = enhanced_file_deletion(actual_file_path, db_name)
-            else:
-                logger.warning(f"No file found to delete for {db_name}")
-                file_deleted = True  # Consider as successful if no file exists
-            
-            # HANDLE DELETION FAILURE
-            if not file_deleted:
-                logger.warning(f"File deletion failed for {db_name}, keeping database record")
-                
-                await log_database_action(
-                    datasette, actor.get("id"), "deletion_failed", 
-                    f"File deletion failed for {db_name}, database record preserved",
-                    {
-                        "db_name": db_name,
-                        "reason": "file_deletion_failed",
-                        "file_path": actual_file_path
-                    }
-                )
-                
-                return Response.redirect(f"/trash?error=Database '{db_name}' deletion failed. File could not be removed. Please try again or contact administrator.")
-            
-            # ONLY DELETE DATABASE RECORDS IF FILE DELETION SUCCEEDED
-            await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_info['db_id']])
-            await query_db.execute_write("DELETE FROM databases WHERE db_id = ?", [db_info['db_id']])
-            
-            # Success logging with minimal stats
-            await log_database_action(
-                datasette, actor.get("id"), "permanent_delete_database", 
-                f"Permanently deleted database {db_name}",
-                {
-                    "db_name": db_name,
-                    "deleted_by": actor.get("username"),
-                    "database_size_kb": database_size,
-                    "file_deleted": file_deleted
-                }
-            )
-            
-            return Response.redirect(f"/manage-databases?success=Database '{db_name}' permanently deleted")
-            
-        except Exception as e:
-            logger.error(f"Error permanently deleting database {db_name}: {str(e)}")
-            return Response.redirect(f"{request.path}?error=Error deleting database: {str(e)}")
-        
-    # GET request - use stats from URL parameters (NO database access)
-    try:
-        result = await query_db.execute(
-            "SELECT db_id, user_id, file_path, status, trashed_at FROM databases WHERE db_name = ? AND user_id = ?",
-            [db_name, actor.get("id")]
-        )
-        
-        db_info = result.first()
-        if not db_info:
-            return Response.text("Database not found or you do not have permission", status=404)
-        
-        db_dict = dict(db_info)
-        
-        # Get stats from URL parameters (already calculated in trash bin)
-        try:
-            table_count = int(request.args.get('tables', 0))
-        except (ValueError, TypeError):
-            table_count = 0
-        
-        try:
-            database_size = float(request.args.get('size', 0))
-        except (ValueError, TypeError):
-            database_size = 0
-        
-        total_records = "Calculated during deletion"
-        
-        # Fallback: get file size if not in URL
-        if database_size == 0 and db_dict['file_path'] and os.path.exists(db_dict['file_path']):
-            try:
-                database_size = os.path.getsize(db_dict['file_path']) / 1024  # KB
-            except Exception as e:
-                logger.error(f"Error getting file size for {db_name}: {str(e)}")
-
-        # Get content for template
-        content = await get_portal_content(datasette)
-
-        return Response.html(
-            await datasette.render_template(
-                "delete_db_confirm.html",
-                {
-                    "metadata": datasette.metadata(),
-                    "content": content,
-                    "actor": actor,
-                    "db_name": db_name,
-                    "db_status": db_dict['status'],
-                    "table_count": table_count,
-                    "total_records": total_records,
-                    "database_size": database_size,
-                    "trashed_at": db_dict['trashed_at'].split('T')[0] if db_dict['trashed_at'] else None,
-                    **get_success_error_from_request(request)
-                },
-                request=request
-            )
-        )
-        
-    except Exception as e:
-        logger.error(f"Error showing permanent delete confirmation for {db_name}: {str(e)}")
-        return Response.text(f"Error loading permanent delete confirmation: {str(e)}", status=500)
-    
 async def auto_cleanup_expired_databases(datasette):
     """Background task to automatically delete expired databases - ENHANCED for Windows"""
     logger.debug("Running auto cleanup for expired databases")
@@ -762,12 +488,564 @@ async def auto_cleanup_expired_databases(datasette):
     except Exception as e:
         logger.error(f"Error during auto-cleanup process: {e}")
 
+async def system_trash_bin_page(datasette, request):
+    """System-wide trash bin page for administrators."""
+    logger.debug(f"System Trash Bin request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor or actor.get("role") != "system_admin":
+        return Response.redirect("/login?error=Admin access required")
+
+    # Verify user session
+    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+    if not is_valid:
+        return redirect_response
+
+    query_db = datasette.get_database('portal')
+    
+    # Get ALL trashed databases system-wide for admins
+    query = """SELECT d.db_id, d.db_name, d.status, d.user_id, d.trashed_at, d.restore_deadline, 
+                      d.file_path, u.username, u.email
+               FROM databases d 
+               JOIN users u ON d.user_id = u.user_id 
+               WHERE d.status = 'Trashed'
+               ORDER BY d.trashed_at DESC"""
+    result = await query_db.execute(query)
+    
+    trashed_databases = []
+    for row in result:
+        db_info = dict(row)
+        
+        # Admin can see all but can only restore/delete their own
+        is_own_database = db_info["user_id"] == actor.get("id")
+        
+        # Calculate days until auto-delete
+        days_until_delete = 0
+        if db_info["restore_deadline"]:
+            try:
+                deadline = datetime.fromisoformat(db_info["restore_deadline"].replace('Z', '+00:00'))
+                now = datetime.utcnow()
+                delta = deadline - now
+                days_until_delete = max(0, delta.days)
+            except Exception as e:
+                logger.error(f"Error calculating restore deadline: {e}")
+        
+        # Get database size safely (no database access)
+        table_count = 0
+        total_records = 0
+        database_size = 0
+        
+        if db_info["file_path"] and os.path.exists(db_info["file_path"]):
+            try:
+                # Only get file size (doesn't open database)
+                database_size = os.path.getsize(db_info['file_path']) / 1024  # KB
+                
+                # Use placeholder values to avoid file locking
+                table_count = "?"
+                total_records = "?"
+                
+                logger.debug(f"Safe stats for {db_info['db_name']}: file size {database_size}KB")
+            except Exception as e:
+                logger.error(f"Error getting file size for {db_info['db_name']}: {e}")
+                database_size = 0
+                table_count = 0
+                total_records = 0
+        else:
+            database_size = 0
+            table_count = 0
+            total_records = 0
+
+        db_info.update({
+            'days_until_delete': days_until_delete,
+            'table_count': table_count,
+            'total_records': total_records,
+            'database_size': database_size,
+            'trashed_at_formatted': db_info.get("trashed_at", "").split('T')[0] if db_info.get("trashed_at") else None,
+            'is_expired': days_until_delete <= 0,
+            'is_own_database': is_own_database
+        })
+        
+        trashed_databases.append(db_info)
+
+    # Get content for page
+    content = await get_portal_content(datasette)
+
+    return Response.html(
+        await datasette.render_template(
+            "system_trash_bin.html",  # Different template for system trash
+            {
+                "metadata": datasette.metadata(),
+                "content": content,
+                "actor": actor,
+                "is_admin": True,
+                "trashed_databases": trashed_databases,
+                "total_trashed": len(trashed_databases),
+                **get_success_error_from_request(request)
+            },
+            request=request
+        )
+    )
+
+async def trash_bin_page(datasette, request):
+    """User trash bin page - only shows their own databases."""
+    logger.debug(f"User Trash Bin request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor:
+        return Response.redirect("/login?error=Session expired or invalid")
+
+    # Verify user session
+    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+    if not is_valid:
+        return redirect_response
+
+    query_db = datasette.get_database('portal')
+    
+    # Get only user's own trashed databases
+    query = """SELECT db_id, db_name, status, user_id, trashed_at, restore_deadline, file_path
+               FROM databases 
+               WHERE user_id = ? AND status = 'Trashed'
+               ORDER BY trashed_at DESC"""
+    result = await query_db.execute(query, [actor.get("id")])
+    
+    trashed_databases = []
+    for row in result:
+        db_info = dict(row)
+        
+        # User can only manage their own databases
+        is_own_database = True  # Always true in user trash
+        
+        # Calculate days until auto-delete
+        days_until_delete = 0
+        if db_info["restore_deadline"]:
+            try:
+                deadline = datetime.fromisoformat(db_info["restore_deadline"].replace('Z', '+00:00'))
+                now = datetime.utcnow()
+                delta = deadline - now
+                days_until_delete = max(0, delta.days)
+            except Exception as e:
+                logger.error(f"Error calculating restore deadline: {e}")
+        
+        # Get database size safely (no database access)
+        table_count = 0
+        total_records = 0
+        database_size = 0
+        
+        if db_info["file_path"] and os.path.exists(db_info["file_path"]):
+            try:
+                # Only get file size (doesn't open database)
+                database_size = os.path.getsize(db_info['file_path']) / 1024  # KB
+                
+                # Use placeholder values to avoid file locking
+                table_count = "?"
+                total_records = "?"
+                
+                logger.debug(f"Safe stats for {db_info['db_name']}: file size {database_size}KB")
+            except Exception as e:
+                logger.error(f"Error getting file size for {db_info['db_name']}: {e}")
+                database_size = 0
+                table_count = 0
+                total_records = 0
+        else:
+            database_size = 0
+            table_count = 0
+            total_records = 0
+
+        db_info.update({
+            'days_until_delete': days_until_delete,
+            'table_count': table_count,
+            'total_records': total_records,
+            'database_size': database_size,
+            'trashed_at_formatted': db_info.get("trashed_at", "").split('T')[0] if db_info.get("trashed_at") else None,
+            'is_expired': days_until_delete <= 0,
+            'is_own_database': is_own_database
+        })
+        
+        trashed_databases.append(db_info)
+
+    # Get content for page
+    content = await get_portal_content(datasette)
+
+    return Response.html(
+        await datasette.render_template(
+            "trash_bin.html",  # Same template but different data
+            {
+                "metadata": datasette.metadata(),
+                "content": content,
+                "actor": actor,
+                "is_admin": False,  # Always false for user trash
+                "trashed_databases": trashed_databases,
+                "total_trashed": len(trashed_databases),
+                **get_success_error_from_request(request)
+            },
+            request=request
+        )
+    )
+
+async def permanent_delete_database(datasette, request):
+    """Tier 3: Permanent deletion - FIXED routing and template for regular user deletes only"""
+    logger.debug(f"Permanent Delete Database request: method={request.method}, path={request.path}")
+
+    actor = get_actor_from_request(request)
+    if not actor:
+        return Response.redirect("/login?error=Session expired or invalid")
+
+    # This function should ONLY handle regular user deletes: /db/{db_name}/delete-permanent
+    path_parts = request.path.strip('/').split('/')
+    if path_parts[0] == 'db' and len(path_parts) >= 3 and path_parts[2] == 'delete-permanent':
+        db_name = path_parts[1]
+    else:
+        return Response.text("Invalid URL format", status=400)
+    
+    query_db = datasette.get_database('portal')
+    
+    if request.method == "POST":
+        post_vars = await request.post_vars()
+        confirm_db_name = post_vars.get("confirm_db_name", "").strip()
+        
+        if confirm_db_name != db_name:
+            return Response.redirect(f"{request.path}?error=Database name confirmation does not match")
+        
+        try:
+            # Regular user can only delete their own trashed databases
+            result = await query_db.execute(
+                "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
+                [db_name, actor.get("id")]
+            )
+            
+            db_info = result.first()
+            if not db_info:
+                return Response.text("Database not found or you do not have permission", status=404)
+            
+            if db_info['status'] != 'Trashed':
+                return Response.redirect(f"/manage-databases?error=Database must be in trash before permanent deletion")
+            
+            # Get basic file size only (no database access)
+            database_size = 0
+            actual_file_path = None
+            
+            file_paths_to_try = [
+                db_info['file_path'],
+                os.path.join(DATA_DIR, db_info['user_id'], f"{db_name}.db")
+            ]
+            
+            for path in file_paths_to_try:
+                if path and os.path.exists(path):
+                    actual_file_path = path
+                    break
+            
+            if actual_file_path:
+                try:
+                    database_size = os.path.getsize(actual_file_path) / 1024  # KB
+                except Exception as e:
+                    logger.error(f"Error getting file size: {e}")
+            
+            logger.debug(f"File deletion attempt for: {actual_file_path}")
+            
+            # CRITICAL: Force close all database connections
+            success = force_close_database_connections(datasette, db_name)
+            if not success:
+                logger.warning(f"Connection cleanup had issues for {db_name}")
+            
+            # ENHANCED FILE DELETION
+            file_deleted = False
+            if actual_file_path and os.path.exists(actual_file_path):
+                file_deleted = enhanced_file_deletion(actual_file_path, db_name)
+            else:
+                logger.warning(f"No file found to delete for {db_name}")
+                file_deleted = True  # Consider as successful if no file exists
+            
+            # HANDLE DELETION FAILURE
+            if not file_deleted:
+                logger.warning(f"Permanent deletion: File deletion failed for {db_name}, keeping database record")
+                
+                await log_database_action(
+                    datasette, actor.get("id"), "deletion_failed", 
+                    f"Permanent deletion failed for {db_name} - file deletion unsuccessful",
+                    {
+                        "db_name": db_name,
+                        "reason": "file_deletion_failed",
+                        "file_path": actual_file_path,
+                        "is_admin_force_delete": False
+                    }
+                )
+                
+                return Response.redirect(f"/trash?error=Database '{db_name}' deletion failed. File could not be removed. Please try again or contact administrator.")
+            
+            # ONLY DELETE DATABASE RECORDS IF FILE DELETION SUCCEEDED
+            await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_info['db_id']])
+            await query_db.execute_write("DELETE FROM databases WHERE db_id = ?", [db_info['db_id']])
+            
+            # Success logging
+            await log_database_action(
+                datasette, actor.get("id"), "permanent_delete_database", 
+                f"Permanently deleted database {db_name}",
+                {
+                    "db_name": db_name,
+                    "deleted_by": actor.get("username"),
+                    "database_size_kb": database_size,
+                    "file_deleted": file_deleted
+                }
+            )
+            
+            return Response.redirect(f"/manage-databases?success=Database '{db_name}' permanently deleted")
+            
+        except Exception as e:
+            logger.error(f"Error during deletion of database {db_name}: {str(e)}")
+            return Response.redirect(f"{request.path}?error=Error deleting database: {str(e)}")
+        
+    # GET request - show confirmation page for regular delete
+    try:
+        result = await query_db.execute(
+            "SELECT db_id, user_id, file_path, status, trashed_at FROM databases WHERE db_name = ? AND user_id = ?",
+            [db_name, actor.get("id")]
+        )
+        
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found or you do not have permission", status=404)
+        
+        db_dict = dict(db_info)
+        
+        # Get minimal stats safely - AVOID DUPLICATE CONNECTIONS
+        table_count = None  # Set to None if we can't get it safely
+        database_size = 0
+        
+        # Fallback: get file size if available
+        if db_dict['file_path'] and os.path.exists(db_dict['file_path']):
+            try:
+                database_size = os.path.getsize(db_dict['file_path']) / 1024  # KB
+                
+                # Try to get table count ONLY if we can do it safely
+                try:
+                    user_db = sqlite_utils.Database(db_dict['file_path'])
+                    table_names = user_db.table_names()
+                    table_count = len(table_names)
+                    user_db.close()  # Explicitly close
+                except Exception as e:
+                    logger.warning(f"Could not get table count for {db_name}: {str(e)}")
+                    table_count = None
+                    
+            except Exception as e:
+                logger.error(f"Error getting stats for {db_name}: {str(e)}")
+
+        # Get content for template
+        content = await get_portal_content(datasette)
+
+        return Response.html(
+            await datasette.render_template(
+                "permanent_delete.html",  # RENAMED TEMPLATE
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                    "actor": actor,
+                    "db_name": db_name,
+                    "db_status": db_dict['status'],
+                    "table_count": table_count,  # Can be None
+                    "database_size": database_size,
+                    "trashed_at": db_dict['trashed_at'].split('T')[0] if db_dict.get('trashed_at') else None,
+                    **get_success_error_from_request(request)
+                },
+                request=request
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Error showing delete confirmation for {db_name}: {str(e)}")
+        return Response.text(f"Error loading delete confirmation: {str(e)}", status=500)
+
+async def admin_force_delete_confirmation(datasette, request):
+    """FIXED: Admin force delete confirmation page with proper routing and template"""
+    logger.debug(f"Admin Force Delete Confirmation request: method={request.method}, path={request.path}")
+
+    actor = get_actor_from_request(request)
+    if not actor or actor.get("role") != "system_admin":
+        return Response.redirect("/login?error=Admin access required")
+
+    # Handle /admin-force-delete/{db_name} path
+    path_parts = request.path.strip('/').split('/')
+    if path_parts[0] == 'admin-force-delete' and len(path_parts) >= 2:
+        db_name = path_parts[1]
+    else:
+        return Response.text("Invalid URL format", status=400)
+    
+    query_db = datasette.get_database('portal')
+    
+    if request.method == "POST":
+        post_vars = await request.post_vars()
+        confirm_text = post_vars.get("confirm_text", "").strip()
+        admin_reason = post_vars.get("admin_reason", "").strip()
+        admin_notes = post_vars.get("admin_notes", "").strip()
+        
+        required_text = f"FORCE DELETE {db_name}"
+        
+        # Validate confirmation
+        if confirm_text != required_text:
+            return Response.redirect(f"{request.path}?error=Confirmation text does not match")
+        
+        if not admin_reason:
+            return Response.redirect(f"{request.path}?error=Administrative reason is required")
+        
+        try:
+            result = await query_db.execute(
+                "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ?",
+                [db_name]
+            )
+            db_info = result.first()
+            if not db_info:
+                return Response.text("Database not found", status=404)
+            
+            # Get owner info for logging
+            owner_result = await query_db.execute(
+                "SELECT username FROM users WHERE user_id = ?",
+                [db_info['user_id']]
+            )
+            owner_info = owner_result.first()
+            owner_username = owner_info['username'] if owner_info else 'Unknown'
+            
+            # Get basic file size only (no database access)
+            database_size = 0
+            actual_file_path = None
+            
+            file_paths_to_try = [
+                db_info['file_path'],
+                os.path.join(DATA_DIR, db_info['user_id'], f"{db_name}.db")
+            ]
+            
+            for path in file_paths_to_try:
+                if path and os.path.exists(path):
+                    actual_file_path = path
+                    break
+            
+            if actual_file_path:
+                try:
+                    database_size = os.path.getsize(actual_file_path) / 1024  # KB
+                except Exception as e:
+                    logger.error(f"Error getting file size: {e}")
+            
+            logger.debug(f"Admin force deletion attempt for: {actual_file_path}")
+            
+            # CRITICAL: Force close all database connections
+            success = force_close_database_connections(datasette, db_name)
+            if not success:
+                logger.warning(f"Connection cleanup had issues for {db_name}")
+            
+            # ENHANCED FILE DELETION
+            file_deleted = False
+            if actual_file_path and os.path.exists(actual_file_path):
+                file_deleted = enhanced_file_deletion(actual_file_path, db_name)
+            else:
+                logger.warning(f"No file found to delete for {db_name}")
+                file_deleted = True  # Consider as successful if no file exists
+            
+            # HANDLE DELETION FAILURE
+            if not file_deleted:
+                logger.warning(f"Admin force deletion: File deletion failed for {db_name}")
+                
+                await log_database_action(
+                    datasette, actor.get("id"), "admin_force_delete_failed", 
+                    f"Admin force deletion failed for {db_name} - file deletion unsuccessful",
+                    {
+                        "db_name": db_name,
+                        "target_user": owner_username,
+                        "admin_reason": admin_reason,
+                        "admin_notes": admin_notes,
+                        "reason": "file_deletion_failed",
+                        "file_path": actual_file_path
+                    }
+                )
+                
+                return Response.redirect(f"/system-trash?error=Force deletion of '{db_name}' failed. File could not be removed. Please try again or contact system administrator.")
+            
+            # ONLY DELETE DATABASE RECORDS IF FILE DELETION SUCCEEDED
+            await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_info['db_id']])
+            await query_db.execute_write("DELETE FROM databases WHERE db_id = ?", [db_info['db_id']])
+            
+            # Success logging with admin override details
+            await log_database_action(
+                datasette, actor.get("id"), "admin_force_delete_database", 
+                f"Admin force deleted database {db_name} owned by {owner_username}",
+                {
+                    "db_name": db_name,
+                    "target_user": owner_username,
+                    "target_user_id": db_info['user_id'],
+                    "admin_reason": admin_reason,
+                    "admin_notes": admin_notes,
+                    "database_size_kb": database_size,
+                    "file_deleted": file_deleted,
+                    "admin_override": True,
+                    "bypassed_user_permissions": True
+                }
+            )
+            
+            return Response.redirect(f"/system-trash?success=Database '{db_name}' force deleted successfully. Action logged for audit.")
+            
+        except Exception as e:
+            logger.error(f"Error during admin force deletion of database {db_name}: {str(e)}")
+            return Response.redirect(f"{request.path}?error=Error during force deletion: {str(e)}")
+        
+    # GET request - show force delete confirmation page
+    try:
+        result = await query_db.execute(
+            """SELECT d.db_id, d.user_id, d.file_path, d.status, d.trashed_at, u.username, u.email
+               FROM databases d 
+               JOIN users u ON d.user_id = u.user_id 
+               WHERE d.db_name = ?""",
+            [db_name]
+        )
+        
+        db_info = result.first()
+        if not db_info:
+            return Response.text("Database not found", status=404)
+        
+        db_dict = dict(db_info)
+        
+        # Get basic stats safely - MINIMAL DATABASE ACCESS
+        table_count = "Unknown"  # Don't calculate to avoid connection issues
+        database_size = 0
+        
+        # Only get file size if possible
+        if db_dict['file_path'] and os.path.exists(db_dict['file_path']):
+            try:
+                database_size = os.path.getsize(db_dict['file_path']) / 1024  # KB
+            except Exception as e:
+                logger.error(f"Error getting file size for {db_name}: {str(e)}")
+
+        # Get content for template
+        content = await get_portal_content(datasette)
+
+        return Response.html(
+            await datasette.render_template(
+                "force_delete.html",  # SEPARATE TEMPLATE FOR ADMIN FORCE DELETE
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                    "actor": actor,
+                    "db_name": db_name,
+                    "db_status": db_dict['status'],
+                    "owner_username": db_dict['username'],
+                    "owner_email": db_dict.get('email', 'Not available'),
+                    "table_count": table_count,
+                    "database_size": database_size,
+                    "trashed_at": db_dict['trashed_at'].split('T')[0] if db_dict['trashed_at'] else None,
+                    **get_success_error_from_request(request)
+                },
+                request=request
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Error showing admin force delete confirmation for {db_name}: {str(e)}")
+        return Response.text(f"Error loading force delete confirmation: {str(e)}", status=500)
+
 @hookimpl
 def register_routes():
-    """Register database deletion routes"""
+    """FIXED: Register database deletion routes with proper separation"""
     return [
-        (r"^/trash$", trash_bin_page),
+        (r"^/trash$", trash_bin_page),  # User trash
+        (r"^/system-trash$", system_trash_bin_page),  # System admin trash
+        (r"^/admin-force-delete/([^/]+)$", admin_force_delete_confirmation),  # Admin force delete - SEPARATE ROUTE
         (r"^/db/([^/]+)/trash$", trash_database),
         (r"^/db/([^/]+)/restore$", restore_database),
-        (r"^/db/([^/]+)/delete-permanent$", permanent_delete_database),
+        (r"^/db/([^/]+)/delete-permanent$", permanent_delete_database),  # Regular user delete only
     ]
