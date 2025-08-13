@@ -1123,7 +1123,7 @@ async def create_database(datasette, request):
             db_id = uuid.uuid4().hex[:20]
             scheme = request.scheme
             host = request.headers.get('host', 'localhost:8001')
-            website_url = f"{scheme}://{host}/{db_name}/"
+            website_url = f"{scheme}://{host}/{db_name}/homepage"
             
             # Create user directory and database file
             user_dir = os.path.join(DATA_DIR, user_id)
