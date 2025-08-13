@@ -179,10 +179,30 @@ async def manage_databases(datasette, request):
     result = await query_db.execute(query, [actor.get("id")])
     user_databases = [dict(row) for row in result]
     
+    # Add days_until_delete calculation for each database
+    for db in user_databases:
+        if db.get('status') == 'Trashed' and db.get('restore_deadline'):
+            try:
+                deadline = datetime.fromisoformat(db['restore_deadline'].replace('Z', '+00:00'))
+                now = datetime.utcnow()
+                delta = deadline - now
+                db['days_until_delete'] = max(0, delta.days)
+            except Exception as e:
+                logger.error(f"Error calculating restore deadline for {db.get('db_name')}: {e}")
+                db['days_until_delete'] = 0
+        else:
+            db['days_until_delete'] = None
+        
+        # Add formatted trash date
+        if db.get('trashed_at'):
+            db['trashed_at_formatted'] = db['trashed_at'].split('T')[0]
+        else:
+            db['trashed_at_formatted'] = None
+    
     # Get content using common utility
     content = await get_portal_content(datasette)
 
-    # Enhanced database processing with better error handling
+    # database processing with error handling
     databases_with_tables = []
     for db_info in user_databases:
         db_name = db_info["db_name"]
@@ -233,6 +253,9 @@ async def manage_databases(datasette, request):
                             'progress': 0,
                             'error': True
                         })
+                
+                user_db.close()  # Explicitly close the database
+                
             else:
                 logger.error(f"Database file not found for {db_name}: {db_path}")
         except Exception as e:
