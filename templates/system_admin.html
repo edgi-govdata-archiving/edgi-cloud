@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -21,11 +22,8 @@
             </div>
             {% if actor %}
                 <div>
-                    <a href="/create-database" class="text-white hover:text-accent mr-4">Create Database</a>
                     <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
-                    <a href="/edit-portal-homepage" class="text-white hover:text-accent mr-4">Edit Portal</a>
-                    <a href="/register" class="text-white hover:text-accent mr-4">Add User</a>
-                    <a href="/trash" class="text-white hover:text-accent mr-4">System Trash</a>
+                    <a href="/system-trash" class="text-white hover:text-accent mr-4">System Trash</a>
                     <a href="/profile" class="text-white hover:text-accent mr-4">Profile</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
@@ -107,11 +105,11 @@
             <div class="bg-card rounded-card border border-border">
                 <div class="border-b border-border">
                     <nav class="flex">
-                        <button onclick="showTab('users')" id="users-tab" class="tab-button active px-6 py-4 font-medium text-accent border-b-2 border-accent">
-                            <i class="ri-user-line mr-2"></i>Users
-                        </button>
-                        <button onclick="showTab('databases')" id="databases-tab" class="tab-button px-6 py-4 font-medium text-textlight hover:text-accent">
+                        <button onclick="showTab('databases')" id="databases-tab" class="tab-button active px-6 py-4 font-medium text-accent border-b-2 border-accent">
                             <i class="ri-database-line mr-2"></i>Databases
+                        </button>
+                        <button onclick="showTab('users')" id="users-tab" class="tab-button px-6 py-4 font-medium text-textlight hover:text-accent">
+                            <i class="ri-user-line mr-2"></i>Users
                         </button>
                         <button onclick="showTab('activity')" id="activity-tab" class="tab-button px-6 py-4 font-medium text-textlight hover:text-accent">
                             <i class="ri-activity-line mr-2"></i>Activity Logs
@@ -119,8 +117,125 @@
                     </nav>
                 </div>
 
+                <!-- Databases Tab (Now First and Default) -->
+                <div id="databases-content" class="tab-content p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-semibold text-primary">Database Overview</h3>
+                        <div class="flex gap-2">
+                            <select id="status-filter" onchange="filterDatabases()" class="px-3 py-2 border rounded text-sm">
+                                <option value="">All Statuses</option>
+                                <option value="Published">Published</option>
+                                <option value="Draft">Draft</option>
+                                <option value="Unpublished">Unpublished</option>
+                                <option value="Trashed">Trashed</option>
+                            </select>
+                            <a href="/system-trash" class="bg-red-500 text-white px-3 py-2 rounded text-sm hover:bg-red-600 transition">
+                                <i class="ri-delete-bin-line mr-1"></i>View System Trash
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="bg-gray-50">
+                                    <th class="text-left p-3 font-medium text-white bg-header">Database Name</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Owner</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Status</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Created</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="databases-table-body">
+                                {% for db in databases %}
+                                    <tr class="border-b hover:bg-gray-50 transition database-row" data-status="{{ db.status }}">
+                                        <td class="p-3">
+                                            <div class="flex items-center">
+                                                <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center mr-3">
+                                                    <i class="ri-database-line text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-medium">{{ db.db_name.replace('_', ' ').title() }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="p-3 text-textlight">{{ db.username }}</td>
+                                        <td class="p-3">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium 
+                                                {% if db.status == 'Published' %}bg-green-100 text-green-800
+                                                {% elif db.status == 'Unpublished' %}bg-blue-100 text-blue-800
+                                                {% elif db.status == 'Trashed' %}bg-red-100 text-red-800
+                                                {% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                                                {{ db.status }}
+                                            </span>
+                                        </td>
+                                        <td class="p-3 text-textlight">{{ db.created_at[:10] if db.created_at else 'N/A' }}</td>
+                                        <td class="p-3">
+                                            <div class="flex gap-2">
+                                                <!-- View Homepage Button (for Published databases) -->
+                                                {% if db.status == 'Published' %}
+                                                    <a href="/db/{{ db.db_name }}/homepage" target="_blank" 
+                                                       class="text-purple-500 hover:text-purple-700 text-sm px-2 py-1 rounded transition">
+                                                        <i class="ri-home-line mr-1"></i>View Homepage
+                                                    </a>
+                                                {% endif %}
+                                                
+                                                <!-- View Database Button -->
+                                                {% if db.status == 'Published' %}
+                                                    <a href="{{ db.website_url }}" target="_blank" 
+                                                       class="text-green-500 hover:text-green-700 text-sm px-2 py-1 rounded transition">
+                                                        <i class="ri-external-link-line mr-1"></i>View Database
+                                                    </a>
+                                                {% endif %}
+                                                
+                                                <!-- View Details Button -->
+                                                <button onclick="toggleDatabaseDetails('{{ db.db_id }}')" 
+                                                        class="text-blue-500 hover:text-blue-700 text-sm px-2 py-1 rounded transition">
+                                                    <i class="ri-eye-line mr-1"></i>View Details
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <!-- Expandable Details Section -->
+                                    <tr id="details-{{ db.db_id }}" class="hidden database-details bg-gray-50">
+                                        <td colspan="5" class="p-4">
+                                            <div class="bg-white rounded border border-gray-200 p-4">
+                                                <h4 class="font-semibold text-gray-800 mb-3">Database Details</h4>
+                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                    <div>
+                                                        <div class="space-y-2">
+                                                            <div><strong>Database ID:</strong> {{ db.db_id }}</div>
+                                                            <div><strong>Name:</strong> {{ db.db_name }}</div>
+                                                            <div><strong>Owner:</strong> {{ db.username }}</div>
+                                                            <div><strong>Status:</strong> {{ db.status }}</div>
+                                                            <div><strong>Created:</strong> {{ db.created_at[:19] if db.created_at else 'N/A' }}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div class="space-y-2">
+                                                            <div><strong>Website URL:</strong> 
+                                                                {% if db.website_url %}
+                                                                    <a href="{{ db.website_url }}" target="_blank" class="text-blue-500 hover:text-blue-700">{{ db.website_url }}</a>
+                                                                {% else %}
+                                                                    Not available
+                                                                {% endif %}
+                                                            </div>
+                                                            <div><strong>File Path:</strong> <span class="font-mono text-xs">{{ db.db_name }}.db</span></div>
+                                                            <div id="stats-{{ db.db_id }}" class="text-gray-600">
+                                                                <i class="ri-loader-line animate-spin mr-1"></i>Loading database statistics...
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- Users Tab -->
-                <div id="users-content" class="tab-content p-6">
+                <div id="users-content" class="tab-content p-6 hidden">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="text-xl font-semibold text-primary">User Management</h3>
                         <div class="flex gap-3">
@@ -193,132 +308,6 @@
                                                 {% else %}
                                                     <span class="text-gray-400 text-sm px-2 py-1">Current User</span>
                                                 {% endif %}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Databases Tab -->
-                <div id="databases-content" class="tab-content p-6 hidden">
-                    <div class="flex justify-between items-center mb-6">
-                        <h3 class="text-xl font-semibold text-primary">Database Overview</h3>
-                        <div class="flex gap-2">
-                            <select id="status-filter" onchange="filterDatabases()" class="px-3 py-2 border rounded text-sm">
-                                <option value="">All Statuses</option>
-                                <option value="Published">Published</option>
-                                <option value="Draft">Draft</option>
-                                <option value="Unpublished">Unpublished</option>
-                                <option value="Trashed">Trashed</option>
-                            </select>
-                            <a href="/trash" class="bg-red-500 text-white px-3 py-2 rounded text-sm hover:bg-red-600 transition">
-                                <i class="ri-delete-bin-line mr-1"></i>View System Trash
-                            </a>
-                            <button onclick="cleanupExpiredDatabases()" class="bg-orange-500 text-white px-3 py-2 rounded text-sm hover:bg-orange-600 transition">
-                                <i class="ri-broom-line mr-1"></i>Cleanup Expired
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead>
-                                <tr class="bg-gray-50">
-                                    <th class="text-left p-3 font-medium text-white bg-header">Database Name</th>
-                                    <th class="text-left p-3 font-medium text-white bg-header">Owner</th>
-                                    <th class="text-left p-3 font-medium text-white bg-header">Status</th>
-                                    <th class="text-left p-3 font-medium text-white bg-header">Created</th>
-                                    <th class="text-left p-3 font-medium text-white bg-header">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="databases-table-body">
-                                {% for db in databases %}
-                                    <tr class="border-b hover:bg-gray-50 transition database-row" data-status="{{ db.status }}">
-                                        <td class="p-3">
-                                            <div class="flex items-center">
-                                                <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center mr-3">
-                                                    <i class="ri-database-line text-white text-sm"></i>
-                                                </div>
-                                                <span class="font-medium">{{ db.db_name.replace('_', ' ').title() }}</span>
-                                            </div>
-                                        </td>
-                                        <td class="p-3 text-textlight">{{ db.username }}</td>
-                                        <td class="p-3">
-                                            <span class="px-2 py-1 rounded-full text-xs font-medium 
-                                                {% if db.status == 'Published' %}bg-green-100 text-green-800
-                                                {% elif db.status == 'Unpublished' %}bg-blue-100 text-blue-800
-                                                {% elif db.status == 'Trashed' %}bg-red-100 text-red-800
-                                                {% else %}bg-yellow-100 text-yellow-800{% endif %}">
-                                                {{ db.status }}
-                                            </span>
-                                        </td>
-                                        <td class="p-3 text-textlight">{{ db.created_at[:10] if db.created_at else 'N/A' }}</td>
-                                        <td class="p-3">
-                                            <div class="flex gap-2">
-                                                <!-- View Homepage Button (for Published databases) -->
-                                                {% if db.status == 'Published' %}
-                                                    <a href="/db/{{ db.db_name }}/homepage" target="_blank" 
-                                                       class="text-purple-500 hover:text-purple-700 text-sm px-2 py-1 rounded transition">
-                                                        <i class="ri-home-line mr-1"></i>View Homepage
-                                                    </a>
-                                                {% endif %}
-                                                
-                                                <!-- View Database Button -->
-                                                {% if db.status == 'Published' %}
-                                                    <a href="{{ db.website_url }}" target="_blank" 
-                                                       class="text-green-500 hover:text-green-700 text-sm px-2 py-1 rounded transition">
-                                                        <i class="ri-external-link-line mr-1"></i>View Database
-                                                    </a>
-                                                {% endif %}
-                                                
-                                                <!-- View Details Button -->
-                                                <button onclick="toggleDatabaseDetails('{{ db.db_id }}')" 
-                                                        class="text-blue-500 hover:text-blue-700 text-sm px-2 py-1 rounded transition">
-                                                    <i class="ri-eye-line mr-1"></i>View Details
-                                                </button>
-                                                
-                                                <!-- Database Management Link -->
-                                                <a href="/manage-databases" 
-                                                   class="text-accent hover:text-primary text-sm px-2 py-1 rounded transition">
-                                                    <i class="ri-settings-line mr-1"></i>Manage
-                                                </a>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    <!-- Expandable Details Section -->
-                                    <tr id="details-{{ db.db_id }}" class="hidden database-details bg-gray-50">
-                                        <td colspan="5" class="p-4">
-                                            <div class="bg-white rounded border border-gray-200 p-4">
-                                                <h4 class="font-semibold text-gray-800 mb-3">Database Details</h4>
-                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                                    <div>
-                                                        <div class="space-y-2">
-                                                            <div><strong>Database ID:</strong> {{ db.db_id }}</div>
-                                                            <div><strong>Name:</strong> {{ db.db_name }}</div>
-                                                            <div><strong>Owner:</strong> {{ db.username }}</div>
-                                                            <div><strong>Status:</strong> {{ db.status }}</div>
-                                                            <div><strong>Created:</strong> {{ db.created_at[:19] if db.created_at else 'N/A' }}</div>
-                                                        </div>
-                                                    </div>
-                                                    <div>
-                                                        <div class="space-y-2">
-                                                            <div><strong>Website URL:</strong> 
-                                                                {% if db.website_url %}
-                                                                    <a href="{{ db.website_url }}" target="_blank" class="text-blue-500 hover:text-blue-700">{{ db.website_url }}</a>
-                                                                {% else %}
-                                                                    Not available
-                                                                {% endif %}
-                                                            </div>
-                                                            <div><strong>File Path:</strong> <span class="font-mono text-xs">{{ db.db_name }}.db</span></div>
-                                                            <div id="stats-{{ db.db_id }}" class="text-gray-600">
-                                                                <i class="ri-loader-line animate-spin mr-1"></i>Loading database statistics...
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -577,16 +566,14 @@
             }
         }
 
-        function cleanupExpiredDatabases() {
-            if (confirm('Clean up all expired databases? This will permanently delete databases that have exceeded their trash retention period.')) {
-                // You would implement this endpoint
-                alert('Cleanup expired databases functionality would be implemented here');
-            }
+        function forceDeleteDatabase(dbName, ownerUsername) {
+            // Remove this function since force delete is only available from system trash
+            alert('Force delete is only available from the System Trash Bin. Please check the System Trash to force delete databases.');
         }
 
-        // Initialize with users tab active
+        // Initialize with databases tab active (changed from users)
         document.addEventListener('DOMContentLoaded', function() {
-            showTab('users');
+            showTab('databases');
         });
 
         // Close modal when clicking outside
