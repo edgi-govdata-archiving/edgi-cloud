@@ -1,6 +1,7 @@
+
 """
-Database Management Module - Enhanced database creation and management
-Handles: Create, manage, publish, unpublish databases, custom homepages
+Database Management Module - Database creation and management
+Handles: Create, manage, publish, unpublish databases, custom homepages, databases list with filtering and preview functionality
 """
 
 import json
@@ -92,7 +93,7 @@ async def index_page(datasette, request):
         await datasette.render_template(
             "index.html",
             {
-                "page_title": content['title'].get('content', "EDGI Datasette Cloud Portal") + " | EDGI",
+                "page_title": content['title'].get('content', "Resette"),
                 "header_image": content['header_image'],
                 "info": content['info'],
                 "feature_cards": feature_cards,
@@ -122,7 +123,7 @@ async def all_databases_page(datasette, request):
             await datasette.render_template(
                 "all_databases.html",
                 {
-                    "page_title": "All Environmental Datasets | EDGI",
+                    "page_title": "All Datasets | Resette",
                     "content": content,
                     "databases": all_databases,
                     "total_count": len(all_databases),
@@ -139,7 +140,7 @@ async def all_databases_page(datasette, request):
             await datasette.render_template(
                 "all_databases.html",
                 {
-                    "page_title": "All Environmental Datasets | EDGI",
+                    "page_title": "All Datasets | Resette",
                     "content": content,
                     "databases": [],
                     "total_count": 0,
@@ -151,7 +152,7 @@ async def all_databases_page(datasette, request):
         )
 
 async def manage_databases(datasette, request):
-    """Enhanced manage databases with three-tier deletion system."""
+    """Enhanced manage databases with improved filtering and sorting by most recent."""
     logger.debug(f"Manage Databases request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -164,17 +165,24 @@ async def manage_databases(datasette, request):
     if not is_valid:
         return redirect_response
 
-    # Get filter parameter
+    # Get enhanced filter parameter
     status_filter = request.args.get('status', 'active')
     
-    # Build query based on filter
+    # Build query based on enhanced filter options
     query_db = datasette.get_database('portal')
+    
     if status_filter == 'active':
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished')"
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished') ORDER BY updated_at DESC"
+    elif status_filter == 'draft':
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Draft' ORDER BY updated_at DESC"
+    elif status_filter == 'published':
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Published' ORDER BY updated_at DESC"
+    elif status_filter == 'unpublished':
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Unpublished' ORDER BY updated_at DESC"
     elif status_filter == 'trash':
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline FROM databases WHERE user_id = ? AND status = 'Trashed'"
-    else:
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')"
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Trashed' ORDER BY updated_at DESC"
+    else:  # 'all'
+        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed') ORDER BY updated_at DESC"
     
     result = await query_db.execute(query, [actor.get("id")])
     user_databases = [dict(row) for row in result]
@@ -202,7 +210,7 @@ async def manage_databases(datasette, request):
     # Get content using common utility
     content = await get_portal_content(datasette)
 
-    # database processing with error handling
+    # Enhanced database processing with better error handling
     databases_with_tables = []
     for db_info in user_databases:
         db_name = db_info["db_name"]
@@ -266,7 +274,7 @@ async def manage_databases(datasette, request):
             'tables': tables,
             'table_count': table_count,
             'total_size': total_size,
-            'website_url': f"/{db_name}/",
+            'website_url': f"/db/{db_name}/homepage",
             'upload_url': f"/upload-secure/{db_name}",
             'has_custom_homepage': has_custom_homepage
         })
@@ -372,6 +380,38 @@ async def create_database(datasette, request):
                 [db_id, user_id, db_name, website_url, "Draft", datetime.utcnow(), db_path]
             )
             
+            # AUTO-CREATE CUSTOM HOMEPAGE
+            custom_title = f"{db_name.replace('_', ' ').title()}"
+            custom_description = f"Welcome to the {db_name.replace('_', ' ').title()}."
+            custom_footer = f"{db_name.replace('_', ' ').title()} | Powered by Resette"
+            
+            custom_content = [
+                ("title", {"content": custom_title}),
+                ("description", {
+                    "content": custom_description,
+                    "paragraphs": parse_markdown_links(custom_description)
+                }),
+                ("header_image", {
+                    "image_url": "/static/default_header.jpg",
+                    "alt_text": f"{db_name.replace('_', ' ').title()} Portal Header",
+                    "credit_text": "",
+                    "credit_url": ""
+                }),
+                ("footer", {
+                    "content": custom_footer,
+                    "odbl_text": "Data licensed under ODbL",
+                    "odbl_url": "https://opendatacommons.org/licenses/odbl/",
+                    "paragraphs": parse_markdown_links(custom_footer)
+                })
+            ]
+            
+            # Insert custom content for auto-created homepage
+            for section, content_data in custom_content:
+                await query_db.execute_write(
+                    "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [db_id, section, json.dumps(content_data), datetime.utcnow().isoformat(), actor['username']]
+                )
+            
             # Register database with Datasette immediately (even for drafts)
             try:
                 db_instance = Database(datasette, path=db_path, is_mutable=True)
@@ -383,16 +423,17 @@ async def create_database(datasette, request):
             # Log activity
             await log_database_action(
                 datasette, user_id, "create_database", 
-                f"Created database {db_name}",
+                f"Created database {db_name} with custom homepage",
                 {
                     "db_name": db_name,
                     "db_id": db_id,
-                    "website_url": website_url
+                    "website_url": website_url,
+                    "auto_homepage_created": True
                 }
             )
             
-            logger.debug(f"Database created: {db_name}, website_url={website_url}, file_path={db_path}")
-            return Response.redirect(f"/manage-databases?success=Database '{db_name}' created successfully.")
+            logger.debug(f"Database created with homepage: {db_name}, website_url={website_url}, file_path={db_path}")
+            return Response.redirect(f"/manage-databases?success=Database '{db_name}' created successfully with custom homepage. You can now upload CSV files and customize your portal.")
 
         except Exception as e:
             logger.error(f"Create database error: {str(e)}")
@@ -529,7 +570,7 @@ async def unpublish_database(datasette, request):
     except Exception as e:
         logger.error(f"Error unpublishing database {db_name}: {str(e)}")
         return Response.text(f"Error unpublishing database: {str(e)}", status=500)
-
+    
 async def delete_table(datasette, request):
     """Delete table from database."""
     actor = get_actor_from_request(request)
@@ -681,15 +722,17 @@ async def delete_table_ajax(datasette, request):
         return Response.json({"error": f"Failed to delete table: {str(e)}"}, status=500)
 
 async def database_homepage(datasette, request):
-    """Enhanced database homepage with better error handling."""
+    """Enhanced database homepage with preview functionality for owners."""
     logger.debug(f"Database homepage request: method={request.method}, path={request.path}")
 
     # Handle both /db/{db_name}/homepage and /{db_name}/ patterns
     path_parts = request.path.strip('/').split('/')
     if path_parts[0] == 'db' and len(path_parts) >= 3:
         db_name = path_parts[1]  # /db/{db_name}/homepage
+        is_preview = True  # This is a preview request
     else:
         db_name = path_parts[0]  # /{db_name}/
+        is_preview = False  # This is a public access request
     
     if not db_name:
         return Response.text("Not found", status=404)
@@ -707,10 +750,20 @@ async def database_homepage(datasette, request):
         
         actor = get_actor_from_request(request)
         
-        # Access control: Published databases are public, drafts only for owners
-        if db_info['status'] != 'Published' and (not actor or actor['id'] != db_info['user_id']):
-            return Response.text("Database not found or not published", status=404)
-        
+        # Access control logic
+        """if is_preview:
+            # Preview mode: only owners can access
+            if not actor or actor['id'] != db_info['user_id']:
+                return Response.text("Access denied: Only database owners can preview", status=403)
+        else:
+            # Public mode: Published databases are public, drafts only for owners
+            if db_info['status'] != 'Published' and (not actor or actor['id'] != db_info['user_id']):
+                return Response.text("Database not found or not published", status=404)
+        """
+        if db_info['status'] == 'Trashed' or db_info['status'] == 'Deleted':
+                return Response.text("Database not found or not published", status=404)
+
+
         # Check if database is registered correctly
         try:
             # Try to get the database - this will work if it's registered
@@ -741,9 +794,9 @@ async def database_homepage(datasette, request):
         
         # Check if content is customized
         default_title = db_name.replace('_', ' ').title()
-        default_description = 'Environmental data dashboard powered by Datasette.'
-        default_footer = 'Made with \u2764\ufe0f by EDGI and Public Environmental Data Partners.'
-        
+        default_description = db_name.replace('_', ' ').title()
+        default_footer = f"{db_name.replace('_', ' ').title()} | Resette."
+
         has_custom_title = content.get('title', {}).get('content', '') != default_title
         has_custom_description = content.get('description', {}).get('content', '') != default_description
         has_custom_footer = content.get('footer', {}).get('content', '') != default_footer
@@ -757,8 +810,8 @@ async def database_homepage(datasette, request):
         
         is_customized = has_custom_title or has_custom_description or has_custom_footer or has_custom_image
         
-        # If not customized, redirect to Datasette's default database page
-        if not is_customized:
+        # If not customized and not preview mode, redirect to Datasette's default database page
+        if not is_customized and not is_preview:
             logger.debug(f"No customization found for {db_name}, redirecting to Datasette default")
             return Response.redirect(f"/{db_name}")
         
@@ -802,8 +855,8 @@ async def database_homepage(datasette, request):
                         'url': f'/{db_name}'
                     },
                     {
-                        'label': 'Explore Data',
-                        'value': 'Browse',
+                        'label': 'View all available data tables',
+                        'value': 'Browse All Tables',
                         'url': f'/{db_name}'
                     }
                 ]
@@ -815,11 +868,16 @@ async def database_homepage(datasette, request):
             tables = []
             statistics = []
         
+        # Add preview mode indicator to page title if in preview
+        page_title = content.get('title', {}).get('content', db_name) + " | Resette"
+        if is_preview:
+            page_title = "[PREVIEW] " + page_title
+        
         return Response.html(
             await datasette.render_template(
                 "database_homepage.html",
                 {
-                    "page_title": content.get('title', {}).get('content', db_name) + " | Environmental Data",
+                    "page_title": page_title,
                     "content": content,
                     "header_image": content.get('header_image', {}),
                     "info": content.get('info', content.get('description', {})),
@@ -827,7 +885,9 @@ async def database_homepage(datasette, request):
                     "statistics": statistics,
                     "footer": content.get('footer', {}),
                     "db_name": db_name,
-                    "tables": tables
+                    "tables": tables,
+                    "is_preview": is_preview,
+                    "actor": actor
                 },
                 request=request
             )
@@ -835,88 +895,8 @@ async def database_homepage(datasette, request):
         
     except Exception as e:
         logger.error(f"Error rendering database homepage for {db_name}: {e}")
-        return Response.text("Error loading database homepage", status=500)
-
-async def create_homepage(datasette, request):
-    """Create custom homepage for database."""
-    logger.debug(f"Create Homepage request: method={request.method}, path={request.path}")
-
-    # Handle /db/{db_name}/create-homepage path
-    path_parts = request.path.strip('/').split('/')
-    if path_parts[0] == 'db' and len(path_parts) >= 3:
-        db_name = path_parts[1]
-    else:
-        return Response.text("Invalid URL format", status=400)
+        return
     
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login?error=Session expired or invalid")
-
-    query_db = datasette.get_database('portal')
-    try:
-        result = await query_db.execute(
-            "SELECT db_id, user_id, status FROM databases WHERE db_name = ? AND user_id = ?",
-            [db_name, actor.get("id")]
-        )
-        db_info = result.first()
-        if not db_info:
-            return Response.text("Database not found or permission denied", status=404)
-        
-        db_id = db_info['db_id']
-        
-        # Check if homepage already exists
-        homepage_result = await query_db.execute(
-            "SELECT COUNT(*) FROM admin_content WHERE db_id = ? AND section = 'title'",
-            [db_id]
-        )
-        
-        if homepage_result.first()[0] > 0:
-            # Homepage already exists, redirect to edit
-            return Response.redirect(f"/edit-content/{db_id}")
-        
-        custom_title = f"Custom {db_name.replace('_', ' ').title()} Environmental Data Portal"
-        custom_description = f"Welcome to the {db_name.replace('_', ' ').title()} environmental data portal. This database contains important environmental monitoring data and research findings. Explore our comprehensive datasets to understand environmental trends and patterns."
-        custom_footer = f"Environmental data portal for {db_name.replace('_', ' ').title()} | Powered by EDGI and Public Environmental Data Partners"
-        
-        custom_content = [
-            ("title", {"content": custom_title}),
-            ("description", {
-                "content": custom_description,
-                "paragraphs": parse_markdown_links(custom_description)
-            }),
-            ("header_image", {
-                "image_url": "/static/default_header.jpg",
-                "alt_text": f"{db_name.replace('_', ' ').title()} EDGI Portal Header by J. Alex Lang",
-                "credit_text": "Image by J. Alex Lang. Used by permission updated.",
-                "credit_url": "https://www.flickr.com/photos/jalexlang/21359307802/"
-            }),
-            ("footer", {
-                "content": custom_footer,
-                "odbl_text": "Data licensed under ODbL",
-                "odbl_url": "https://opendatacommons.org/licenses/odbl/",
-                "paragraphs": parse_markdown_links(custom_footer)
-            })
-        ]
-        
-        # Insert custom content
-        for section, content_data in custom_content:
-            await query_db.execute_write(
-                "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                [db_id, section, json.dumps(content_data), datetime.utcnow().isoformat(), actor['username']]
-            )
-        
-        await log_database_action(
-            datasette, actor.get("id"), "create_homepage", 
-            f"Created custom homepage for {db_name}",
-            {"db_name": db_name, "db_id": db_id}
-        )
-        
-        return Response.redirect(f"/edit-content/{db_id}?success=Custom homepage created! You can now customize your database portal.")
-        
-    except Exception as e:
-        logger.error(f"Error creating homepage for {db_name}: {str(e)}")
-        return Response.text(f"Error creating homepage: {str(e)}", status=500)
-
 async def edit_content(datasette, request):
     """Edit database content and homepage."""
     logger.debug(f"Edit Content request: method={request.method}, path={request.path}")
@@ -1293,6 +1273,53 @@ async def log_startup_success(datasette, registered_count, failed_count):
     except Exception as e:
         logger.error(f"Error logging startup: {e}")
 
+async def fix_missing_database_registrations(datasette):
+    """Fix missing database registrations by checking all active databases and re-registering them."""
+    logger.info("Checking for missing database registrations...")
+    
+    query_db = datasette.get_database('portal')
+    try:
+        # Get all active databases from portal database
+        result = await query_db.execute(
+            "SELECT db_name, file_path, status FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
+        )
+        
+        fixed_count = 0
+        missing_files_count = 0
+        
+        for row in result:
+            db_name = row['db_name']
+            file_path = row['file_path']
+            status = row['status']
+            
+            try:
+                # Check if database is registered with Datasette
+                if db_name not in datasette.databases:
+                    # Check if file exists
+                    if file_path and os.path.exists(file_path):
+                        # Re-register the database
+                        db_instance = Database(datasette, path=file_path, is_mutable=True)
+                        datasette.add_database(db_instance, name=db_name)
+                        fixed_count += 1
+                        logger.info(f"Re-registered missing database: {db_name} ({status})")
+                    else:
+                        missing_files_count += 1
+                        logger.warning(f"Database file missing for {db_name}: {file_path}")
+                        
+                        # Could optionally mark as corrupted or remove from portal database
+                        # For now, just log the issue
+                        
+            except Exception as reg_error:
+                logger.error(f"Failed to re-register database {db_name}: {reg_error}")
+        
+        logger.info(f"Database registration check complete: {fixed_count} fixed, {missing_files_count} missing files")
+        return fixed_count, missing_files_count
+        
+    except Exception as e:
+        logger.error(f"Error during database registration check: {e}")
+        return 0, 0
+
+
 @hookimpl
 def register_routes():
     """Register datasette admin panel routes."""
@@ -1304,7 +1331,6 @@ def register_routes():
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/unpublish$", unpublish_database),
         (r"^/db/([^/]+)/homepage$", database_homepage),
-        (r"^/db/([^/]+)/create-homepage$", create_homepage),
         (r"^/edit-content/([^/]+)$", edit_content),
         (r"^/delete-table/(?P<db_name>[^/]+)/(?P<table_name>[^/]+)$", delete_table),
         (r"^/delete-table-ajax$", delete_table_ajax),

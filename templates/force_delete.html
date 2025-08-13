@@ -59,10 +59,6 @@
                                 <span class="font-medium text-red-600">{{ db_status }}</span>
                             </div>
                             <div class="flex justify-between">
-                                <span class="text-gray-600">Tables:</span>
-                                <span class="font-medium">{{ table_count | default("Unknown") }} data tables</span>
-                            </div>
-                            <div class="flex justify-between">
                                 <span class="text-gray-600">Size:</span>
                                 <span class="font-medium">{{ "%.1f"|format(database_size | float | default(0)) }} KB</span>
                             </div>

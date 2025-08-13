@@ -324,7 +324,7 @@ async def logout_page(datasette, request):
     return response
 
 async def profile_page(datasette, request):
-    """User profile management page."""
+    """Enhanced user profile management page with improved UX."""
     logger.debug(f"Profile request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -468,7 +468,6 @@ async def profile_page(datasette, request):
     )
 
 async def change_password_page(datasette, request):
-    """Standalone change password page."""
     logger.debug(f"Change Password request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -476,68 +475,8 @@ async def change_password_page(datasette, request):
         logger.warning(f"Unauthorized change password attempt: actor={actor}")
         return Response.redirect("/login")
 
-    content = await get_portal_content(datasette)
-
-    if request.method == "POST":
-        post_vars = await request.post_vars()
-        logger.debug(f"Change password POST vars keys: {list(post_vars.keys())}")
-        current_password = post_vars.get("current_password")
-        new_password = post_vars.get("new_password")
-        confirm_password = post_vars.get("confirm_password")
-        username = actor.get("username")
-        
-        template_data = {
-            "metadata": datasette.metadata(),
-            "content": content,
-            "actor": actor,
-        }
-        
-        if not current_password or not new_password or new_password != confirm_password:
-            return await handle_form_errors(
-                datasette, "change_password.html", template_data,
-                request, "All fields are required and new passwords must match"
-            )
-
-        try:
-            db = datasette.get_database("portal")
-            result = await db.execute("SELECT password_hash FROM users WHERE username = ?", [username])
-            user = result.first()
-            if user and bcrypt.checkpw(current_password.encode('utf-8'), user["password_hash"].encode('utf-8')):
-                hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-                await db.execute_write(
-                    "UPDATE users SET password_hash = ? WHERE username = ?",
-                    [hashed_password, username]
-                )
-                await log_user_activity(
-                    datasette, actor.get("id"), "change_password", 
-                    f"User {username} changed password"
-                )
-                logger.debug("Password changed for user: %s", username)
-                return Response.redirect("/manage-databases?success=Password changed successfully")
-            else:
-                logger.warning("Invalid current password for user: %s", username)
-                return await handle_form_errors(
-                    datasette, "change_password.html", template_data,
-                    request, "Invalid current password"
-                )
-        except Exception as e:
-            logger.error(f"Password change error: {str(e)}")
-            return await handle_form_errors(
-                datasette, "change_password.html", template_data,
-                request, f"Password change error: {str(e)}"
-            )
-
-    return Response.html(
-        await datasette.render_template(
-            "change_password.html",
-            {
-                "metadata": datasette.metadata(),
-                "content": content,
-                "actor": actor,
-            },
-            request=request
-        )
-    )
+    # Redirect to profile page instead
+    return Response.redirect("/profile")
 
 async def forgot_password_page(datasette, request):
     """Forgot password page (placeholder for future implementation)."""
