@@ -12,3 +12,9 @@ wheels/
 # npm
 node_modules/
 package-lock.json
+
+# uv
+.python-version
+hello.py
+pyproject.toml
+uv.lock
