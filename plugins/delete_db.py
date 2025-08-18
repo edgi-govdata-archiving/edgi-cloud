@@ -174,7 +174,7 @@ def enhanced_file_deletion(file_path, db_name):
         return False
     
 async def trash_database(datasette, request):
-    """Tier 2: Move database to trash"""
+    """Tier 2: Move database to trash - supports admin override"""
     logger.debug(f"Trash Database request: method={request.method}, path={request.path}")
 
     actor = get_actor_from_request(request)
@@ -199,19 +199,38 @@ async def trash_database(datasette, request):
             return Response.redirect(f"{request.path}?error=Database name confirmation does not match")
         
         try:
-            result = await query_db.execute(
-                "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
-                [db_name, actor.get("id")]
-            )
+            # Check if user owns the database OR is system admin
+            is_admin = actor.get("role") == "system_admin"
+            
+            if is_admin:
+                # Admin can trash any database
+                result = await query_db.execute(
+                    "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ?",
+                    [db_name]
+                )
+            else:
+                # Regular user can only trash their own databases
+                result = await query_db.execute(
+                    "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
+                    [db_name, actor.get("id")]
+                )
+            
             db_info = result.first()
             if not db_info:
-                return Response.text("Database not found or you do not have permission", status=404)
+                if is_admin:
+                    return Response.text("Database not found", status=404)
+                else:
+                    return Response.text("Database not found or you do not have permission", status=404)
             
+            db_info = dict(db_info)
+
             if db_info['status'] == 'Trashed':
-                return Response.redirect(f"/manage-databases?error=Database '{db_name}' is already in trash")
+                redirect_url = "/system-admin" if is_admin else "/manage-databases"
+                return Response.redirect(f"{redirect_url}?error=Database '{db_name}' is already in trash")
             
             if db_info['status'] == 'Deleted':
-                return Response.redirect(f"/manage-databases?error=Database '{db_name}' has been permanently deleted")
+                redirect_url = "/system-admin" if is_admin else "/manage-databases"
+                return Response.redirect(f"{redirect_url}?error=Database '{db_name}' has been permanently deleted")
             
             # Calculate restore deadline (30 days from now)
             trashed_at = datetime.utcnow()
@@ -220,15 +239,16 @@ async def trash_database(datasette, request):
             # CRITICAL: Close database connections BEFORE updating status
             force_close_database_connections(datasette, db_name)
             
-            # Update status to Trashed
+            # Update status to Trashed with updated_at timestamp
             await query_db.execute_write(
                 """UPDATE databases SET 
                 status = 'Trashed', 
                 trashed_at = ?, 
                 restore_deadline = ?, 
-                deleted_by_user_id = ?
+                deleted_by_user_id = ?,
+                updated_at = ?
                 WHERE db_name = ?""",
-                [trashed_at.isoformat(), restore_deadline.isoformat(), actor.get("id"), db_name]
+                [trashed_at.isoformat(), restore_deadline.isoformat(), actor.get("id"), trashed_at.isoformat(), db_name]
             )
             
             # Get database stats for logging (safe file size only)
@@ -239,19 +259,30 @@ async def trash_database(datasette, request):
                 except Exception as e:
                     logger.error(f"Error getting database size: {e}")
             
+            # Log with admin context if applicable
+            action_details = f"Moved database {db_name} to trash"
+            if is_admin and db_info['user_id'] != actor.get("id"):
+                action_details = f"Admin moved database {db_name} (owned by user {db_info['user_id']}) to trash"
+            
             await log_database_action(
                 datasette, actor.get("id"), "trash_database", 
-                f"Moved database {db_name} to trash",
+                action_details,
                 {
                     "db_name": db_name,
                     "previous_status": db_info['status'],
                     "trashed_at": trashed_at.isoformat(),
                     "restore_deadline": restore_deadline.isoformat(),
-                    "database_size_kb": database_size
+                    "database_size_kb": database_size,
+                    "admin_override": is_admin and db_info['user_id'] != actor.get("id"),
+                    "target_user_id": db_info['user_id'] if is_admin else None
                 }
             )
             
-            return Response.redirect(f"/manage-databases?success=Database '{db_name}' moved to trash. You have {TRASH_RETENTION_DAYS} days to restore it.")
+            # Redirect appropriately
+            if is_admin:
+                return Response.redirect(f"/system-admin?success=Database '{db_name}' moved to trash. You have {TRASH_RETENTION_DAYS} days to restore it.")
+            else:
+                return Response.redirect(f"/manage-databases?success=Database '{db_name}' moved to trash. You have {TRASH_RETENTION_DAYS} days to restore it.")
             
         except Exception as e:
             logger.error(f"Error trashing database {db_name}: {str(e)}")
@@ -259,13 +290,28 @@ async def trash_database(datasette, request):
     
     # GET request - show confirmation page
     try:
-        result = await query_db.execute(
-            "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
-            [db_name, actor.get("id")]
-        )
+        # Check if user owns the database OR is system admin
+        is_admin = actor.get("role") == "system_admin"
+        
+        if is_admin:
+            # Admin can view any database
+            result = await query_db.execute(
+                "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ?",
+                [db_name]
+            )
+        else:
+            # Regular user can only view their own databases
+            result = await query_db.execute(
+                "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
+                [db_name, actor.get("id")]
+            )
+        
         db_info = result.first()
         if not db_info:
-            return Response.text("Database not found or you do not have permission", status=404)
+            if is_admin:
+                return Response.text("Database not found", status=404)
+            else:
+                return Response.text("Database not found or you do not have permission", status=404)
         
         # Get database statistics safely
         table_count = 0
@@ -288,6 +334,8 @@ async def trash_database(datasette, request):
                     except Exception:
                         continue
                 
+                user_db.close()
+                
             except Exception as e:
                 logger.error(f"Error getting database info for {db_name}: {str(e)}")
 
@@ -296,7 +344,7 @@ async def trash_database(datasette, request):
 
         return Response.html(
             await datasette.render_template(
-                "trash_confirm.html",
+                "trash_confirm.html",  # Same template for both user and admin
                 {
                     "metadata": datasette.metadata(),
                     "content": content,
@@ -307,6 +355,7 @@ async def trash_database(datasette, request):
                     "total_records": total_records,
                     "database_size": database_size,
                     "retention_days": TRASH_RETENTION_DAYS,
+                    "is_admin_override": is_admin and db_info['user_id'] != actor.get("id"),
                 },
                 request=request
             )
@@ -315,7 +364,7 @@ async def trash_database(datasette, request):
     except Exception as e:
         logger.error(f"Error showing trash confirmation for {db_name}: {str(e)}")
         return Response.text(f"Error loading trash confirmation: {str(e)}", status=500)
-
+    
 async def restore_database(datasette, request):
     """Restore database from trash - Only own databases"""
     logger.debug(f"Restore Database request: method={request.method}, path={request.path}")
@@ -344,6 +393,8 @@ async def restore_database(datasette, request):
         if not db_info:
             return Response.text("Database not found in trash or you do not have permission", status=404)
         
+        db_info = dict(db_info)
+
         # Check if restore deadline has passed
         if db_info['restore_deadline']:
             try:
@@ -354,15 +405,17 @@ async def restore_database(datasette, request):
             except Exception as e:
                 logger.error(f"Error checking restore deadline: {e}")
         
-        # Restore database to Draft status
+        # Restore database to Draft status with updated timestamp
+        current_time = datetime.utcnow().isoformat()
         await query_db.execute_write(
             """UPDATE databases SET 
                status = 'Draft', 
                trashed_at = NULL, 
                restore_deadline = NULL, 
-               deleted_by_user_id = NULL
+               deleted_by_user_id = NULL,
+               updated_at = ?
                WHERE db_name = ?""",
-            [db_name]
+            [current_time, db_name]
         )
         
         # Re-register with Datasette
@@ -384,15 +437,29 @@ async def restore_database(datasette, request):
             }
         )
         
-        redirect_page = "/trash" if request.args.get('from') == 'trash' else "/manage-databases"
-        return Response.redirect(f"{redirect_page}?success=Database '{db_name}' restored successfully!")
+        # Check where the restore request came from and redirect appropriately
+        from_param = request.args.get('from', '')
+        is_admin = actor.get("role") == "system_admin"
+        
+        if from_param == 'system-trash' and is_admin:
+            # Admin restoring from system trash - stay in system trash
+            return Response.redirect(f"/system-trash?success=Database '{db_name}' restored successfully!")
+        elif from_param == 'trash' or from_param == 'user-trash':
+            # User restoring from their own trash
+            return Response.redirect(f"/manage-databases?status=trash&success=Database '{db_name}' restored successfully!")
+        else:
+            # Default behavior - check user role
+            if is_admin:
+                return Response.redirect(f"/system-trash?success=Database '{db_name}' restored successfully!")
+            else:
+                return Response.redirect(f"/manage-databases?success=Database '{db_name}' restored successfully!")
         
     except Exception as e:
         logger.error(f"Error restoring database {db_name}: {str(e)}")
         return Response.text(f"Error restoring database: {str(e)}", status=500)
-
+    
 async def auto_cleanup_expired_databases(datasette):
-    """Background task to automatically delete expired databases - ENHANCED for Windows"""
+    """Background task to automatically delete expired databases - ENHANCED for renamed databases"""
     logger.debug("Running auto cleanup for expired databases")
     
     query_db = datasette.get_database('portal')
@@ -411,10 +478,15 @@ async def auto_cleanup_expired_databases(datasette):
         for db_info in expired_databases:
             db_name = db_info['db_name']
             db_id = db_info['db_id']
+            original_db_name = db_name  # Store original name for logging
             
             try:
                 # Get database statistics SAFELY (minimal file access)
                 database_size = 0
+                
+                # Build file path if not available
+                if not db_info.get('file_path'):
+                    db_info['file_path'] = os.path.join(DATA_DIR, db_info['user_id'], f"{db_name}.db")
                 
                 if db_info['file_path'] and os.path.exists(db_info['file_path']):
                     try:
@@ -423,7 +495,7 @@ async def auto_cleanup_expired_databases(datasette):
                     except Exception as e:
                         logger.error(f"Error getting file size for {db_name} in auto-cleanup: {e}")
                 
-                # Force close database connections
+                # Force close database connections (use original db_name for Datasette registry)
                 force_close_database_connections(datasette, db_name)
                 
                 # ENHANCED FILE DELETION
@@ -453,16 +525,32 @@ async def auto_cleanup_expired_databases(datasette):
                     # Skip to next database (keep this one for manual cleanup)
                     continue
                 
-                # ONLY DELETE DATABASE RECORDS IF FILE DELETION SUCCEEDED
+                # RENAME DATABASE TO FREE UP THE NAME
+                import time
+                deleted_name = f"{db_name}_deleted_{int(time.time())}_{db_id[:8]}"
+                
+                # UPDATE DATABASE RECORD: RENAME AND MARK AS DELETED
+                current_time = datetime.utcnow().isoformat()
+                await query_db.execute_write(
+                    """UPDATE databases SET 
+                       db_name = ?,
+                       status = 'Deleted',
+                       deleted_at = ?,
+                       updated_at = ?
+                       WHERE db_id = ?""",
+                    [deleted_name, current_time, current_time, db_id]
+                )
+                
+                # Delete related admin content
                 await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_id])
-                await query_db.execute_write("DELETE FROM databases WHERE db_id = ?", [db_id])
                 
                 # Log successful auto-deletion
                 await log_database_action(
                     datasette, "system", "auto_delete_database", 
-                    f"Auto-deleted expired database {db_name}",
+                    f"Auto-deleted expired database {original_db_name} (renamed to {deleted_name})",
                     {
-                        "db_name": db_name,
+                        "original_db_name": original_db_name,
+                        "renamed_to": deleted_name,
                         "original_owner": db_info['user_id'],
                         "restore_deadline": db_info['restore_deadline'],
                         "database_size_kb": database_size,
@@ -471,7 +559,7 @@ async def auto_cleanup_expired_databases(datasette):
                     }
                 )
                 
-                logger.info(f"Auto-deleted expired database: {db_name}")
+                logger.info(f"Auto-deleted expired database: {original_db_name} (renamed to {deleted_name})")
                 
             except Exception as e:
                 logger.error(f"Error during auto-cleanup of database {db_name}: {e}")
@@ -504,6 +592,7 @@ async def system_trash_bin_page(datasette, request):
     query_db = datasette.get_database('portal')
     
     # Get ALL trashed databases system-wide for admins
+    # FIXED: Include file_path in query and use proper user_id
     query = """SELECT d.db_id, d.db_name, d.status, d.user_id, d.trashed_at, d.restore_deadline, 
                       d.file_path, u.username, u.email
                FROM databases d 
@@ -530,27 +619,49 @@ async def system_trash_bin_page(datasette, request):
             except Exception as e:
                 logger.error(f"Error calculating restore deadline: {e}")
         
-        # Get database size safely (no database access)
+        # Get database size and statistics safely
         table_count = 0
         total_records = 0
         database_size = 0
         
-        if db_info["file_path"] and os.path.exists(db_info["file_path"]):
-            try:
-                # Only get file size (doesn't open database)
+        try:
+            # Build the file path if not available
+            if not db_info.get("file_path"):
+                db_info["file_path"] = os.path.join(DATA_DIR, db_info["user_id"], f"{db_info['db_name']}.db")
+            
+            if db_info["file_path"] and os.path.exists(db_info["file_path"]):
+                # Get file size (doesn't open database)
                 database_size = os.path.getsize(db_info['file_path']) / 1024  # KB
                 
-                # Use placeholder values to avoid file locking
-                table_count = "?"
-                total_records = "?"
-                
-                logger.debug(f"Safe stats for {db_info['db_name']}: file size {database_size}KB")
-            except Exception as e:
-                logger.error(f"Error getting file size for {db_info['db_name']}: {e}")
+                # Get table count and records safely
+                try:
+                    user_db = sqlite_utils.Database(db_info['file_path'])
+                    table_names = user_db.table_names()
+                    table_count = len(table_names)
+                    
+                    # Get total records
+                    for table_name in table_names:
+                        try:
+                            table_info = user_db[table_name]
+                            total_records += table_info.count
+                        except Exception:
+                            continue
+                    
+                    user_db.close()
+                    logger.debug(f"Trash stats for {db_info['db_name']}: {table_count} tables, {total_records} records, {database_size:.1f}KB")
+                except Exception as db_error:
+                    logger.warning(f"Could not access trashed database {db_info['db_name']}: {db_error}")
+                    # Keep file size but set others to 0
+                    table_count = 0
+                    total_records = 0
+            else:
+                logger.warning(f"Trashed database file not found: {db_info.get('file_path')} for {db_info['db_name']}")
                 database_size = 0
                 table_count = 0
                 total_records = 0
-        else:
+                
+        except Exception as e:
+            logger.error(f"Error getting file size for {db_info['db_name']}: {e}")
             database_size = 0
             table_count = 0
             total_records = 0
@@ -586,104 +697,8 @@ async def system_trash_bin_page(datasette, request):
         )
     )
 
-async def trash_bin_page(datasette, request):
-    """User trash bin page - only shows their own databases."""
-    logger.debug(f"User Trash Bin request: method={request.method}")
-
-    actor = get_actor_from_request(request)
-    if not actor:
-        return Response.redirect("/login?error=Session expired or invalid")
-
-    # Verify user session
-    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
-    if not is_valid:
-        return redirect_response
-
-    query_db = datasette.get_database('portal')
-    
-    # Get only user's own trashed databases
-    query = """SELECT db_id, db_name, status, user_id, trashed_at, restore_deadline, file_path
-               FROM databases 
-               WHERE user_id = ? AND status = 'Trashed'
-               ORDER BY trashed_at DESC"""
-    result = await query_db.execute(query, [actor.get("id")])
-    
-    trashed_databases = []
-    for row in result:
-        db_info = dict(row)
-        
-        # User can only manage their own databases
-        is_own_database = True  # Always true in user trash
-        
-        # Calculate days until auto-delete
-        days_until_delete = 0
-        if db_info["restore_deadline"]:
-            try:
-                deadline = datetime.fromisoformat(db_info["restore_deadline"].replace('Z', '+00:00'))
-                now = datetime.utcnow()
-                delta = deadline - now
-                days_until_delete = max(0, delta.days)
-            except Exception as e:
-                logger.error(f"Error calculating restore deadline: {e}")
-        
-        # Get database size safely (no database access)
-        table_count = 0
-        total_records = 0
-        database_size = 0
-        
-        if db_info["file_path"] and os.path.exists(db_info["file_path"]):
-            try:
-                # Only get file size (doesn't open database)
-                database_size = os.path.getsize(db_info['file_path']) / 1024  # KB
-                
-                # Use placeholder values to avoid file locking
-                table_count = "?"
-                total_records = "?"
-                
-                logger.debug(f"Safe stats for {db_info['db_name']}: file size {database_size}KB")
-            except Exception as e:
-                logger.error(f"Error getting file size for {db_info['db_name']}: {e}")
-                database_size = 0
-                table_count = 0
-                total_records = 0
-        else:
-            database_size = 0
-            table_count = 0
-            total_records = 0
-
-        db_info.update({
-            'days_until_delete': days_until_delete,
-            'table_count': table_count,
-            'total_records': total_records,
-            'database_size': database_size,
-            'trashed_at_formatted': db_info.get("trashed_at", "").split('T')[0] if db_info.get("trashed_at") else None,
-            'is_expired': days_until_delete <= 0,
-            'is_own_database': is_own_database
-        })
-        
-        trashed_databases.append(db_info)
-
-    # Get content for page
-    content = await get_portal_content(datasette)
-
-    return Response.html(
-        await datasette.render_template(
-            "trash_bin.html",  # Same template but different data
-            {
-                "metadata": datasette.metadata(),
-                "content": content,
-                "actor": actor,
-                "is_admin": False,  # Always false for user trash
-                "trashed_databases": trashed_databases,
-                "total_trashed": len(trashed_databases),
-                **get_success_error_from_request(request)
-            },
-            request=request
-        )
-    )
-
 async def permanent_delete_database(datasette, request):
-    """Tier 3: Permanent deletion - FIXED routing and template for regular user deletes only"""
+    """Tier 3: Permanent deletion - FIXED to rename database"""
     logger.debug(f"Permanent Delete Database request: method={request.method}, path={request.path}")
 
     actor = get_actor_from_request(request)
@@ -717,6 +732,8 @@ async def permanent_delete_database(datasette, request):
             if not db_info:
                 return Response.text("Database not found or you do not have permission", status=404)
             
+            db_info = dict(db_info)
+
             if db_info['status'] != 'Trashed':
                 return Response.redirect(f"/manage-databases?error=Database must be in trash before permanent deletion")
             
@@ -772,16 +789,32 @@ async def permanent_delete_database(datasette, request):
                 
                 return Response.redirect(f"/trash?error=Database '{db_name}' deletion failed. File could not be removed. Please try again or contact administrator.")
             
-            # ONLY DELETE DATABASE RECORDS IF FILE DELETION SUCCEEDED
+            # RENAME DATABASE TO FREE UP THE NAME FOR FUTURE USE
+            import time
+            deleted_name = f"{db_name}_deleted_{int(time.time())}_{db_info['db_id'][:8]}"
+            
+            # Update database record: rename and mark as deleted
+            current_time = datetime.utcnow().isoformat()
+            await query_db.execute_write(
+                """UPDATE databases SET 
+                   db_name = ?,
+                   status = 'Deleted',
+                   deleted_at = ?,
+                   updated_at = ?
+                   WHERE db_id = ?""",
+                [deleted_name, current_time, current_time, db_info['db_id']]
+            )
+            
+            # Delete related admin content (homepage customizations)
             await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_info['db_id']])
-            await query_db.execute_write("DELETE FROM databases WHERE db_id = ?", [db_info['db_id']])
             
             # Success logging
             await log_database_action(
                 datasette, actor.get("id"), "permanent_delete_database", 
-                f"Permanently deleted database {db_name}",
+                f"Permanently deleted database {db_name} (renamed to {deleted_name})",
                 {
-                    "db_name": db_name,
+                    "original_db_name": db_name,
+                    "renamed_to": deleted_name,
                     "deleted_by": actor.get("username"),
                     "database_size_kb": database_size,
                     "file_deleted": file_deleted
@@ -855,7 +888,7 @@ async def permanent_delete_database(datasette, request):
         return Response.text(f"Error loading delete confirmation: {str(e)}", status=500)
 
 async def admin_force_delete_confirmation(datasette, request):
-    """FIXED: Admin force delete confirmation page with proper routing and template"""
+    """Admin force delete confirmation page - FIXED to rename database"""
     logger.debug(f"Admin Force Delete Confirmation request: method={request.method}, path={request.path}")
 
     actor = get_actor_from_request(request)
@@ -938,35 +971,48 @@ async def admin_force_delete_confirmation(datasette, request):
                 logger.warning(f"No file found to delete for {db_name}")
                 file_deleted = True  # Consider as successful if no file exists
             
-            # HANDLE DELETION FAILURE
-            if not file_deleted:
-                logger.warning(f"Admin force deletion: File deletion failed for {db_name}")
-                
-                await log_database_action(
-                    datasette, actor.get("id"), "admin_force_delete_failed", 
-                    f"Admin force deletion failed for {db_name} - file deletion unsuccessful",
-                    {
-                        "db_name": db_name,
-                        "target_user": owner_username,
-                        "admin_reason": admin_reason,
-                        "admin_notes": admin_notes,
-                        "reason": "file_deletion_failed",
-                        "file_path": actual_file_path
-                    }
-                )
-                
-                return Response.redirect(f"/system-trash?error=Force deletion of '{db_name}' failed. File could not be removed. Please try again or contact system administrator.")
+            # RENAME DATABASE TO FREE UP THE NAME
+            import time
+            deleted_name = f"{db_name}_deleted_{int(time.time())}_{db_info['db_id'][:8]}"
             
-            # ONLY DELETE DATABASE RECORDS IF FILE DELETION SUCCEEDED
+            # UPDATE DATABASE RECORD TO "DELETED" STATUS WITH RENAME
+            current_time = datetime.utcnow()
+            
+            # Combine admin reason and notes for audit trail
+            deletion_reason = admin_reason
+            if admin_notes.strip():
+                deletion_reason += f" | Notes: {admin_notes.strip()}"
+            
+            await query_db.execute_write(
+                """UPDATE databases SET 
+                   db_name = ?,
+                   status = 'Deleted',
+                   deleted_at = ?,
+                   deletion_reason = ?,
+                   deleted_by_user_id = ?,
+                   updated_at = ?
+                   WHERE db_id = ?""",
+                [
+                    deleted_name,  # RENAME THE DATABASE
+                    current_time.isoformat(),
+                    deletion_reason,
+                    actor.get("id"),  # Admin who performed the action
+                    current_time.isoformat(),
+                    db_info['db_id']
+                ]
+            )
+            
+            # Delete related admin content (homepage customizations)
             await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_info['db_id']])
-            await query_db.execute_write("DELETE FROM databases WHERE db_id = ?", [db_info['db_id']])
             
-            # Success logging with admin override details
+            # Enhanced logging for admin force delete with all audit details
             await log_database_action(
                 datasette, actor.get("id"), "admin_force_delete_database", 
-                f"Admin force deleted database {db_name} owned by {owner_username}",
+                f"Admin force deleted database {db_name} (renamed to {deleted_name}) owned by {owner_username}",
                 {
-                    "db_name": db_name,
+                    "original_db_name": db_name,
+                    "renamed_to": deleted_name,
+                    "db_id": db_info['db_id'],
                     "target_user": owner_username,
                     "target_user_id": db_info['user_id'],
                     "admin_reason": admin_reason,
@@ -974,11 +1020,14 @@ async def admin_force_delete_confirmation(datasette, request):
                     "database_size_kb": database_size,
                     "file_deleted": file_deleted,
                     "admin_override": True,
-                    "bypassed_user_permissions": True
+                    "bypassed_user_permissions": True,
+                    "audit_trail": "Database record retained for audit purposes"
                 }
             )
             
-            return Response.redirect(f"/system-trash?success=Database '{db_name}' force deleted successfully. Action logged for audit.")
+            logger.info(f"Admin force deleted database: {db_name} (renamed to {deleted_name}) by {actor.get('username')}, reason: {admin_reason}")
+            
+            return Response.redirect(f"/system-trash?success=Database '{db_name}' force deleted successfully. Database record retained for audit trail.")
             
         except Exception as e:
             logger.error(f"Error during admin force deletion of database {db_name}: {str(e)}")
@@ -1001,7 +1050,6 @@ async def admin_force_delete_confirmation(datasette, request):
         db_dict = dict(db_info)
         
         # Get basic stats safely - MINIMAL DATABASE ACCESS
-        table_count = "Unknown"  # Don't calculate to avoid connection issues
         database_size = 0
         
         # Only get file size if possible
@@ -1016,7 +1064,7 @@ async def admin_force_delete_confirmation(datasette, request):
 
         return Response.html(
             await datasette.render_template(
-                "force_delete.html",  # SEPARATE TEMPLATE FOR ADMIN FORCE DELETE
+                "force_delete.html",  # Use dedicated force_delete.html template
                 {
                     "metadata": datasette.metadata(),
                     "content": content,
@@ -1025,7 +1073,6 @@ async def admin_force_delete_confirmation(datasette, request):
                     "db_status": db_dict['status'],
                     "owner_username": db_dict['username'],
                     "owner_email": db_dict.get('email', 'Not available'),
-                    "table_count": table_count,
                     "database_size": database_size,
                     "trashed_at": db_dict['trashed_at'].split('T')[0] if db_dict['trashed_at'] else None,
                     **get_success_error_from_request(request)
@@ -1037,12 +1084,11 @@ async def admin_force_delete_confirmation(datasette, request):
     except Exception as e:
         logger.error(f"Error showing admin force delete confirmation for {db_name}: {str(e)}")
         return Response.text(f"Error loading force delete confirmation: {str(e)}", status=500)
-
+    
 @hookimpl
 def register_routes():
     """FIXED: Register database deletion routes with proper separation"""
     return [
-        (r"^/trash$", trash_bin_page),  # User trash
         (r"^/system-trash$", system_trash_bin_page),  # System admin trash
         (r"^/admin-force-delete/([^/]+)$", admin_force_delete_confirmation),  # Admin force delete - SEPARATE ROUTE
         (r"^/db/([^/]+)/trash$", trash_database),

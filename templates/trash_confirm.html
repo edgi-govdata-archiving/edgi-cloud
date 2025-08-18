@@ -20,9 +20,15 @@
                 <div class="text-xl font-semibold">Move to Trash</div>
             </div>
             <div>
-                <a href="/manage-databases" class="text-white hover:text-accent">
-                    <i class="ri-arrow-left-line mr-1"></i>Back to Databases
-                </a>
+                {% if actor.role == "system_admin" and is_admin_override %}
+                    <a href="/system-admin" class="text-white hover:text-accent">
+                        <i class="ri-arrow-left-line mr-1"></i>Back to Admin Panel
+                    </a>
+                {% else %}
+                    <a href="/manage-databases" class="text-white hover:text-accent">
+                        <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+                    </a>
+                {% endif %}
             </div>
         </div>
     </header>
@@ -141,14 +147,21 @@
                         <!-- Action Buttons -->
                         <div class="flex flex-col sm:flex-row gap-3">
                             <button type="submit" 
-                                    class="flex-1 bg-yellow-500 text-white py-3 px-4 rounded-button hover:bg-yellow-600 transition font-medium">
+                                    class="flex-1 flex items-center justify-center bg-yellow-500 text-white py-3 px-4 rounded-button hover:bg-yellow-600 transition text-center font-medium">
                                 <i class="ri-delete-bin-line mr-2"></i>Move to Trash ({{ retention_days }}-day recovery)
                             </button>
                             
-                            <a href="/manage-databases" 
-                               class="flex-1 bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium">
-                                <i class="ri-close-line mr-2"></i>Cancel
-                            </a>
+                            {% if actor.role == "system_admin" and is_admin_override %}
+                                <a href="/system-admin" 
+                                class="flex-1 flex items-center justify-center bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium">
+                                    <i class="ri-close-line mr-2"></i>Cancel
+                                </a>
+                            {% else %}
+                                <a href="/manage-databases" 
+                                class="flex-1 flex items-center justify-center bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium">
+                                    <i class="ri-close-line mr-2"></i>Cancel
+                                </a>
+                            {% endif %}
                         </div>
                     </form>
 

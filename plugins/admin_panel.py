@@ -29,6 +29,8 @@ try:
         verify_user_session,
         get_portal_content,
         handle_form_errors,
+        get_database_statistics,
+        get_detailed_database_stats,
         get_success_error_from_request,
         validate_email,
         validate_username,
@@ -75,57 +77,6 @@ async def log_admin_activity(datasette, user_id, action, details, metadata=None)
     except Exception as e:
         logger.error(f"Error logging admin action: {e}")
 
-async def get_detailed_database_stats(datasette, db_name, user_id):
-    """Get detailed statistics for a specific database."""
-    try:
-        # Get database file path
-        file_path = os.path.join(DATA_DIR, user_id, f"{db_name}.db")
-        
-        stats = {
-            'table_count': 0,
-            'total_records': 0,
-            'file_size_kb': 0,
-            'tables': []
-        }
-        
-        if os.path.exists(file_path):
-            try:
-                # Get file size
-                stats['file_size_kb'] = round(os.path.getsize(file_path) / 1024, 2)
-                
-                # Open database and get table information
-                user_db = sqlite_utils.Database(file_path)
-                table_names = user_db.table_names()
-                stats['table_count'] = len(table_names)
-                
-                for table_name in table_names:
-                    try:
-                        table = user_db[table_name]
-                        record_count = table.count
-                        stats['total_records'] += record_count
-                        
-                        stats['tables'].append({
-                            'name': table_name,
-                            'records': record_count
-                        })
-                    except Exception as table_error:
-                        logger.error(f"Error getting stats for table {table_name}: {table_error}")
-                        continue
-                        
-            except Exception as db_error:
-                logger.error(f"Error accessing database file {file_path}: {db_error}")
-        
-        return stats
-        
-    except Exception as e:
-        logger.error(f"Error getting detailed database stats for {db_name}: {e}")
-        return {
-            'table_count': 0,
-            'total_records': 0,
-            'file_size_kb': 0,
-            'tables': []
-        }
-
 async def system_admin_page(datasette, request):
     """System administration page - admin users only."""
     logger.debug(f"System Admin request: method={request.method}")
@@ -148,33 +99,90 @@ async def system_admin_page(datasette, request):
     content = await get_portal_content(datasette)
 
     try:
-        users = await query_db.execute("SELECT user_id, username, email, role, created_at FROM users")
+        # Get users
+        users = await query_db.execute("SELECT user_id, username, email, role, created_at FROM users ORDER BY created_at DESC")
         users_list = [dict(row) for row in users]
         
-        databases = await query_db.execute("SELECT d.db_id, d.db_name, d.website_url, d.status, d.created_at, d.trashed_at, d.restore_deadline, u.username FROM databases d JOIN users u ON d.user_id = u.user_id WHERE d.status != 'Deleted'")
+        # Get current user's trash count for header display
+        user_trash_result = await query_db.execute(
+            "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Trashed'", 
+            [actor.get("id")]
+        )
+        user_trash_count = user_trash_result.first()[0] if user_trash_result.first() else 0
+        
+        # ADD: Get total system trash count for statistics card
+        system_trash_result = await query_db.execute(
+            "SELECT COUNT(*) FROM databases WHERE status = 'Trashed'"
+        )
+        total_trashed = system_trash_result.first()[0] if system_trash_result.first() else 0
+        
+        # Add trash count to actor
+        actor_with_trash = {**actor, 'user_trashed': user_trash_count}
+
+        databases = await query_db.execute("""
+            SELECT d.db_id, d.db_name, d.website_url, d.status, d.created_at, d.updated_at, 
+                   d.trashed_at, d.restore_deadline, d.file_path, d.user_id, u.username
+            FROM databases d 
+            JOIN users u ON d.user_id = u.user_id 
+            WHERE d.status IN ('Draft', 'Published', 'Unpublished')
+            ORDER BY d.updated_at DESC NULLS LAST, d.created_at DESC
+        """)
         databases_list = []
         
         # Process each database to add missing attributes
         for row in databases:
             db_dict = dict(row)
             
-            # Add days_until_delete attribute for all databases
-            days_until_delete = 0
-            if db_dict["status"] == "Trashed" and db_dict.get("restore_deadline"):
-                try:
-                    deadline = datetime.fromisoformat(db_dict["restore_deadline"].replace('Z', '+00:00'))
-                    now = datetime.utcnow()
-                    delta = deadline - now
-                    days_until_delete = max(0, delta.days)
-                except Exception as e:
-                    logger.error(f"Error calculating restore deadline: {e}")
+            # Only showing active databases, these are always 0/False
+            db_dict['days_until_delete'] = 0
+            db_dict['is_expired'] = False
             
-            # Add the calculated attributes
-            db_dict['days_until_delete'] = days_until_delete
-            db_dict['is_expired'] = days_until_delete <= 0 if db_dict["status"] == "Trashed" else False
+            # Add file size and table count safely
+            try:
+                # Build the file path if not available
+                if not db_dict.get('file_path'):
+                    db_dict['file_path'] = os.path.join(DATA_DIR, db_dict['user_id'], f"{db_dict['db_name']}.db")
+                
+                if db_dict['file_path'] and os.path.exists(db_dict['file_path']):
+                    # Get file size
+                    db_dict['file_size'] = os.path.getsize(db_dict['file_path']) / 1024  # KB
+                    
+                    # Get table count and records safely
+                    try:
+                        user_db = sqlite_utils.Database(db_dict['file_path'])
+                        table_names = user_db.table_names()
+                        db_dict['table_count'] = len(table_names)
+                        
+                        # Get total records
+                        total_records = 0
+                        for table_name in table_names:
+                            try:
+                                table_info = user_db[table_name]
+                                total_records += table_info.count
+                            except Exception:
+                                continue
+                        db_dict['total_records'] = total_records
+                        
+                        user_db.close()
+                        logger.debug(f"Stats for {db_dict['db_name']}: {db_dict['table_count']} tables, {total_records} records, {db_dict['file_size']:.1f}KB")
+                    except Exception as db_error:
+                        logger.error(f"Error accessing database {db_dict['db_name']}: {db_error}")
+                        db_dict['table_count'] = 0
+                        db_dict['total_records'] = 0
+                else:
+                    logger.warning(f"Database file not found: {db_dict.get('file_path')} for {db_dict['db_name']}")
+                    db_dict['file_size'] = 0
+                    db_dict['table_count'] = 0
+                    db_dict['total_records'] = 0
+            except Exception as e:
+                logger.error(f"Error getting database stats for {db_dict.get('db_name')}: {e}")
+                db_dict['file_size'] = 0
+                db_dict['table_count'] = 0
+                db_dict['total_records'] = 0
             
             databases_list.append(db_dict)
         
+        # Get recent activity logs
         logs = await query_db.execute("SELECT log_id, user_id, action, details, timestamp FROM activity_logs ORDER BY timestamp DESC LIMIT 100")
         logs_list = [dict(row) for row in logs]
         
@@ -186,10 +194,11 @@ async def system_admin_page(datasette, request):
                 {
                     'content': content,
                     'metadata': datasette.metadata(),
-                    'actor': actor,
+                    'actor': actor_with_trash,
                     'users': [],
                     'databases': [],
                     'activity_logs': [],
+                    'total_trashed': 0,
                     'error': f"Error loading system admin data: {str(e)}"
                 },
                 request=request
@@ -202,10 +211,11 @@ async def system_admin_page(datasette, request):
             {
                 'content': content,
                 'metadata': datasette.metadata(),
-                'actor': actor,
+                'actor': actor_with_trash,
                 'users': users_list,
                 'databases': databases_list,
                 'activity_logs': logs_list,
+                'total_trashed': total_trashed,
                 **get_success_error_from_request(request)
             },
             request=request

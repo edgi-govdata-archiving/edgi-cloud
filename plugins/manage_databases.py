@@ -44,6 +44,7 @@ from common_utils import (
     get_success_error_from_request,
     create_feature_cards_from_databases,
     create_statistics_data,
+    update_database_timestamp_by_id,
     parse_markdown_links,
     apply_inline_formatting,
     sanitize_text,
@@ -59,7 +60,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 async def index_page(datasette, request):
-    """Enhanced index page with improved statistics and user database info."""
+    """Index page with improved statistics and user database info."""
     logger.debug(f"Index request: {request.method}")
 
     # Get base content using common utility
@@ -78,7 +79,7 @@ async def index_page(datasette, request):
         # Redirect authenticated users to appropriate dashboard
         return await redirect_authenticated_user(actor)
 
-    # Get enhanced statistics for public homepage
+    # Get statistics for public homepage
     stats = await get_database_statistics(datasette)
     
     # Format featured databases as cards using common utility
@@ -152,7 +153,7 @@ async def all_databases_page(datasette, request):
         )
 
 async def manage_databases(datasette, request):
-    """Enhanced manage databases with improved filtering and sorting by most recent."""
+    """Manage databases with improved filtering and sorting by most recent."""
     logger.debug(f"Manage Databases request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -165,25 +166,42 @@ async def manage_databases(datasette, request):
     if not is_valid:
         return redirect_response
 
-    # Get enhanced filter parameter
     status_filter = request.args.get('status', 'active')
     
-    # Build query based on enhanced filter options
+    # Filter options - EXCLUDE 'Deleted' status from all queries
     query_db = datasette.get_database('portal')
     
     if status_filter == 'active':
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished') ORDER BY updated_at DESC"
+        query = """SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at, updated_at 
+                FROM databases 
+                WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished') 
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC"""
     elif status_filter == 'draft':
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Draft' ORDER BY updated_at DESC"
+        query = """SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at, updated_at 
+                FROM databases 
+                WHERE user_id = ? AND status = 'Draft' 
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC"""
     elif status_filter == 'published':
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Published' ORDER BY updated_at DESC"
+        query = """SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at, updated_at 
+                FROM databases 
+                WHERE user_id = ? AND status = 'Published' 
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC"""
     elif status_filter == 'unpublished':
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Unpublished' ORDER BY updated_at DESC"
+        query = """SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at, updated_at 
+                FROM databases 
+                WHERE user_id = ? AND status = 'Unpublished' 
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC"""
     elif status_filter == 'trash':
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status = 'Trashed' ORDER BY updated_at DESC"
-    else:  # 'all'
-        query = "SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed') ORDER BY updated_at DESC"
-    
+        query = """SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at, updated_at 
+                FROM databases 
+                WHERE user_id = ? AND status = 'Trashed' 
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC"""
+    else:  # 'all' - EXCLUDE 'Deleted' status
+        query = """SELECT db_id, db_name, status, website_url, file_path, trashed_at, restore_deadline, created_at, updated_at 
+                FROM databases 
+                WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed') 
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC"""
+
     result = await query_db.execute(query, [actor.get("id")])
     user_databases = [dict(row) for row in result]
     
@@ -210,7 +228,7 @@ async def manage_databases(datasette, request):
     # Get content using common utility
     content = await get_portal_content(datasette)
 
-    # Enhanced database processing with better error handling
+    # Database processing
     databases_with_tables = []
     for db_info in user_databases:
         db_name = db_info["db_name"]
@@ -218,6 +236,7 @@ async def manage_databases(datasette, request):
         total_size = 0
         tables = []
         table_count = 0
+        file_size_kb = 0 
 
         # Check if database has custom homepage
         homepage_result = await query_db.execute(
@@ -227,8 +246,22 @@ async def manage_databases(datasette, request):
         has_custom_homepage = homepage_result.first()[0] > 0
         
         try:
-            db_path = db_info["file_path"]
+            # Build file path if not available
+            db_path = db_info.get("file_path")
+            if not db_path:
+                db_path = os.path.join(DATA_DIR, actor.get("id"), f"{db_name}.db")
+                db_info["file_path"] = db_path
+            
             if db_path and os.path.exists(db_path):
+                # Get actual file size first
+                try:
+                    file_size_kb = os.path.getsize(db_path) / 1024  # Convert to KB
+                    logger.debug(f"File size for {db_name}: {file_size_kb:.1f} KB")
+                except Exception as size_error:
+                    logger.error(f"Error getting file size for {db_name}: {size_error}")
+                    file_size_kb = 0
+                
+                # Get database contents
                 user_db = sqlite_utils.Database(db_path)
                 table_names = user_db.table_names()
                 table_count = len(table_names)
@@ -237,7 +270,7 @@ async def manage_databases(datasette, request):
                     try:
                         table_info = user_db[name]
                         record_count = table_info.count
-                        table_size = record_count * 0.001  # Estimate size
+                        table_size = record_count * 0.001  # Estimate size for display
                         total_size += table_size
                         
                         tables.append({
@@ -265,21 +298,24 @@ async def manage_databases(datasette, request):
                 user_db.close()  # Explicitly close the database
                 
             else:
-                logger.error(f"Database file not found for {db_name}: {db_path}")
+                logger.warning(f"Database file not found for {db_name}: {db_path}")
+                file_size_kb = 0
         except Exception as e:
             logger.error(f"Error loading database {db_name}: {str(e)}")
+            file_size_kb = 0
             
         databases_with_tables.append({
             **db_info,
             'tables': tables,
             'table_count': table_count,
-            'total_size': total_size,
+            'total_size': file_size_kb,  # Use actual file size instead of estimated
+            'file_size_kb': file_size_kb,  # Add explicit file size field
             'website_url': f"/db/{db_name}/homepage",
             'upload_url': f"/upload-secure/{db_name}",
             'has_custom_homepage': has_custom_homepage
         })
 
-    # Get user statistics
+    # Get user statistics - EXCLUDE 'Deleted' databases
     stats = await get_database_statistics(datasette, actor.get("id"))
 
     return Response.html(
@@ -374,10 +410,11 @@ async def create_database(datasette, request):
             # Create new SQLite database
             user_db = sqlite_utils.Database(db_path)
 
-            # Insert database record
+            # Insert database record with proper timestamps
+            current_time = datetime.utcnow().isoformat()
             await query_db.execute_write(
-                "INSERT INTO databases (db_id, user_id, db_name, website_url, status, created_at, file_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [db_id, user_id, db_name, website_url, "Draft", datetime.utcnow(), db_path]
+                "INSERT INTO databases (db_id, user_id, db_name, website_url, status, created_at, updated_at, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [db_id, user_id, db_name, website_url, "Draft", current_time, current_time, db_path]
             )
             
             # AUTO-CREATE CUSTOM HOMEPAGE
@@ -409,7 +446,7 @@ async def create_database(datasette, request):
             for section, content_data in custom_content:
                 await query_db.execute_write(
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                    [db_id, section, json.dumps(content_data), datetime.utcnow().isoformat(), actor['username']]
+                    [db_id, section, json.dumps(content_data), current_time, actor['username']]
                 )
             
             # Register database with Datasette immediately (even for drafts)
@@ -476,13 +513,17 @@ async def publish_database(datasette, request):
     
     query_db = datasette.get_database('portal')
     try:
+        # EXCLUDE 'Deleted' status from query
         result = await query_db.execute(
-            "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
+            "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ? AND status != 'Deleted'",
             [db_name, actor.get("id")]
         )
         db_info = result.first()
         if not db_info:
             return Response.text("Database not found or you do not have permission", status=404)
+        
+        # Convert to dict
+        db_info = dict(db_info)
         
         if db_info['status'] == 'Published':
             return Response.redirect(f"/manage-databases?error=Database '{db_name}' is already published")
@@ -490,16 +531,22 @@ async def publish_database(datasette, request):
         if db_info['status'] == 'Trashed':
             return Response.redirect(f"/manage-databases?error=Database '{db_name}' is in trash. Restore it first.")
         
-        # Update status to Published
+        # Update status to Published with updated_at timestamp
+        current_time = datetime.utcnow().isoformat()
         await query_db.execute_write(
-            "UPDATE databases SET status = 'Published' WHERE db_name = ?",
-            [db_name]
+            "UPDATE databases SET status = 'Published', updated_at = ? WHERE db_name = ? AND status != 'Deleted'",
+            [current_time, db_name]
         )
         
+        # Build file path if not available
+        file_path = db_info.get('file_path')
+        if not file_path:
+            file_path = os.path.join(DATA_DIR, actor.get("id"), f"{db_name}.db")
+        
         # Register database with Datasette
-        if db_info['file_path'] and os.path.exists(db_info['file_path']):
+        if file_path and os.path.exists(file_path):
             try:
-                user_db = Database(datasette, path=db_info['file_path'], is_mutable=True)
+                user_db = Database(datasette, path=file_path, is_mutable=True)
                 datasette.add_database(user_db, name=db_name)
                 logger.debug(f"Successfully registered published database: {db_name}")
             except Exception as reg_error:
@@ -520,7 +567,7 @@ async def publish_database(datasette, request):
     except Exception as e:
         logger.error(f"Error publishing database {db_name}: {str(e)}")
         return Response.text(f"Error publishing database: {str(e)}", status=500)
-
+    
 async def unpublish_database(datasette, request):
     """Unpublish database (make it private)."""
     logger.debug(f"Unpublish Database request: method={request.method}, path={request.path}")
@@ -538,21 +585,26 @@ async def unpublish_database(datasette, request):
     
     query_db = datasette.get_database('portal')
     try:
+        # EXCLUDE 'Deleted' status from query
         result = await query_db.execute(
-            "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ?",
+            "SELECT db_id, user_id, file_path, status FROM databases WHERE db_name = ? AND user_id = ? AND status != 'Deleted'",
             [db_name, actor.get("id")]
         )
         db_info = result.first()
         if not db_info:
             return Response.text("Database not found or you do not have permission", status=404)
         
+        # Convert to dict
+        db_info = dict(db_info)
+        
         if db_info['status'] != 'Published':
             return Response.redirect(f"/manage-databases?error=Database '{db_name}' is not published")
         
-        # Update status to Unpublished
+        # Update status to Unpublished with updated_at timestamp
+        current_time = datetime.utcnow().isoformat()
         await query_db.execute_write(
-            "UPDATE databases SET status = 'Unpublished' WHERE db_name = ?",
-            [db_name]
+            "UPDATE databases SET status = 'Unpublished', updated_at = ? WHERE db_name = ? AND status != 'Deleted'",
+            [current_time, db_name]
         )
         
         await log_database_action(
@@ -615,13 +667,21 @@ async def delete_table(datasette, request):
             # Delete the table
             await target_db.execute_write(f"DROP TABLE [{table_name}]")
             logger.debug(f"Successfully deleted table {table_name} from {db_name}")
-            
+
+            # Update database timestamp
+            portal_db = datasette.get_database("portal")
+            current_time = datetime.utcnow().isoformat()
+            await portal_db.execute_write(
+                "UPDATE databases SET updated_at = ? WHERE db_name = ?",
+                [current_time, db_name]
+            )
+
             await log_database_action(
                 datasette, actor.get("id"), "delete_table", 
                 f"Deleted table {table_name} from {db_name}",
                 {"db_name": db_name, "table_name": table_name}
             )
-            
+
             return Response.redirect(
                 f"/manage-databases?success=Table '{table_name}' deleted successfully from '{db_name}'"
             )
@@ -722,7 +782,7 @@ async def delete_table_ajax(datasette, request):
         return Response.json({"error": f"Failed to delete table: {str(e)}"}, status=500)
 
 async def database_homepage(datasette, request):
-    """Enhanced database homepage with preview functionality for owners."""
+    """Database homepage with preview functionality for owners."""
     logger.debug(f"Database homepage request: method={request.method}, path={request.path}")
 
     # Handle both /db/{db_name}/homepage and /{db_name}/ patterns
@@ -737,11 +797,11 @@ async def database_homepage(datasette, request):
     if not db_name:
         return Response.text("Not found", status=404)
     
-    # Check if database exists and user has permission
+    # Check if database exists and user has permission - EXCLUDE 'Deleted' status
     query_db = datasette.get_database('portal')
     try:
         result = await query_db.execute(
-            "SELECT db_id, db_name, status, user_id, file_path FROM databases WHERE db_name = ?",
+            "SELECT db_id, db_name, status, user_id, file_path FROM databases WHERE db_name = ? AND status != 'Deleted'",
             [db_name]
         )
         db_info = result.first()
@@ -751,18 +811,8 @@ async def database_homepage(datasette, request):
         actor = get_actor_from_request(request)
         
         # Access control logic
-        """if is_preview:
-            # Preview mode: only owners can access
-            if not actor or actor['id'] != db_info['user_id']:
-                return Response.text("Access denied: Only database owners can preview", status=403)
-        else:
-            # Public mode: Published databases are public, drafts only for owners
-            if db_info['status'] != 'Published' and (not actor or actor['id'] != db_info['user_id']):
-                return Response.text("Database not found or not published", status=404)
-        """
-        if db_info['status'] == 'Trashed' or db_info['status'] == 'Deleted':
-                return Response.text("Database not found or not published", status=404)
-
+        if db_info['status'] == 'Trashed':
+            return Response.text("Database not found or not published", status=404)
 
         # Check if database is registered correctly
         try:
@@ -770,8 +820,12 @@ async def database_homepage(datasette, request):
             user_db = datasette.get_database(db_name)
             if not user_db:
                 # Database not registered, try to register it
-                if db_info['file_path'] and os.path.exists(db_info['file_path']):
-                    new_db = Database(datasette, path=db_info['file_path'], is_mutable=True)
+                file_path = db_info.get('file_path')
+                if not file_path:
+                    file_path = os.path.join(DATA_DIR, db_info['user_id'], f"{db_name}.db")
+                
+                if file_path and os.path.exists(file_path):
+                    new_db = Database(datasette, path=file_path, is_mutable=True)
                     datasette.add_database(new_db, name=db_name)
                     user_db = datasette.get_database(db_name)
                     logger.debug(f"Successfully registered database: {db_name}")
@@ -785,6 +839,7 @@ async def database_homepage(datasette, request):
         logger.error(f"Error checking database {db_name}: {e}")
         return Response.text("Database error", status=500)
     
+    # Rest of the function remains the same...
     try:
         content = await get_database_content(datasette, db_name)
         if not content:
@@ -895,7 +950,7 @@ async def database_homepage(datasette, request):
         
     except Exception as e:
         logger.error(f"Error rendering database homepage for {db_name}: {e}")
-        return
+        return Response.text("Error loading homepage", status=500)
     
 async def edit_content(datasette, request):
     """Edit database content and homepage."""
@@ -1020,13 +1075,16 @@ async def edit_content(datasette, request):
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
                     [db_id, 'header_image', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
+
+                # UPDATE DATABASE TIMESTAMP
+                await update_database_timestamp_by_id(datasette, db_id)                               
                 
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated header image for {db_name}",
                     {"db_name": db_name, "section": "header_image"}
                 )
-                
+                                
                 return Response.redirect(f"{request.path}?success=Header image updated")
                 
             except Exception as e:
@@ -1045,6 +1103,9 @@ async def edit_content(datasette, request):
                     [db_id, 'title', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
                 
+                # UPDATE DATABASE TIMESTAMP
+                await update_database_timestamp_by_id(datasette, db_id)
+
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated title for {db_name}",
@@ -1063,6 +1124,9 @@ async def edit_content(datasette, request):
                     [db_id, 'description', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
                 
+                # UPDATE DATABASE TIMESTAMP
+                await update_database_timestamp_by_id(datasette, db_id)
+
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated description for {db_name}",
@@ -1083,6 +1147,9 @@ async def edit_content(datasette, request):
                     [db_id, 'footer', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
                 
+                # UPDATE DATABASE TIMESTAMP
+                await update_database_timestamp_by_id(datasette, db_id)
+
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated footer for {db_name}",
@@ -1346,7 +1413,7 @@ def permission_allowed(datasette, actor, action, resource):
 
 @hookimpl
 def startup(datasette):
-    """Enhanced startup hook with proper database registration"""
+    """Startup hook with proper database registration"""
     
     async def inner():
         try:
