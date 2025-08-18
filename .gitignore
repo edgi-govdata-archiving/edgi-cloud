@@ -19,12 +19,5 @@ hello.py
 pyproject.toml
 uv.lock
 
-# Database files
-data/*.db
-data/*/*.db
-
-# Image files
-data/*/default_header.jpg
-
 # Logs
 *.log
