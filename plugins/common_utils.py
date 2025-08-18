@@ -124,6 +124,21 @@ async def log_database_action(datasette, user_id, action, details, metadata=None
     except Exception as e:
         logger.error(f"Error logging database action: {e}")
 
+async def log_database_action_with_timestamp(datasette, user_id, action, details, metadata=None, db_name=None):
+    """Enhanced logging that also updates database timestamp if db_name provided"""
+    try:
+        # First update the database timestamp if db_name is provided
+        if db_name:
+            await update_database_timestamp(datasette, db_name)
+        
+        # Then log the action
+        await log_database_action(datasette, user_id, action, details, metadata)
+        
+    except Exception as e:
+        logger.error(f"Error in enhanced database logging: {e}")
+        # Fallback to regular logging
+        await log_database_action(datasette, user_id, action, details, metadata)
+
 async def verify_user_session(datasette, actor):
     """
     Verify user session and return user info.
@@ -394,6 +409,57 @@ async def get_database_statistics(datasette, user_id=None):
             'user_trashed': 0
         }
 
+async def get_detailed_database_stats(datasette, db_name, user_id):
+    """Get detailed statistics for a specific database."""
+    try:
+        # Get database file path
+        file_path = os.path.join(DATA_DIR, user_id, f"{db_name}.db")
+        
+        stats = {
+            'table_count': 0,
+            'total_records': 0,
+            'file_size_kb': 0,
+            'tables': []
+        }
+        
+        if os.path.exists(file_path):
+            try:
+                # Get file size
+                stats['file_size_kb'] = round(os.path.getsize(file_path) / 1024, 2)
+                
+                # Open database and get table information
+                user_db = sqlite_utils.Database(file_path)
+                table_names = user_db.table_names()
+                stats['table_count'] = len(table_names)
+                
+                for table_name in table_names:
+                    try:
+                        table = user_db[table_name]
+                        record_count = table.count
+                        stats['total_records'] += record_count
+                        
+                        stats['tables'].append({
+                            'name': table_name,
+                            'records': record_count
+                        })
+                    except Exception as table_error:
+                        logger.error(f"Error getting stats for table {table_name}: {table_error}")
+                        continue
+                        
+            except Exception as db_error:
+                logger.error(f"Error accessing database file {file_path}: {db_error}")
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Error getting detailed database stats for {db_name}: {e}")
+        return {
+            'table_count': 0,
+            'total_records': 0,
+            'file_size_kb': 0,
+            'tables': []
+        }
+
 async def get_all_published_databases(datasette):
     """Get all published databases with metadata for public listing - excludes deleted databases."""
     try:
@@ -401,7 +467,7 @@ async def get_all_published_databases(datasette):
         
         # Get all published databases with user info - EXCLUDE 'Deleted' status
         all_dbs_result = await db.execute(
-            """SELECT d.db_id, d.db_name, d.website_url, d.created_at, u.username
+            """SELECT d.db_id, d.db_name, d.website_url, d.created_at, u.username, d.user_id, d.file_path
                FROM databases d 
                JOIN users u ON d.user_id = u.user_id 
                WHERE d.status = 'Published'
@@ -421,19 +487,26 @@ async def get_all_published_databases(datasette):
             table_count = 0
             total_records = 0
             try:
-                user_db = datasette.get_database(row['db_name'])
-                if user_db:
-                    table_names_result = await user_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                    table_names = [t['name'] for t in table_names_result.rows]
+                # Build file path if not available
+                file_path = row.get('file_path')
+                if not file_path:
+                    file_path = os.path.join(DATA_DIR, row['user_id'], f"{row['db_name']}.db")
+                
+                if file_path and os.path.exists(file_path):
+                    user_db = sqlite_utils.Database(file_path)
+                    table_names = user_db.table_names()
                     table_count = len(table_names)
                     
                     for table_name in table_names:
                         try:
-                            count_result = await user_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
-                            record_count = count_result.first()['count'] if count_result.first() else 0
-                            total_records += record_count
+                            table_info = user_db[table_name]
+                            total_records += table_info.count
                         except Exception:
                             continue
+                    
+                    user_db.close()
+                else:
+                    logger.warning(f"Database file not found for {row['db_name']}: {file_path}")
             except Exception as e:
                 logger.error(f"Error getting stats for database {row['db_name']}: {e}")
 
@@ -543,22 +616,22 @@ def apply_inline_formatting(text):
     return text
 
 async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
-    """Check if database name is globally unique, including trashed databases."""
+    """Check if database name is globally unique, excluding deleted databases."""
     db = datasette.get_database("portal")
     if exclude_db_id:
         result = await db.execute(
-            "SELECT COUNT(*) FROM databases WHERE db_name = ? AND db_id != ? AND status != 'Deleted'", 
+            "SELECT COUNT(*) FROM databases WHERE db_name = ? AND db_id != ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')", 
             [db_name, exclude_db_id]
         )
     else:
         result = await db.execute(
-            "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status != 'Deleted'", 
+            "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')", 
             [db_name]
         )
     return result.first()[0] == 0
 
 async def check_database_name_available(datasette, db_name):
-    """Check if database name is available for new creation (not reserved by trash)."""
+    """Check if database name is available for new creation (not reserved by active/trash databases)."""
     db = datasette.get_database("portal")
     result = await db.execute(
         "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')", 
@@ -638,6 +711,32 @@ def validate_password(password):
     
     return True, None
 
+async def update_database_timestamp(datasette, db_name):
+    """Update the updated_at timestamp for a database - add to common_utils.py"""
+    try:
+        query_db = datasette.get_database('portal')
+        current_time = datetime.utcnow().isoformat()
+        await query_db.execute_write(
+            "UPDATE databases SET updated_at = ? WHERE db_name = ?",
+            [current_time, db_name]
+        )
+        logger.debug(f"Updated timestamp for database {db_name}: {current_time}")
+    except Exception as e:
+        logger.error(f"Error updating timestamp for database {db_name}: {e}")
+
+async def update_database_timestamp_by_id(datasette, db_id):
+    """Update database timestamp by db_id"""
+    try:
+        query_db = datasette.get_database('portal')
+        current_time = datetime.utcnow().isoformat()
+        await query_db.execute_write(
+            "UPDATE databases SET updated_at = ? WHERE db_id = ?",
+            [current_time, db_id]
+        )
+        logger.debug(f"Updated timestamp for database id {db_id}: {current_time}")
+    except Exception as e:
+        logger.error(f"Error updating timestamp for database id {db_id}: {e}")
+
 async def handle_form_errors(datasette, template_name, template_data, request, error_message):
     """
     Standard error handling for forms.
@@ -679,7 +778,6 @@ def ensure_data_directories():
     os.makedirs(STATIC_DIR, exist_ok=True)
     logger.debug(f"Ensured data directories exist: {DATA_DIR}, {STATIC_DIR}")
 
-# Template data helpers
 def get_success_error_from_request(request):
     """Extract success and error messages from request args."""
     return {

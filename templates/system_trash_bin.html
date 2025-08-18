@@ -24,7 +24,7 @@
                     <a href="/system-admin" class="text-white hover:text-accent mr-4">
                         <i class="ri-arrow-left-line mr-1"></i>Back to Admin Panel
                     </a>
-                    <a href="/trash" class="text-white hover:text-accent mr-4">My Trash</a>
+                    <a href="/manage-databases?status=trash" class="text-white hover:text-accent mr-4">My Trash</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
             {% endif %}
@@ -114,6 +114,9 @@
                                             </span>
                                             <span>
                                                 <i class="ri-mail-line mr-1"></i>{{ db.email }}
+                                            </span>
+                                            <span>
+                                                <i class="ri-table-line mr-1"></i>{{ db.table_count }} tables
                                             </span>
                                             <span>
                                                 <i class="ri-database-line mr-1"></i>{{ "%.1f"|format(db.database_size) }}KB
@@ -253,11 +256,6 @@
                             <i class="ri-arrow-left-line mr-2"></i>Back to Admin Panel
                         </a>
                     </div>
-                {% endif %}
-
-                <!-- Admin Bulk Actions -->
-                {% if trashed_databases %}
-
                 {% endif %}
 
                 <!-- Help Section -->

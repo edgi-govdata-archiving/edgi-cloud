@@ -21,9 +21,15 @@
                 <div class="text-xl font-semibold">Permanently Delete Database</div>
             </div>
             <div>
-                <a href="/trash" class="text-white hover:text-accent">
-                    <i class="ri-arrow-left-line mr-1"></i>Back to Trash
-                </a>
+                {% if actor.role == "system_admin" %}
+                    <a href="/system-trash" class="text-white hover:text-accent">
+                        <i class="ri-arrow-left-line mr-1"></i>Back to System Trash
+                    </a>
+                {% else %}
+                    <a href="/manage-databases?status=trash" class="text-white hover:text-accent">
+                        <i class="ri-arrow-left-line mr-1"></i>Back to My Trash
+                    </a>
+                {% endif %}
             </div>
         </div>
     </header>
@@ -129,10 +135,17 @@
                         </form>
                         
                         <div class="flex-1">
-                            <a href="/trash" 
-                               class="w-full bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium block">
-                                <i class="ri-close-line mr-2"></i>Cancel Deletion
-                            </a>
+                            {% if actor.role == "system_admin" %}
+                                <a href="/system-trash" 
+                                class="w-full bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium block">
+                                    <i class="ri-close-line mr-2"></i>Cancel Deletion
+                                </a>
+                            {% else %}
+                                <a href="/manage-databases?status=trash" 
+                                class="w-full bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium block">
+                                    <i class="ri-close-line mr-2"></i>Cancel Deletion
+                                </a>
+                            {% endif %}
                         </div>
                     </div>
 

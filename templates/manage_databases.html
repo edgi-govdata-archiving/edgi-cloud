@@ -28,9 +28,6 @@
                     {% if actor.role == "system_admin" %}
                         <a href="/system-admin" class="text-white hover:text-accent mr-4">Admin Panel</a>
                     {% endif %}
-                    <a href="/manage-databases?status=trash" class="text-white hover:text-accent mr-4">
-                        <i class="ri-delete-bin-line mr-1"></i>Trash ({{ stats.user_trashed | default(0) }})
-                    </a>
                     <a href="/profile" class="text-white hover:text-accent mr-4">Profile ({{ actor.username }})</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
@@ -39,65 +36,85 @@
     </header>
     
     <main class="flex-grow pt-20 pb-6">
-        <section class="container mx-auto px-4 mt-6">
-            <!-- Header with Filter -->
-            <div class="flex justify-between items-center mb-6 w-[80%] mx-auto mt-1">
-                <div>
-                    <h1 class="text-3xl font-bold text-primary">My Databases</h1>
-                    <p class="text-textlight mt-2">Manage your environmental data portals</p>
-                </div>
-                <div class="flex gap-3">
-                    <!-- Enhanced Status Filter -->
-                    <select id="status-filter" onchange="filterDatabases()" class="px-4 py-2 border border-gray-300 rounded-button text-sm">
-                        <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active Databases</option>
-                        <option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Draft Only</option>
-                        <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Published Only</option>
-                        <option value="unpublished" {% if status_filter == 'unpublished' %}selected{% endif %}>Unpublished Only</option>
-                        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Databases</option>
-                        <option value="trash" {% if status_filter == 'trash' %}selected{% endif %}>Trash Bin</option>
-                    </select>
-                    <a href="/create-database" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
-                        <i class="ri-add-line mr-2"></i>Create New Database
-                    </a>
-                </div>
+    <section class="container mx-auto px-4 mt-6">
+        <!-- Header with Filter -->
+        <div class="flex justify-between items-center mb-6 w-[90%] mx-auto mt-1">
+            <div>
+                <h1 class="text-3xl font-bold text-primary">My Databases</h1>
+                <p class="text-textlight mt-2">Manage your environmental data portals</p>
             </div>
+            <div class="flex gap-3">
+                <!-- Enhanced Status Filter -->
+                <select id="status-filter" onchange="filterDatabases()" class="px-4 py-2 border border-gray-300 rounded-button text-sm">
+                    <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Databases</option>
+                    <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active Databases</option>
+                    <option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Draft Only</option>
+                    <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Published Only</option>
+                    <option value="unpublished" {% if status_filter == 'unpublished' %}selected{% endif %}>Unpublished Only</option>
+                    <option value="trash" {% if status_filter == 'trash' %}selected{% endif %}>Trash Bin</option>
+                </select>
+                <a href="/create-database" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                    <i class="ri-add-line mr-2"></i>Create New Database
+                </a>
+            </div>
+        </div>
 
-            <!-- Success/Error Messages -->
-            {% if success %}
-                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6 w-[80%] mx-auto">
-                    <p class="text-sm">{{ success }}</p>
-                </div>
-            {% endif %}
-            {% if error %}
-                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 w-[80%] mx-auto">
-                    <p class="text-sm">{{ error }}</p>
-                </div>
-            {% endif %}
+        <!-- Success/Error Messages -->
+        {% if success %}
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6 w-[90%] mx-auto">
+                <p class="text-sm">{{ success }}</p>
+            </div>
+        {% endif %}
+        {% if error %}
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 w-[90%] mx-auto">
+                <p class="text-sm">{{ error }}</p>
+            </div>
+        {% endif %}
 
-            <!-- Enhanced Statistics -->
-            <div class="w-[80%] mx-auto mt-1">
-                <div class="mt-8 grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div class="bg-card rounded-card p-4 border border-border text-center">
-                        <div class="text-2xl font-bold text-accent">{{ stats.user_databases | default(0) }}</div>
-                        <div class="text-textlight text-sm">Active Databases</div>
+        <!-- Statistics Cards - 90% width -->
+        <div class="w-[90%] mx-auto mt-1">
+            <!-- NEW CONSISTENT STATISTICS CARDS -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <a href="/manage-databases?status=all" class="block bg-blue-500 rounded-card p-6 text-white hover:bg-blue-600 transition-all duration-200 transform hover:scale-105">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ (stats.user_databases | default(0)) + (stats.user_trashed | default(0)) }}</h3>
+                            <p class="text-blue-100">All Databases</p>
+                        </div>
+                        <i class="ri-database-2-line text-4xl text-blue-200"></i>
                     </div>
-                    <div class="bg-card rounded-card p-4 border border-border text-center">
-                        <div class="text-2xl font-bold text-green-500">{{ stats.user_published | default(0) }}</div>
-                        <div class="text-textlight text-sm">Published</div>
+                </a>
+                
+                <a href="/manage-databases?status=active" class="block bg-green-500 rounded-card p-6 text-white hover:bg-green-600 transition-all duration-200 transform hover:scale-105">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ stats.user_databases | default(0) }}</h3>
+                            <p class="text-green-100">Active Databases</p>
+                        </div>
+                        <i class="ri-database-line text-4xl text-green-200"></i>
                     </div>
-                    <div class="bg-card rounded-card p-4 border border-border text-center">
-                        <div class="text-2xl font-bold text-orange-500">{{ stats.user_trashed | default(0) }}</div>
-                        <div class="text-textlight text-sm">In Trash</div>
+                </a>
+                
+                <a href="/manage-databases?status=published" class="block bg-purple-500 rounded-card p-6 text-white hover:bg-purple-600 transition-all duration-200 transform hover:scale-105">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ stats.user_published | default(0) }}</h3>
+                            <p class="text-purple-100">Published Databases</p>
+                        </div>
+                        <i class="ri-global-line text-4xl text-purple-200"></i>
                     </div>
-                    <div class="bg-card rounded-card p-4 border border-border text-center">
-                        <a href="/manage-databases?status=trash" class="block hover:bg-gray-50 transition rounded p-2">
-                            <div class="text-2xl font-bold text-red-500">
-                                <i class="ri-delete-bin-line"></i>
-                            </div>
-                            <div class="text-textlight text-sm">View Trash Bin</div>
-                        </a>
+                </a>
+                
+                <a href="/manage-databases?status=trash" class="block bg-red-500 rounded-card p-6 text-white hover:bg-red-600 transition-all duration-200 transform hover:scale-105">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-3xl font-bold">{{ stats.user_trashed | default(0) }}</h3>
+                            <p class="text-red-100">Databases in Trash Bin</p>
+                        </div>
+                        <i class="ri-delete-bin-line text-4xl text-red-200"></i>
                     </div>
-                </div>
+                </a>
+            </div>
 
                 <!-- Databases Grid -->
                 {% if user_databases %}
@@ -170,6 +187,11 @@
                                                onclick="return confirm('This will permanently delete the database. Continue to confirmation page?')">
                                                 <i class="ri-delete-bin-line mr-1"></i>Delete Permanently
                                             </a>
+                                            <!-- View Details Button for Trashed Databases -->
+                                            <button onclick="toggleDatabaseDetails('{{ db.db_id }}')" 
+                                                    class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                <i class="ri-eye-line mr-1"></i>View Details
+                                            </button>
                                         {% else %}
                                             <!-- REORDERED BUTTONS: Upload / Preview Homepage / View Homepage / Edit Homepage / Publish [Unpublish] / Move to Trash -->
                                             
@@ -212,7 +234,7 @@
                                             {% if db.status == 'Published' %}
                                                 <form method="post" action="/db/{{ db.db_name }}/unpublish" class="inline">
                                                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                                                    <button type="submit" class="bg-orange-500 text-white px-3 py-2 rounded-button hover:bg-orange-600 transition text-sm font-medium"
+                                                    <button type="submit" class="bg-indigo-500 text-white px-3 py-2 rounded-button hover:bg-indigo-600 transition text-sm font-medium"
                                                             onclick="return confirm('This will make your database private. Continue?')">
                                                         <i class="ri-eye-off-line mr-1"></i>Unpublish
                                                     </button>
@@ -228,58 +250,93 @@
                                     </div>
                                 </div>
 
-                                <!-- Data Tables Section -->
-                                {% if db.status != 'Trashed' %}
-                                <div class="p-4">
-                                    <div class="flex justify-between items-center mb-4">
-                                        <h4 class="font-semibold text-text">
-                                            <i class="ri-table-line mr-2"></i>Data Tables
-                                        </h4>
-                                        <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                            <i class="ri-upload-line"></i> Upload CSV
-                                        </a>
-                                    </div>
-
-                                    {% if db.tables %}
-                                        <div class="space-y-3 max-h-64 overflow-y-auto">
-                                            {% for table in db.tables %}
-                                                <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
-                                                    <div class="flex-1">
-                                                        <div class="font-medium text-text">{{ table.name.replace('_', ' ').title() }}</div>
-                                                        <div class="text-sm text-textlight">
-                                                            {{ table.record_count | default(0) }} records • 
-                                                            {{ table.columns | default(0) }} columns • 
-                                                            {{ "%.2f"|format(table.size | default(0)) }}KB
-                                                        </div>
-                                                    </div>
-                                                    <div class="flex gap-2">
-                                                        <a href="/{{ db.db_name }}/{{ table.name }}" target="_blank" 
-                                                        class="text-accent hover:text-primary text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
-                                                            <i class="ri-eye-line mr-1"></i>View
-                                                        </a>
-                                                        <a href="/{{ db.db_name }}/{{ table.name }}.csv" target="_blank" 
-                                                        class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
-                                                            <i class="ri-download-line mr-1"></i>CSV
-                                                        </a>
-                                                        <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
-                                                        class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
-                                                        onclick="return confirm('This will take you to a confirmation page. Continue?')">
-                                                            <i class="ri-delete-bin-line mr-1"></i>Delete
-                                                        </a>
+                                {% if db.status == 'Trashed' %}
+                                    <!-- Expandable Details Section for Trashed Databases -->
+                                    <div id="details-{{ db.db_id }}" class="hidden p-4 border-t border-red-200">
+                                        <div class="bg-white rounded border border-gray-200 p-4">
+                                            <h4 class="font-semibold text-gray-800 mb-3">Database Details</h4>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                <div>
+                                                    <div class="space-y-2">
+                                                        <div><strong>Database ID:</strong> {{ db.db_id[:8] }}...</div>
+                                                        <div><strong>Name:</strong> {{ db.db_name }}</div>
+                                                        <div><strong>Status:</strong> {{ db.status }}</div>
+                                                        <div><strong>Created:</strong> {{ db.created_at[:19] if db.created_at else 'N/A' }}</div>
                                                     </div>
                                                 </div>
-                                            {% endfor %}
+                                                <div>
+                                                    <div class="space-y-2">
+                                                        <div><strong>Size:</strong> {{ "%.1f"|format(db.total_size) }}KB</div>
+                                                        <div><strong>Tables:</strong> {{ db.table_count }} data tables</div>
+                                                        <div><strong>Trashed:</strong> {{ db.trashed_at_formatted if db.trashed_at_formatted else 'N/A' }}</div>
+                                                        <div><strong>Days Until Auto-Delete:</strong> 
+                                                            {% if db.days_until_delete is not none %}
+                                                                {% if db.days_until_delete > 0 %}
+                                                                    {{ db.days_until_delete }} days
+                                                                {% else %}
+                                                                    <span class="text-red-600 font-bold">Expired</span>
+                                                                {% endif %}
+                                                            {% else %}
+                                                                N/A
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    {% else %}
-                                        <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded">
-                                            <i class="ri-table-line text-3xl text-textlight mb-2"></i>
-                                            <p class="text-textlight text-sm mb-3">No data tables yet</p>
+                                    </div>
+                                {% else %}
+                                    <!-- Data Tables Section for Active Databases -->
+                                    <div class="p-4">
+                                        <div class="flex justify-between items-center mb-4">
+                                            <h4 class="font-semibold text-text">
+                                                <i class="ri-table-line mr-2"></i>Data Tables
+                                            </h4>
                                             <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
                                                 <i class="ri-upload-line"></i> Upload CSV
                                             </a>
                                         </div>
-                                    {% endif %}
-                                </div>
+
+                                        {% if db.tables %}
+                                            <div class="space-y-3 max-h-64 overflow-y-auto">
+                                                {% for table in db.tables %}
+                                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
+                                                        <div class="flex-1">
+                                                            <div class="font-medium text-text">{{ table.name.replace('_', ' ').title() }}</div>
+                                                            <div class="text-sm text-textlight">
+                                                                {{ table.record_count | default(0) }} records • 
+                                                                {{ table.columns | default(0) }} columns • 
+                                                                {{ "%.2f"|format(table.size | default(0)) }}KB
+                                                            </div>
+                                                        </div>
+                                                        <div class="flex gap-2">
+                                                            <a href="/{{ db.db_name }}/{{ table.name }}" target="_blank" 
+                                                            class="text-accent hover:text-primary text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
+                                                                <i class="ri-eye-line mr-1"></i>View
+                                                            </a>
+                                                            <a href="/{{ db.db_name }}/{{ table.name }}.csv" target="_blank" 
+                                                            class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
+                                                                <i class="ri-download-line mr-1"></i>CSV
+                                                            </a>
+                                                            <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
+                                                            class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
+                                                            onclick="return confirm('This will take you to a confirmation page. Continue?')">
+                                                                <i class="ri-delete-bin-line mr-1"></i>Delete
+                                                            </a>
+                                                        </div>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded">
+                                                <i class="ri-table-line text-3xl text-textlight mb-2"></i>
+                                                <p class="text-textlight text-sm mb-3">No data tables yet</p>
+                                                <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                    <i class="ri-upload-line"></i> Upload CSV
+                                                </a>
+                                            </div>
+                                        {% endif %}
+                                    </div>
                                 {% endif %}
 
                                 <!-- Database Info Footer -->
@@ -425,6 +482,22 @@
             const url = new URL(window.location);
             url.searchParams.set('status', filter);
             window.location.href = url.toString();
+        }
+
+        function toggleDatabaseDetails(dbId) {
+            const detailsDiv = document.getElementById(`details-${dbId}`);
+            const button = event.target.closest('button');
+            const icon = button.querySelector('i');
+            
+            if (detailsDiv.classList.contains('hidden')) {
+                detailsDiv.classList.remove('hidden');
+                icon.className = 'ri-eye-off-line mr-1';
+                button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>Hide Details';
+            } else {
+                detailsDiv.classList.add('hidden');
+                icon.className = 'ri-eye-line mr-1';
+                button.innerHTML = '<i class="ri-eye-line mr-1"></i>View Details';
+            }
         }
 
         // Auto-refresh countdown for trashed databases
