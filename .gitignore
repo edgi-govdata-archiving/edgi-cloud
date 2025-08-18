@@ -24,7 +24,7 @@ data/*.db
 data/*/*.db
 
 # Image files
-data/*/header.jpg
+data/*/default_header.jpg
 
 # Logs
 *.log
