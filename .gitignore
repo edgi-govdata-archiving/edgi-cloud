@@ -18,5 +18,8 @@ package-lock.json
 hello.py
 pyproject.toml
 uv.lock
- 
- 
+
+# database and default_header
+data/*.db
+data/*/*.db
+data/*/default_header.jpg
