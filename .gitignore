@@ -18,6 +18,3 @@ package-lock.json
 hello.py
 pyproject.toml
 uv.lock
-
-# Logs
-*.log
