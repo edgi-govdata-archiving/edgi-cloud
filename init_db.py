@@ -32,8 +32,6 @@ def create_database_schema(portal_db):
     }, pk="user_id", if_not_exists=True)
     print("   ✅ Created users table")
 
-    # Enhanced databases table with three-tier deletion support
-    # Enhanced databases table with three-tier deletion support
     portal_db.create_table("databases", {
         "db_id": str,                    # Primary key
         "user_id": str,                  # Foreign key to users
