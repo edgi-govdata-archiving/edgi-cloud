@@ -12,6 +12,8 @@ COPY plugins/ ./plugins/
 COPY templates/ ./templates/
 COPY static/ ./static/
 COPY init_db.py .
+COPY migrate_db.py .
+
 
 # Create data directory
 RUN mkdir -p /data && chmod 755 /data
@@ -44,6 +46,8 @@ if [ ! -f "$PORTAL_DB_PATH" ]; then\n\
   fi\n\
 else\n\
   echo "📊 Using existing database"\n\
+  echo "🔄 Running migration check..."\n\
+  python migrate_db.py\n\
 fi\n\
 \n\
 # Start Datasette\n\
