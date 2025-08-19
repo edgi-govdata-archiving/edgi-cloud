@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>System Trash Bin - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-shield-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">System Trash Bin</div>
+            </div>
+            {% if actor %}
+                <div>
+                    <a href="/system-admin" class="text-white hover:text-accent mr-4">
+                        <i class="ri-arrow-left-line mr-1"></i>Back to Admin Panel
+                    </a>
+                    <a href="/manage-databases?status=trash" class="text-white hover:text-accent mr-4">My Trash</a>
+                    <a href="/logout" class="text-white hover:text-accent">Logout</a>
+                </div>
+            {% endif %}
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-6">
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-6 w-[90%] mx-auto">
+                <div>
+                    <h1 class="text-3xl font-bold text-primary">System Trash Bin</h1>
+                    <p class="text-textlight mt-2">
+                        View all trashed databases across the system. You can only restore/delete your own databases but can force delete any database.
+                    </p>
+                </div>
+                <div class="text-right">
+                    <div class="text-2xl font-bold text-red-500">{{ total_trashed }}</div>
+                    <div class="text-textlight text-sm">Databases in System Trash</div>
+                </div>
+            </div>
+
+            <!-- Success/Error Messages -->
+            {% if success %}
+                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6 w-[90%] mx-auto">
+                    <p class="text-sm">{{ success }}</p>
+                </div>
+            {% endif %}
+            {% if error %}
+                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 w-[90%] mx-auto">
+                    <p class="text-sm">{{ error }}</p>
+                </div>
+            {% endif %}
+
+            <!-- Admin Information Banner -->
+            <div class="bg-blue-50 border border-blue-200 rounded-card p-4 mb-6 w-[90%] mx-auto">
+                <div class="flex items-center">
+                    <i class="ri-shield-line text-blue-600 text-xl mr-3"></i>
+                    <div class="flex-1">
+                        <h3 class="font-semibold text-blue-800">System Administrator View</h3>
+                        <p class="text-blue-700 text-sm">
+                            You can view all trashed databases system-wide. Regular restore/delete actions only work on your own databases. 
+                            Use "Force Delete" for administrative removal of any user's database.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trashed Databases -->
+            <div class="w-[90%] mx-auto">
+                {% if trashed_databases %}
+                    <div class="space-y-4">
+                        {% for db in trashed_databases %}
+                            <div class="bg-red-50 border border-red-200 rounded-card p-6 
+                                {% if db.is_expired %}border-red-400 bg-red-100{% endif %}">
+                                
+                                <!-- Database Info Header -->
+                                <div class="flex items-center justify-between mb-4">
+                                    <div class="flex-1">
+                                        <div class="flex items-center gap-3">
+                                            <h3 class="text-xl font-semibold text-red-800">
+                                                {{ db.db_name.replace('_', ' ').title() }}
+                                            </h3>
+                                            {% if not db.is_own_database %}
+                                                <span class="bg-orange-200 text-orange-900 px-2 py-1 rounded text-xs font-bold">
+                                                    OTHER USER'S DATABASE
+                                                </span>
+                                            {% endif %}
+                                            {% if db.is_expired %}
+                                                <span class="bg-red-200 text-red-900 px-2 py-1 rounded text-xs font-bold">
+                                                    EXPIRED
+                                                </span>
+                                            {% elif db.days_until_delete <= 3 %}
+                                                <span class="bg-orange-200 text-orange-900 px-2 py-1 rounded text-xs font-bold">
+                                                    URGENT - {{ db.days_until_delete }} days left
+                                                </span>
+                                            {% else %}
+                                                <span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium">
+                                                    {{ db.days_until_delete }} days until auto-delete
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                        
+                                        <div class="flex items-center gap-4 mt-2 text-sm text-red-700">
+                                            <span>
+                                                <i class="ri-user-line mr-1"></i>Owner: {{ db.username }}
+                                            </span>
+                                            <span>
+                                                <i class="ri-mail-line mr-1"></i>{{ db.email }}
+                                            </span>
+                                            <span>
+                                                <i class="ri-table-line mr-1"></i>{{ db.table_count }} tables
+                                            </span>
+                                            <span>
+                                                <i class="ri-database-line mr-1"></i>{{ "%.1f"|format(db.database_size) }}KB
+                                            </span>
+                                            <span>
+                                                <i class="ri-time-line mr-1"></i>Trashed: {{ db.trashed_at_formatted }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="text-right">
+                                        <div class="text-2xl font-bold {% if db.is_expired %}text-red-700{% else %}text-red-500{% endif %}">
+                                            {{ db.days_until_delete }}
+                                        </div>
+                                        <div class="text-red-600 text-xs">
+                                            {% if db.is_expired %}Expired{% else %}Days Left{% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Action Buttons -->
+                                <div class="flex flex-wrap gap-3">
+                                    {% if db.is_own_database and (not db.is_expired) %}
+                                        <!-- Restore Button - Only for own databases -->
+                                        <form method="post" action="/db/{{ db.db_name }}/restore?from=system-trash" class="inline">
+                                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                            <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition font-medium"
+                                                    onclick="return confirm('Restore {{ db.db_name.replace('_', ' ').title() }}? It will be moved back to your active databases.')">
+                                                <i class="ri-refresh-line mr-2"></i>Restore Database
+                                            </button>
+                                        </form>
+                                    {% endif %}
+
+                                    {% if db.is_own_database %}
+                                        <!-- Regular Delete Button - Only for own databases -->
+                                        <a href="/db/{{ db.db_name }}/delete-permanent?from=system-trash" 
+                                           class="bg-red-600 text-white px-4 py-2 rounded-button hover:bg-red-700 transition font-medium"
+                                           onclick="return confirm('This will permanently delete the database. Continue to confirmation page?')">
+                                            <i class="ri-delete-bin-line mr-2"></i>Delete Permanently
+                                        </a>
+                                    {% endif %}
+
+                                    {% if not db.is_own_database %}
+                                        <!-- Admin Force Delete Button - Only for other users' databases -->
+                                        <a href="/admin-force-delete/{{ db.db_name }}" 
+                                           class="bg-red-800 text-white px-4 py-2 rounded-button hover:bg-red-900 transition font-medium">
+                                            <i class="ri-shield-cross-line mr-2"></i>Force Delete (Admin Override)
+                                        </a>
+                                    {% endif %}
+
+                                    <!-- View Details Button - Available for all -->
+                                    <button onclick="toggleDetails('{{ db.db_name }}')" 
+                                            class="bg-blue-500 text-white px-4 py-2 rounded-button hover:bg-blue-600 transition font-medium">
+                                        <i class="ri-eye-line mr-2"></i>View Details
+                                    </button>
+                                </div>
+
+                                <!-- Expandable Details Section -->
+                                <div id="details-{{ db.db_name }}" class="hidden mt-4 pt-4 border-t border-red-200">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <h4 class="font-semibold text-red-800 mb-2">Database Information</h4>
+                                            <div class="space-y-1 text-red-700">
+                                                <div><strong>Database ID:</strong> {{ db.db_id[:8] }}...</div>
+                                                <div><strong>Owner:</strong> {{ db.username }} ({{ db.email }})</div>
+                                                <div><strong>User ID:</strong> {{ db.user_id[:8] }}...</div>
+                                                <div><strong>Original Status:</strong> {{ db.status }}</div>
+                                                <div><strong>Size:</strong> {{ "%.1f"|format(db.database_size) }}KB</div>
+
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-semibold text-red-800 mb-2">Administrative Status</h4>
+                                            <div class="space-y-1 text-red-700">
+                                                <div><strong>Trashed On:</strong> {{ db.trashed_at_formatted }}</div>
+                                                <div><strong>Auto-Delete Date:</strong> 
+                                                    {% if db.restore_deadline %}
+                                                        {{ db.restore_deadline.split('T')[0] if 'T' in db.restore_deadline else db.restore_deadline }}
+                                                    {% else %}
+                                                        Not set
+                                                    {% endif %}
+                                                </div>
+                                                <div><strong>Days Remaining:</strong> 
+                                                    {% if db.is_expired %}
+                                                        <span class="text-red-900 font-bold">EXPIRED</span>
+                                                    {% else %}
+                                                        {{ db.days_until_delete }}
+                                                    {% endif %}
+                                                </div>
+                                                <div><strong>Admin Permissions:</strong> 
+                                                    {% if db.is_own_database %}
+                                                        <span class="text-green-700 font-bold">FULL CONTROL</span>
+                                                    {% else %}
+                                                        <span class="text-orange-700 font-bold">FORCE DELETE ONLY</span>
+                                                    {% endif %}
+                                                </div>
+                                                <div><strong>Ownership:</strong> 
+                                                    {% if db.is_own_database %}
+                                                        <span class="text-green-700">Your Database</span>
+                                                    {% else %}
+                                                        <span class="text-orange-700">{{ db.username }}'s Database</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Admin Action Warning -->
+                                    {% if not db.is_own_database %}
+                                        <div class="mt-4 p-3 bg-orange-100 border border-orange-300 rounded">
+                                            <div class="flex items-center text-orange-900">
+                                                <i class="ri-shield-line mr-2"></i>
+                                                <strong>Administrative Override Available</strong>
+                                            </div>
+                                            <p class="text-orange-800 text-sm mt-1">
+                                                As a system administrator, you can force delete this database owned by {{ db.username }}. 
+                                                This action bypasses normal user permissions and is logged for audit purposes.
+                                            </p>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <!-- Empty System Trash State -->
+                    <div class="text-center py-16">
+                        <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <i class="ri-shield-check-line text-4xl text-green-500"></i>
+                        </div>
+                        <h2 class="text-2xl font-semibold text-primary mb-4">System Trash is Clean</h2>
+                        <p class="text-textlight mb-6 max-w-md mx-auto">
+                            No databases are currently in the trash across the entire system.
+                        </p>
+                        <a href="/system-admin" 
+                           class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
+                            <i class="ri-arrow-left-line mr-2"></i>Back to Admin Panel
+                        </a>
+                    </div>
+                {% endif %}
+
+                <!-- Help Section -->
+                <div class="mt-8 bg-blue-50 border border-blue-200 rounded-card p-6">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                        <i class="ri-question-line mr-2"></i>System Trash Administration
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-blue-700">
+                        <div class="space-y-3">
+                            <div>
+                                <div class="font-semibold text-blue-800">Force Delete Process</div>
+                                <p>Administrative override that immediately and permanently deletes any database, regardless of owner.</p>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-blue-800">Audit Logging</div>
+                                <p>All administrative actions are logged with your credentials for security audit purposes.</p>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-blue-800">User Permissions</div>
+                                <p>You can only restore/delete your own databases through normal processes.</p>
+                            </div>
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <div class="font-semibold text-blue-800">Emergency Use</div>
+                                <p>Force delete should be used for policy violations, security threats, or urgent cleanup.</p>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-blue-800">User Communication</div>
+                                <p>Consider notifying database owners before force deletion unless it's a security issue.</p>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-blue-800">Recovery Window</div>
+                                <p>Force deleted databases cannot be recovered - action is immediate and permanent.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-gray-50 border-t border-gray-100 py-8">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <div class="w-8 h-8 flex items-center justify-center mr-2">
+                        <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
+                    </div>
+                    <p class="text-primary">
+                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                        <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
+                        <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
+                    </p>
+                </div>
+                <div>
+                    <a href="https://opendatacommons.org/licenses/odbl/" class="text-accent hover:text-primary">Data licensed under ODbL</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        function toggleDetails(dbName) {
+            const detailsDiv = document.getElementById(`details-${dbName}`);
+            const button = event.target.closest('button');
+            const icon = button.querySelector('i');
+            
+            if (detailsDiv.classList.contains('hidden')) {
+                detailsDiv.classList.remove('hidden');
+                icon.className = 'ri-eye-off-line mr-2';
+                button.innerHTML = '<i class="ri-eye-off-line mr-2"></i>Hide Details';
+            } else {
+                detailsDiv.classList.add('hidden');
+                icon.className = 'ri-eye-line mr-2';
+                button.innerHTML = '<i class="ri-eye-line mr-2"></i>View Details';
+            }
+        }
+
+        // Auto-refresh countdown timers for system trash
+        function updateCountdowns() {
+            const now = new Date();
+            
+            {% for db in trashed_databases %}
+                {% if db.restore_deadline and not db.is_expired %}
+                    const deadline{{ loop.index }} = new Date("{{ db.restore_deadline }}");
+                    const diff{{ loop.index }} = deadline{{ loop.index }} - now;
+                    
+                    if (diff{{ loop.index }} > 0) {
+                        const days{{ loop.index }} = Math.floor(diff{{ loop.index }} / (1000 * 60 * 60 * 24));
+                        const hours{{ loop.index }} = Math.floor((diff{{ loop.index }} % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                        
+                        // Update any countdown displays for this database
+                        const elements{{ loop.index }} = document.querySelectorAll('[data-db="{{ db.db_name }}"]');
+                        elements{{ loop.index }}.forEach(el => {
+                            if (days{{ loop.index }} <= 0) {
+                                el.textContent = 'Expires today';
+                                el.className = el.className.replace('bg-red-100', 'bg-red-200');
+                            }
+                        });
+                    }
+                {% endif %}
+            {% endfor %}
+        }
+
+        // Update countdowns every 5 minutes
+        setInterval(updateCountdowns, 300000);
+        updateCountdowns(); // Initial call
+
+        // Show warning for force delete actions
+        document.addEventListener('DOMContentLoaded', function() {
+            const forceDeleteLinks = document.querySelectorAll('a[href*="admin-force-delete"]');
+            forceDeleteLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    const dbName = this.href.split('/').pop();
+                    const confirmMessage = 
+                        `⚠️ ADMIN FORCE DELETE WARNING ⚠️\n\n` +
+                        `You are about to force delete database: "${dbName}"\n\n` +
+                        `This administrative action will:\n` +
+                        `• Bypass normal user permissions\n` +
+                        `• Permanently delete all data immediately\n` +
+                        `• Skip the 30-day recovery window\n` +
+                        `• Be logged with your admin credentials\n\n` +
+                        `Continue to confirmation page?`;
+                    
+                    if (!confirm(confirmMessage)) {
+                        e.preventDefault();
+                        return false;
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
