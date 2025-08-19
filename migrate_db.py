@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Database Migration Script - Add missing columns to portal.db
-Run this on Fly.io to update existing database
+Simple Database Migration - Add missing columns
 """
 
 import sqlite_utils
@@ -9,49 +8,45 @@ import os
 from datetime import datetime, timezone
 
 def migrate_database():
-    """Migrate existing database to add missing columns."""
     PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
     
     if not os.path.exists(PORTAL_DB_PATH):
-        print("❌ No database found to migrate")
+        print("❌ Database not found")
         return
     
-    print("🔄 Migrating database schema...")
+    print("🔄 Adding missing columns to database...")
     
     try:
         db = sqlite_utils.Database(PORTAL_DB_PATH)
         
-        # Check existing columns
-        existing_columns = [col.name for col in db['databases'].columns]
-        print(f"📋 Existing columns: {existing_columns}")
-        
-        # Add missing columns
+        # Add missing columns one by one
         missing_columns = [
-            ("updated_at", "TEXT"),
-            ("deletion_reason", "TEXT")
+            "updated_at TEXT",
+            "trashed_at TEXT", 
+            "restore_deadline TEXT",
+            "deletion_reason TEXT",
+            "deleted_by_user_id TEXT"
         ]
         
-        for column_name, column_type in missing_columns:
-            if column_name not in existing_columns:
-                try:
-                    db.executescript(f"ALTER TABLE databases ADD COLUMN {column_name} {column_type};")
-                    print(f"   ✅ Added column: {column_name}")
-                except Exception as e:
-                    print(f"   ❌ Failed to add {column_name}: {e}")
-            else:
-                print(f"   ⚪ Column {column_name} already exists")
+        for column in missing_columns:
+            column_name = column.split()[0]
+            try:
+                db.executescript(f"ALTER TABLE databases ADD COLUMN {column};")
+                print(f"   ✅ Added: {column_name}")
+            except Exception as e:
+                if "duplicate column" in str(e).lower():
+                    print(f"   ⚪ Exists: {column_name}")
+                else:
+                    print(f"   ❌ Failed: {column_name} - {e}")
         
-        # Update existing records with updated_at if NULL
+        # Set updated_at for existing records
         current_time = datetime.now(timezone.utc).isoformat()
-        result = db.execute("UPDATE databases SET updated_at = ? WHERE updated_at IS NULL", [current_time])
-        updated_count = result.rowcount if hasattr(result, 'rowcount') else 0
-        print(f"   ✅ Updated {updated_count} records with timestamp")
+        db.execute("UPDATE databases SET updated_at = created_at WHERE updated_at IS NULL")
         
-        print("✅ Migration completed successfully")
+        print("✅ Migration completed!")
         
     except Exception as e:
         print(f"❌ Migration failed: {e}")
-        raise
 
 if __name__ == "__main__":
     migrate_database()
