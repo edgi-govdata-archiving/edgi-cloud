@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>{{ content.title.content | default(db_name.replace('_', ' ').title()) }} | Environmental Data</title>
+    <title>{{ content.title.content | default(db_name.replace('_', ' ').title()) }} | Resette</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -118,7 +118,7 @@
             </div>
             <div>
                 <a href="/{{ db_name }}/" class="text-white hover:text-accent mr-4">Browse Tables</a>
-                <a href="/" class="text-white hover:text-accent">Portal Home</a>
+                <a href="/" class="text-white hover:text-accent">Resette Home</a>
             </div>
         </div>
     </header>
@@ -145,7 +145,7 @@
                     <div>
                         <h1 class="text-3xl font-bold text-primary mb-2">{{ content.title.content | default(db_name.replace('_', ' ').title()) }}</h1>
                         <div class="flex items-center gap-4 text-sm text-textlight">
-                            <span><i class="ri-database-line mr-1"></i>Environmental Database</span>
+                            <span><i class="ri-database-line mr-1"></i>Databases</span>
                             <span><i class="ri-table-line mr-1"></i>{{ tables|length }} Tables</span>
                             <span><i class="ri-file-list-line mr-1"></i>{{ statistics[1].value }} Total Records</span>
                         </div>
@@ -155,7 +155,7 @@
                     </a>
                 </div>
 
-                <!-- Enhanced Description with Markdown Support -->
+                <!-- Description with Markdown Support -->
                 <div class="markdown-content text-text">
                     {% if content.description.paragraphs %}
                         {% for paragraph in content.description.paragraphs %}
@@ -167,7 +167,7 @@
                                 <div class="mb-4">{{ paragraph | safe }}</div>
                             {% endfor %}
                         {% else %}
-                            <p class="mb-4">Environmental data dashboard powered by Datasette.</p>
+                            <p class="mb-4">Database | Powered by Resette.</p>
                         {% endif %}
                     {% endif %}
                 </div>
@@ -199,108 +199,107 @@
 
         <!-- Statistics Section -->
         <section class="container mx-auto px-4 mt-6">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {% for stat in statistics %}
-                    <div class="bg-accent rounded-card p-6 text-center text-white">
-                        <h3 class="text-4xl font-bold mb-2">{{ stat.value }}</h3>
-                        <p class="text-white">{{ stat.label }}</p>
-                        {% if stat.url %}
-                            <a href="{{ stat.url }}" class="inline-block mt-3 text-white hover:text-gray-200 text-sm">
-                                <i class="ri-arrow-right-line mr-1"></i>Explore
-                            </a>
-                        {% endif %}
-                    </div>
-                {% endfor %}
-            </div>
-        </section>
-
-        <!-- Quick Access Section -->
-        <section class="container mx-auto px-4 mt-6">
             <div class="bg-card rounded-card p-6 border border-border">
                 <h2 class="text-xl font-semibold text-primary mb-4">
-                    <i class="ri-rocket-line mr-2"></i>Quick Access
+                    <i class="ri-bar-chart-line mr-2"></i>Database Statistics
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <a href="/{{ db_name }}/" class="flex items-center p-4 bg-blue-50 rounded-card hover:bg-blue-100 transition">
-                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4">
-                            <i class="ri-table-line text-white ri-lg"></i>
-                        </div>
-                        <div>
-                            <h3 class="font-semibold text-blue-800">Browse All Tables</h3>
-                            <p class="text-blue-600 text-sm">View all available data tables</p>
-                        </div>
-                    </a>
-                    
-                    <div class="flex items-center p-4 bg-green-50 rounded-card">
-                        <div class="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center mr-4">
-                            <i class="ri-download-line text-white ri-lg"></i>
-                        </div>
-                        <div>
-                            <h3 class="font-semibold text-green-800">Export Data</h3>
-                            <p class="text-green-600 text-sm">Download in CSV, JSON formats</p>
-                        </div>
-                    </div>
-                    
-                    <div class="flex items-center p-4 bg-purple-50 rounded-card">
-                        <div class="w-12 h-12 bg-purple-500 rounded-full flex items-center justify-center mr-4">
-                            <i class="ri-code-line text-white ri-lg"></i>
-                        </div>
-                        <div>
-                            <h3 class="font-semibold text-purple-800">API Access</h3>
-                            <p class="text-purple-600 text-sm">Programmatic data access</p>
-                        </div>
-                    </div>
+                    {% for stat in statistics %}
+                        {% if stat.url %}
+                            <!-- Clickable Stat Card -->
+                            <a href="{{ stat.url }}" class="flex items-center p-4 
+                                {% if loop.index0 == 0 %}bg-cyan-50 hover:bg-cyan-100{% endif %}
+                                {% if loop.index0 == 1 %}bg-indigo-50 hover:bg-indigo-100{% endif %}
+                                {% if loop.index0 == 2 %}bg-yellow-50 hover:bg-yellow-100{% endif %}
+                                rounded-card transition">
+                                
+                                <div class="w-12 h-12 
+                                    {% if loop.index0 == 0 %}bg-cyan-500{% endif %}
+                                    {% if loop.index0 == 1 %}bg-indigo-500{% endif %}
+                                    {% if loop.index0 == 2 %}bg-yellow-500{% endif %}
+                                    rounded-full flex items-center justify-center mr-4">
+                                    <i class="ri-database-2-line text-white ri-lg"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold 
+                                        {% if loop.index0 == 0 %}text-cyan-800{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-800{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-800{% endif %}
+                                    ">{{ stat.value }}</h3>
+                                    <p class="
+                                        {% if loop.index0 == 0 %}text-cyan-600{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-600{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-600{% endif %}
+                                        text-sm">{{ stat.label }}</p>
+                                </div>
+                            </a>
+                        {% else %}
+                            <!-- Non-clickable Stat Card -->
+                            <div class="flex items-center p-4 
+                                {% if loop.index0 == 0 %}bg-cyan-50{% endif %}
+                                {% if loop.index0 == 1 %}bg-indigo-50{% endif %}
+                                {% if loop.index0 == 2 %}bg-yellow-50{% endif %}
+                                rounded-card">
+                                
+                                <div class="w-12 h-12 
+                                    {% if loop.index0 == 0 %}bg-cyan-500{% endif %}
+                                    {% if loop.index0 == 1 %}bg-indigo-500{% endif %}
+                                    {% if loop.index0 == 2 %}bg-yellow-500{% endif %}
+                                    rounded-full flex items-center justify-center mr-4">
+                                    <i class="ri-database-2-line text-white ri-lg"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold 
+                                        {% if loop.index0 == 0 %}text-cyan-800{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-800{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-800{% endif %}
+                                    ">{{ stat.value }}</h3>
+                                    <p class="
+                                        {% if loop.index0 == 0 %}text-cyan-600{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-600{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-600{% endif %}
+                                        text-sm">{{ stat.label }}</p>
+                                </div>
+                            </div>
+                        {% endif %}
+                    {% endfor %}
                 </div>
             </div>
         </section>
 
         <!-- Data Sources & Usage -->
         <section class="container mx-auto px-4 mt-6">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-1 gap-y-8">
                 <div class="bg-card rounded-card p-6 border border-border">
-                    <h3 class="text-lg font-semibold text-primary mb-4">
-                        <i class="ri-information-line mr-2"></i>About This Dataset
+                    <h3 class="text-lg font-semibold text-primary mb-8 text-center">
+                        <i class="ri-lightbulb-line mr-2"></i>How to Use This Database
                     </h3>
-                    <div class="space-y-3 text-sm">
-                        <div class="flex justify-between">
-                            <span class="text-textlight">Database Type:</span>
-                            <span class="font-medium">Environmental Data</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-textlight">Data Tables:</span>
-                            <span class="font-medium">{{ tables|length }} tables</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-textlight">Total Records:</span>
-                            <span class="font-medium">{{ statistics[1].value if statistics|length > 1 else 'N/A' }}</span>
-                        </div>
-                        <div class="flex justify-between">
-                            <span class="text-textlight">Last Updated:</span>
-                            <span class="font-medium">Recently</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-card rounded-card p-6 border border-border">
-                    <h3 class="text-lg font-semibold text-primary mb-4">
-                        <i class="ri-question-line mr-2"></i>How to Use This Data
-                    </h3>
-                    <div class="space-y-3 text-sm">
-                        <div class="flex items-start">
-                            <i class="ri-search-line text-accent mr-2 mt-1"></i>
-                            <span>Use the search function to find specific records</span>
-                        </div>
-                        <div class="flex items-start">
-                            <i class="ri-filter-line text-accent mr-2 mt-1"></i>
-                            <span>Apply filters to narrow down your results</span>
-                        </div>
-                        <div class="flex items-start">
-                            <i class="ri-download-line text-accent mr-2 mt-1"></i>
-                            <span>Export data in various formats for analysis</span>
-                        </div>
-                        <div class="flex items-start">
-                            <i class="ri-share-line text-accent mr-2 mt-1"></i>
-                            <span>Share direct links to specific data views</span>
+                    <div class="flex justify-center ">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-64 gap-y-8 max-w-16xl">
+                            <div class="flex items-center">
+                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
+                                    <i class="ri-search-line text-white ri-lg"></i>
+                                </div>
+                                <span>Use the search function to find specific records</span>
+                            </div>
+                            <div class="flex items-center">
+                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
+                                    <i class="ri-filter-line text-white ri-lg"></i>
+                                </div>
+                                <span>Apply filters to narrow down your results</span>
+                            </div>
+                            <div class="flex items-center">
+                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
+                                    <i class="ri-download-line text-white ri-lg"></i>
+                                </div>
+                                <span>Export data in CSV, JSON formats for analysis</span>
+                            </div>
+                            <div class="flex items-center">
+                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
+                                    <i class="ri-share-line text-white ri-lg"></i>
+                                </div>
+                                <span>Share direct links to specific data views</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -324,9 +323,8 @@
                             {% endfor %}
                         {% else %}
                             <span>
-                                Made with <span class="text-red-500" aria-label="love">❤</span> by 
-                                <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
-                                <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
+                                Made with <span class="text-cyan-500" aria-label="love">❤</span> by 
+                                <a href="/" rel="nofollow" class="text-accent hover:text-primary">Resette</a>
                             </span>
                         {% endif %}
                     </div>

@@ -114,7 +114,7 @@
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
                     <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
                 </div>
-                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+                <div class="text-xl font-semibold">{{ content.title.content | default("Resette") }}</div>
             </div>
             {% if actor %}
                 <div>
@@ -145,7 +145,7 @@
                 {% if content.header_image.credit_url %}
                     <div class="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
                         <a href="{{ content.header_image.credit_url }}" target="_blank" rel="noopener noreferrer" class="text-white hover:text-accent">
-                            {{ content.header_image.credit_text | default('Image by EDGI') }}
+                            {{ content.header_image.credit_text | default('Image by Resette') }}
                         </a>
                     </div>
                 {% endif %}
@@ -155,7 +155,7 @@
         <!-- Main Content -->
         <section class="container mx-auto px-4 mt-6">
             <div class="bg-card rounded-card p-6 border border-border w-[90%] mx-auto">
-                <h2 class="text-3xl font-bold text-primary mb-6">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</h2>
+                <h2 class="text-3xl font-bold text-primary mb-6">{{ content.title.content | default("Resette") }}</h2>
                 
                 <!-- Enhanced Description with Markdown Support -->
                 <div class="markdown-content text-text">
@@ -164,7 +164,7 @@
                             <div class="mb-4">{{ paragraph | safe }}</div>
                         {% endfor %}
                     {% else %}
-                        <p class="mb-4">The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites, supporting data exploration and public access.</p>
+                        <p class="mb-4">The Resette Portal enables users to share their datasets as interactive websites, supporting data exploration and public access.</p>
                     {% endif %}
                 </div>
 
@@ -172,7 +172,7 @@
                 {% if feature_cards %}
                     <div class="mb-6 mt-8">
                         <h3 class="text-2xl font-semibold text-primary mb-6">
-                            <i class="ri-database-line mr-2"></i>Featured Environmental Datasets
+                            <i class="ri-database-line mr-2"></i>Featured Datasets
                         </h3>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

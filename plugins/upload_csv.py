@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 MAX_CSV_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_TABLES_PER_DATABASE = 20
-DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data/data")
 
 @hookimpl
 def register_routes():
@@ -402,9 +401,18 @@ async def process_csv_upload_advanced(datasette, db_name, table_name, csv_conten
         raise ValueError(f"Failed to process CSV: {str(e)}")
 
 async def log_upload_activity(datasette, user_id, db_name, table_name, result):
-    """Log upload activity"""
+    """Log upload activity and update database timestamp"""
     try:
         portal_db = datasette.get_database("portal")
+        
+        # Update database timestamp
+        current_time = datetime.utcnow().isoformat()
+        await portal_db.execute_write(
+            "UPDATE databases SET updated_at = ? WHERE db_name = ? AND status NOT IN ('Deleted')",
+            [current_time, db_name]
+        )
+        
+        # Log the activity
         await portal_db.execute_write(
             "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)",
             [
@@ -412,12 +420,13 @@ async def log_upload_activity(datasette, user_id, db_name, table_name, result):
                 user_id, 
                 "csv_upload", 
                 f"Uploaded {result['rows_inserted']} rows to {db_name}.{table_name}",
-                datetime.utcnow().isoformat()
+                current_time
             ]
         )
+        logger.debug(f"Updated database timestamp and logged upload activity for {db_name}")
     except Exception as e:
         logger.error(f"Failed to log upload activity: {e}")
-
+        
 @hookimpl
 def permission_allowed(datasette, actor, action, resource):
     """Block the insecure official plugin"""
