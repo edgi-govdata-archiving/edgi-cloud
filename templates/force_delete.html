@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.8">
+    <title>Admin Force Delete - {{ db_name }} | EDGI Portal</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-shield-cross-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Admin Force Delete</div>
+            </div>
+            <div>
+                <a href="/system-trash" class="text-white hover:text-accent">
+                    <i class="ri-arrow-left-line mr-1"></i>Back to System Trash
+                </a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-6">
+            <div class="max-w-2xl mx-auto">
+                <!-- Critical Warning -->
+                <div class="bg-red-100 border-2 border-red-300 rounded-card p-6 mb-6">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-red-200 rounded-full flex items-center justify-center mr-4">
+                            <i class="ri-shield-cross-line text-red-700 ri-xl"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-2xl font-bold text-red-800">Administrator Force Delete</h1>
+                            <p class="text-red-600">⚠️ CRITICAL: Bypasses user permissions and recovery period</p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded border-2 border-red-300 p-4">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-3">You are about to FORCE DELETE:</h2>
+                        
+                        <div class="space-y-3">
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Database:</span>
+                                <span class="font-medium text-red-600">{{ db_name.replace('_', ' ').title() }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Owner:</span>
+                                <span class="font-medium text-orange-600">{{ owner_username }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Status:</span>
+                                <span class="font-medium text-red-600">{{ db_status }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600">Size:</span>
+                                <span class="font-medium">{{ "%.1f"|format(database_size | float | default(0)) }} KB</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                {% if error %}
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                        <p class="text-sm">{{ error }}</p>
+                    </div>
+                {% endif %}
+
+                <!-- Admin Override Warning -->
+                <div class="bg-orange-50 border-2 border-orange-300 rounded-card p-6 mb-6">
+                    <div class="flex items-center mb-4">
+                        <i class="ri-admin-line text-orange-600 text-2xl mr-3"></i>
+                        <h3 class="text-lg font-semibold text-orange-800">Administrative Override</h3>
+                    </div>
+                    
+                    <div class="space-y-2 mb-4 text-sm text-orange-700">
+                        <div class="flex items-start">
+                            <i class="ri-shield-line text-orange-600 mr-2 mt-0.5"></i>
+                            <span><strong>Bypassing permissions:</strong> Deleting another user's database</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-alert-line text-red-600 mr-2 mt-0.5"></i>
+                            <span><strong>No recovery:</strong> Skips 30-day trash recovery window</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-close-circle-line text-red-600 mr-2 mt-0.5"></i>
+                            <span><strong>Immediate:</strong> All data permanently destroyed</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-file-list-line text-blue-600 mr-2 mt-0.5"></i>
+                            <span><strong>Audit logged:</strong> Action recorded with admin credentials</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Confirmation Section -->
+                <div class="bg-card rounded-card p-6 border-2 border-red-200">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Administrative Confirmation Required</h3>
+                    
+                    <form method="post" onsubmit="return confirmForceDelete(event)">
+                        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                        
+                        <!-- Confirmation Input -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Type <strong>FORCE DELETE {{ db_name }}</strong> to confirm:
+                            </label>
+                            <input type="text" id="confirmation-input" name="confirm_text"
+                                   class="w-full p-3 border-2 border-red-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 font-mono"
+                                   placeholder="FORCE DELETE {{ db_name }}">
+                        </div>
+
+                        <!-- Admin Reason -->
+                        <div class="mb-6">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Administrative Reason (required):
+                            </label>
+                            <select id="admin-reason" name="admin_reason" class="w-full p-3 border border-gray-300 rounded mb-2">
+                                <option value="">Select reason...</option>
+                                <option value="security_threat">Security Threat/Malicious Content</option>
+                                <option value="policy_violation">Policy Violation</option>
+                                <option value="legal_request">Legal/Compliance Request</option>
+                                <option value="data_corruption">Data Corruption/Technical Issue</option>
+                                <option value="user_request">User Request (Unable to Delete)</option>
+                                <option value="system_maintenance">System Maintenance</option>
+                                <option value="other">Other (specify below)</option>
+                            </select>
+                            <textarea name="admin_notes" id="admin-notes" placeholder="Additional details (optional)" 
+                                      class="w-full p-3 border border-gray-300 rounded h-20 text-sm"></textarea>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <button type="submit" id="force-delete-button" disabled
+                                    class="flex-1 bg-red-700 text-white py-3 px-4 rounded-button hover:bg-red-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition font-bold">
+                                <i class="ri-shield-cross-line mr-2"></i>FORCE DELETE DATABASE
+                            </button>
+                            
+                            <a href="/system-trash" 
+                               class="flex-1 bg-gray-200 text-gray-800 py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium">
+                                <i class="ri-close-line mr-2"></i>Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Audit Info -->
+                <div class="mt-6 bg-gray-50 border border-gray-200 rounded p-4">
+                    <h4 class="font-medium text-gray-800 mb-2">Audit Information</h4>
+                    <div class="text-sm text-gray-600 space-y-1">
+                        <div><strong>Admin:</strong> {{ actor.username }} ({{ actor.id }})</div>
+                        <div><strong>Target:</strong> {{ db_name }} (Owner: {{ owner_username }})</div>
+                        <div><strong>Time:</strong> <span id="current-time"></span></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // FIXED: Use proper variables instead of template literals inside JS
+        const requiredText = 'FORCE DELETE {{ db_name }}';
+        const dbName = '{{ db_name }}';
+        const ownerUsername = '{{ owner_username }}';
+        let confirmationInput, forceDeleteButton, adminReason;
+
+        function confirmForceDelete(event) {
+            const confirmText = confirmationInput.value.trim();
+            const selectedReason = adminReason.value;
+            
+            if (confirmText !== requiredText) {
+                event.preventDefault();
+                alert('Please enter the exact confirmation text.');
+                return false;
+            }
+            
+            if (!selectedReason) {
+                event.preventDefault();
+                alert('Please select an administrative reason.');
+                return false;
+            }
+            
+            // FIXED: Use proper variables in confirmation message
+            const confirmMessage = 
+                '⚠️ CRITICAL ADMINISTRATIVE ACTION ⚠️\n\n' +
+                'Force delete database "' + dbName + '" owned by "' + ownerUsername + '"?\n\n' +
+                'This will:\n' +
+                '• Permanently destroy all data immediately\n' +
+                '• Bypass normal user permissions\n' +
+                '• Be logged with your admin credentials\n' +
+                '• Cannot be undone\n\n' +
+                'Proceed?';
+            
+            if (!confirm(confirmMessage)) {
+                event.preventDefault();
+                return false;
+            }
+            
+            forceDeleteButton.innerHTML = '<i class="ri-loader-line animate-spin mr-2"></i>FORCE DELETING...';
+            forceDeleteButton.disabled = true;
+            
+            return true;
+        }
+
+        function updateButtonState() {
+            const confirmText = confirmationInput.value.trim();
+            const hasReason = adminReason.value !== '';
+            const canSubmit = confirmText === requiredText && hasReason;
+            
+            if (canSubmit) {
+                forceDeleteButton.disabled = false;
+                forceDeleteButton.classList.remove('bg-gray-400');
+                forceDeleteButton.classList.add('bg-red-700', 'hover:bg-red-800');
+            } else {
+                forceDeleteButton.disabled = true;
+                forceDeleteButton.classList.add('bg-gray-400');
+                forceDeleteButton.classList.remove('bg-red-700', 'hover:bg-red-800');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            confirmationInput = document.getElementById('confirmation-input');
+            forceDeleteButton = document.getElementById('force-delete-button');
+            adminReason = document.getElementById('admin-reason');
+            
+            document.getElementById('current-time').textContent = new Date().toLocaleString();
+            
+            confirmationInput.addEventListener('input', updateButtonState);
+            adminReason.addEventListener('change', updateButtonState);
+            
+            updateButtonState();
+            confirmationInput.focus();
+        });
+    </script>
+</body>
+</html>
