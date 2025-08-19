@@ -19,7 +19,7 @@ STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "/static")
 
 def create_database_schema(portal_db):
     """Create all required database tables with enhanced deletion support."""
-    print("🗄️  Creating database tables...")
+    print("🗄️ Creating database tables...")
     
     # Users table - unchanged
     portal_db.create_table("users", {
@@ -32,8 +32,7 @@ def create_database_schema(portal_db):
     }, pk="user_id", if_not_exists=True)
     print("   ✅ Created users table")
 
-    # Enhanced databases table with three-tier deletion support
-    # Enhanced databases table with three-tier deletion support
+    # Enhanced databases table with COMPLETE schema
     portal_db.create_table("databases", {
         "db_id": str,                    # Primary key
         "user_id": str,                  # Foreign key to users
@@ -41,15 +40,17 @@ def create_database_schema(portal_db):
         "website_url": str,              # Public URL for published databases
         "status": str,                   # Draft, Published, Unpublished, Trashed, Deleted
         "created_at": str,               # ISO timestamp of creation
+        "updated_at": str,               # ISO timestamp of last update - ADDED
         "file_path": str,                # Path to SQLite database file
         
         # Three-tier deletion system fields
         "trashed_at": str,               # ISO timestamp when moved to trash
         "restore_deadline": str,         # ISO timestamp for auto-deletion
         "deleted_by_user_id": str,       # User who moved to trash
-        "deleted_at": str,               # ISO timestamp of permanent deletion (legacy)
+        "deleted_at": str,               # ISO timestamp of permanent deletion
+        "deletion_reason": str,          # Reason for deletion (admin use) - ADDED
     }, pk="db_id", if_not_exists=True)
-    print("   ✅ Created databases table (with deletion support)")
+    print("   ✅ Created databases table (with complete deletion support)")
 
     # Admin content table - unchanged
     portal_db.create_table("admin_content", {

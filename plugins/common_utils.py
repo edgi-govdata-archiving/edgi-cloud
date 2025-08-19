@@ -770,7 +770,7 @@ def generate_website_url(request, db_name):
     """Generate website URL for database."""
     scheme = request.scheme
     host = request.headers.get('host', 'localhost:8001')
-    return f"{scheme}://{host}/db/{db_name}/"
+    return f"{scheme}://{host}/db/{db_name}/homepage"
 
 def ensure_data_directories():
     """Ensure required directories exist."""
