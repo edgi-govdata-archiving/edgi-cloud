@@ -1,7 +1,7 @@
 """
 Database Deletion Module - Three-tier deletion system
 Handles: Unpublish → Trash → Permanent Delete
-FIXED: Windows file locking issues
+FIXED: Windows file locking issues, retention_days error, image thumbnails
 """
 
 import os
@@ -28,11 +28,9 @@ from common_utils import (
     log_database_action,
     verify_user_session,
     get_portal_content,
-    handle_form_errors,
     get_success_error_from_request,
-    user_owns_database,
+    get_trash_retention_days,
     DATA_DIR,
-    TRASH_RETENTION_DAYS
 )
 
 logger = logging.getLogger(__name__)
@@ -74,12 +72,12 @@ def force_close_database_connections(datasette, db_name):
                 logger.error(f"Error during database unregistration: {unreg_error}")
         
         # Step 2: Force garbage collection multiple times
-        for i in range(3):  # Reduced from 5 to 3
+        for i in range(3):
             gc.collect()
-            time.sleep(0.1)  # Reduced from 0.2 to 0.1
+            time.sleep(0.1)
         
         # Step 3: Wait for Windows to release file handles
-        time.sleep(1.0)  # Reduced from 2.0 to 1.0
+        time.sleep(1.0)
         
         logger.info(f"Completed connection cleanup for {db_name}")
         return True
@@ -89,7 +87,7 @@ def force_close_database_connections(datasette, db_name):
         return False
     
 def enhanced_file_deletion(file_path, db_name):
-    """ENHANCED: Multi-strategy file deletion for Windows - REDUCED DELAYS"""
+    """ENHANCED: Multi-strategy file deletion for Windows"""
     import time
     import tempfile
     import shutil
@@ -119,7 +117,7 @@ def enhanced_file_deletion(file_path, db_name):
         
         # Try to delete from temp location
         try:
-            time.sleep(0.5)  # Keep this delay for temp cleanup
+            time.sleep(0.5)
             os.remove(temp_path)
             logger.info(f"Temp file deleted: {temp_path}")
         except OSError:
@@ -140,7 +138,7 @@ def enhanced_file_deletion(file_path, db_name):
         
         # Try to delete renamed file
         try:
-            time.sleep(0.5)  # Keep this delay for rename cleanup
+            time.sleep(0.5)
             os.remove(deleted_name)
             logger.info(f"Renamed file deleted: {deleted_name}")
         except OSError:
@@ -160,7 +158,7 @@ def enhanced_file_deletion(file_path, db_name):
         
         # Try rename after truncate
         try:
-            time.sleep(0.5)  # Keep this delay for truncate
+            time.sleep(0.5)
             truncated_name = f"{file_path}.TRUNCATED_{int(time.time())}"
             os.rename(file_path, truncated_name)
             logger.info(f"Truncated file renamed: {truncated_name}")
@@ -187,6 +185,9 @@ async def trash_database(datasette, request):
         db_name = path_parts[1]
     else:
         return Response.text("Invalid URL format", status=400)
+    
+    # GET RETENTION DAYS EARLY
+    retention_days = await get_trash_retention_days(datasette)
     
     query_db = datasette.get_database('portal')
     
@@ -234,7 +235,7 @@ async def trash_database(datasette, request):
             
             # Calculate restore deadline (30 days from now)
             trashed_at = datetime.utcnow()
-            restore_deadline = trashed_at + timedelta(days=TRASH_RETENTION_DAYS)
+            restore_deadline = trashed_at + timedelta(days=retention_days)
             
             # CRITICAL: Close database connections BEFORE updating status
             force_close_database_connections(datasette, db_name)
@@ -280,9 +281,9 @@ async def trash_database(datasette, request):
             
             # Redirect appropriately
             if is_admin:
-                return Response.redirect(f"/system-admin?success=Database '{db_name}' moved to trash. You have {TRASH_RETENTION_DAYS} days to restore it.")
+                return Response.redirect(f"/system-admin?success=Database '{db_name}' moved to trash. You have {retention_days} days to restore it.")
             else:
-                return Response.redirect(f"/manage-databases?success=Database '{db_name}' moved to trash. You have {TRASH_RETENTION_DAYS} days to restore it.")
+                return Response.redirect(f"/manage-databases?success=Database '{db_name}' moved to trash. You have {retention_days} days to restore it.")
             
         except Exception as e:
             logger.error(f"Error trashing database {db_name}: {str(e)}")
@@ -354,7 +355,7 @@ async def trash_database(datasette, request):
                     "table_count": table_count,
                     "total_records": total_records,
                     "database_size": database_size,
-                    "retention_days": TRASH_RETENTION_DAYS,
+                    "retention_days": retention_days,  # NOW PROPERLY DEFINED
                     "is_admin_override": is_admin and db_info['user_id'] != actor.get("id"),
                 },
                 request=request
@@ -459,7 +460,7 @@ async def restore_database(datasette, request):
         return Response.text(f"Error restoring database: {str(e)}", status=500)
     
 async def auto_cleanup_expired_databases(datasette):
-    """Background task to automatically delete expired databases - ENHANCED for renamed databases"""
+    """Background task to automatically delete expired databases"""
     logger.debug("Running auto cleanup for expired databases")
     
     query_db = datasette.get_database('portal')
@@ -592,7 +593,7 @@ async def system_trash_bin_page(datasette, request):
     query_db = datasette.get_database('portal')
     
     # Get ALL trashed databases system-wide for admins
-    # FIXED: Include file_path in query and use proper user_id
+    # Include file_path in query and use proper user_id
     query = """SELECT d.db_id, d.db_name, d.status, d.user_id, d.trashed_at, d.restore_deadline, 
                       d.file_path, u.username, u.email
                FROM databases d 
@@ -821,6 +822,8 @@ async def permanent_delete_database(datasette, request):
                 }
             )
             
+            if actor.get("role") == "system_admin":
+                return Response.redirect(f"/system-trash?success=Database '{db_name}' permanently deleted")
             return Response.redirect(f"/manage-databases?success=Database '{db_name}' permanently deleted")
             
         except Exception as e:
@@ -867,7 +870,7 @@ async def permanent_delete_database(datasette, request):
 
         return Response.html(
             await datasette.render_template(
-                "permanent_delete.html",  # RENAMED TEMPLATE
+                "permanent_delete.html",
                 {
                     "metadata": datasette.metadata(),
                     "content": content,
@@ -1084,13 +1087,13 @@ async def admin_force_delete_confirmation(datasette, request):
     except Exception as e:
         logger.error(f"Error showing admin force delete confirmation for {db_name}: {str(e)}")
         return Response.text(f"Error loading force delete confirmation: {str(e)}", status=500)
-    
+
 @hookimpl
 def register_routes():
-    """FIXED: Register database deletion routes with proper separation"""
+    """Register database deletion routes with proper separation"""
     return [
         (r"^/system-trash$", system_trash_bin_page),  # System admin trash
-        (r"^/admin-force-delete/([^/]+)$", admin_force_delete_confirmation),  # Admin force delete - SEPARATE ROUTE
+        (r"^/admin-force-delete/([^/]+)$", admin_force_delete_confirmation),  # Admin force delete
         (r"^/db/([^/]+)/trash$", trash_database),
         (r"^/db/([^/]+)/restore$", restore_database),
         (r"^/db/([^/]+)/delete-permanent$", permanent_delete_database),  # Regular user delete only

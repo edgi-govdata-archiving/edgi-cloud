@@ -14,25 +14,21 @@ from datetime import datetime
 from datasette import hookimpl
 from datasette.utils.asgi import Response
 from datasette.database import Database
-from email.parser import BytesParser
-from email.policy import default
 
 # Add the plugins directory to Python path for imports
 import sys
-plugins_dir = os.path.dirname(os.path.abspath(__file__))
-if plugins_dir not in sys.path:
-    sys.path.insert(0, plugins_dir)
+PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
+if PLUGINS_DIR not in sys.path:
+    sys.path.insert(0, PLUGINS_DIR)
 
 # Import from common_utils
 from common_utils import (
     get_actor_from_request,
     log_database_action,
-    log_user_activity,
     verify_user_session,
     get_portal_content,
     get_database_content,
     get_database_statistics,
-    check_database_name_unique,
     check_database_name_available,
     user_owns_database,
     validate_database_name,
@@ -46,15 +42,11 @@ from common_utils import (
     create_statistics_data,
     update_database_timestamp_by_id,
     parse_markdown_links,
-    apply_inline_formatting,
-    sanitize_text,
     DATA_DIR,
-    STATIC_DIR,
-    MAX_DATABASES_PER_USER,
-    MAX_FILE_SIZE,
-    ALLOWED_EXTENSIONS
+    get_max_image_size,
+    get_max_databases_per_user,
+    handle_image_upload_robust,
 )
-
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -308,10 +300,9 @@ async def manage_databases(datasette, request):
             **db_info,
             'tables': tables,
             'table_count': table_count,
-            'total_size': file_size_kb,  # Use actual file size instead of estimated
-            'file_size_kb': file_size_kb,  # Add explicit file size field
+            'total_size': file_size_kb,
+            'file_size_kb': file_size_kb,
             'website_url': f"/db/{db_name}/homepage",
-            'upload_url': f"/upload-secure/{db_name}",
             'has_custom_homepage': has_custom_homepage
         })
 
@@ -387,7 +378,8 @@ async def create_database(datasette, request):
         query_db = datasette.get_database('portal')
         result = await query_db.execute("SELECT COUNT(*) FROM databases WHERE user_id = ? AND status != 'Deleted'", [user_id])
         db_count = result.first()[0]
-        if db_count >= MAX_DATABASES_PER_USER:
+        max_databases = await get_max_databases_per_user(datasette)
+        if db_count >= max_databases:
             return await handle_form_errors(
                 datasette, "create_database.html",
                 {
@@ -395,7 +387,7 @@ async def create_database(datasette, request):
                     "content": content,
                     "actor": actor,
                 },
-                request, f"Maximum {MAX_DATABASES_PER_USER} databases per user reached"
+                request, f"Maximum {max_databases} databases per user reached"
             )
 
         try:
@@ -470,7 +462,7 @@ async def create_database(datasette, request):
             )
             
             logger.debug(f"Database created with homepage: {db_name}, website_url={website_url}, file_path={db_path}")
-            return Response.redirect(f"/manage-databases?success=Database '{db_name}' created successfully with custom homepage. You can now upload CSV files and customize your portal.")
+            return Response.redirect(f"/manage-databases?success=Database '{db_name}' created successfully with custom homepage. You can now upload data files and customize your portal.")
 
         except Exception as e:
             logger.error(f"Create database error: {str(e)}")
@@ -953,7 +945,7 @@ async def database_homepage(datasette, request):
         return Response.text("Error loading homepage", status=500)
     
 async def edit_content(datasette, request):
-    """Edit database content and homepage."""
+    """FIXED: Edit database content with robust image handling."""
     logger.debug(f"Edit Content request: method={request.method}, path={request.path}")
 
     path_parts = request.path.strip('/').split('/')
@@ -983,117 +975,43 @@ async def edit_content(datasette, request):
     
     if request.method == "POST":
         content_type = request.headers.get('content-type', '').lower()
+        
         if 'multipart/form-data' in content_type:
-            # Handle image upload using email.parser approach
+            # Handle image upload with robust parser
             try:
-                body = await request.post_body()
+                max_img_size = await get_max_image_size(datasette)
                 
-                if len(body) > MAX_FILE_SIZE:
-                    return Response.text("File too large", status=400)
-                
-                # Parse the content-type header to get boundary
-                boundary = None
-                if 'boundary=' in content_type:
-                    boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
-                
-                if not boundary:
-                    logger.error("No boundary found in Content-Type header")
-                    return Response.redirect(f"{request.path}?error=Invalid form data")
-                
-                # Create headers for email parser
-                headers = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', [])}
-                headers['content-type'] = request.headers.get('content-type', '')
-                
-                # Parse using email parser
-                header_bytes = b'\r\n'.join([f'{k}: {v}'.encode('utf-8') for k, v in headers.items()]) + b'\r\n\r\n'
-                msg = BytesParser(policy=default).parsebytes(header_bytes + body)
-                
-                forms = {}
-                files = {}
-                
-                # Extract form data and files
-                for part in msg.iter_parts():
-                    if not part.is_multipart():
-                        content_disposition = part.get('Content-Disposition', '')
-                        if content_disposition:
-                            disposition_params = {}
-                            for param in content_disposition.split(';'):
-                                param = param.strip()
-                                if '=' in param:
-                                    key, value = param.split('=', 1)
-                                    disposition_params[key.strip()] = value.strip().strip('"')
-                            
-                            field_name = disposition_params.get('name')
-                            filename = disposition_params.get('filename')
-                            
-                            if field_name:
-                                if filename:
-                                    files[field_name] = {
-                                        'filename': filename,
-                                        'content': part.get_payload(decode=True)
-                                    }
-                                else:
-                                    forms[field_name] = [part.get_payload(decode=True).decode('utf-8')]
-                
-                logger.debug(f"Parsed forms: {forms}")
-                logger.debug(f"Parsed files: {files}")
-                
-                new_content = content.get('header_image', {})
-                
-                # Handle image upload
-                if 'image' in files and files['image']['content']:
-                    file = files['image']
-                    filename = file['filename']
-                    ext = Path(filename).suffix.lower()
-                    
-                    if ext in ['.jpg', '.jpeg', '.png']:
-                        # Create database-specific directory under data/db_id
-                        db_data_dir = os.path.join(DATA_DIR, db_id)
-                        os.makedirs(db_data_dir, exist_ok=True)
-                        
-                        # Save image as header.jpg in database directory
-                        image_path = os.path.join(db_data_dir, 'header.jpg')
-                        with open(image_path, 'wb') as f:
-                            f.write(file['content'])
-                        
-                        # Update content with correct image URL
-                        import time
-                        timestamp = int(time.time())
-                        new_content['image_url'] = f"/data/{db_id}/header.jpg?v={timestamp}"
-                        logger.debug(f"Saved image to {image_path}, URL with cache busting: {new_content['image_url']}")
-                
-                # Update other fields from forms
-                if 'alt_text' in forms:
-                    new_content['alt_text'] = forms['alt_text'][0]
-                if 'credit_text' in forms:
-                    new_content['credit_text'] = forms['credit_text'][0]
-                if 'credit_url' in forms:
-                    new_content['credit_url'] = forms['credit_url'][0]
-                
-                # Save to database
-                await query_db.execute_write(
-                    "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                    [db_id, 'header_image', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
+                # Use the robust image upload handler
+                result, error = await handle_image_upload_robust(
+                    datasette, request, db_id, actor, max_img_size
                 )
+                
+                if error:
+                    return Response.redirect(f"{request.path}?error={error}")
+                
+                if result:
+                    # Save to database
+                    await query_db.execute_write(
+                        "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                        [db_id, 'header_image', json.dumps(result), datetime.utcnow().isoformat(), actor['username']]
+                    )
 
-                # UPDATE DATABASE TIMESTAMP
-                await update_database_timestamp_by_id(datasette, db_id)                               
-                
-                await log_database_action(
-                    datasette, actor.get("id"), "edit_content", 
-                    f"Updated header image for {db_name}",
-                    {"db_name": db_name, "section": "header_image"}
-                )
-                                
-                return Response.redirect(f"{request.path}?success=Header image updated")
+                    # Update database timestamp
+                    await update_database_timestamp_by_id(datasette, db_id)
+                    
+                    await log_database_action(
+                        datasette, actor.get("id"), "edit_content", 
+                        f"Updated and optimized header image for {db_name}",
+                        {"db_name": db_name, "section": "header_image", "image_optimized": True}
+                    )
+                    
+                    return Response.redirect(f"{request.path}?success=Header image updated successfully")
                 
             except Exception as e:
                 logger.error(f"Error handling image upload: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                return Response.redirect(f"{request.path}?error=Error uploading image: {str(e)}")
+                return Response.redirect(f"{request.path}?error=Image upload failed: {str(e)}")
         else:
-            # Handle text form data
+            # Handle text form data (unchanged but simplified)
             post_vars = await request.post_vars()
             
             if 'title' in post_vars:
@@ -1102,16 +1020,12 @@ async def edit_content(datasette, request):
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
                     [db_id, 'title', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
-                
-                # UPDATE DATABASE TIMESTAMP
                 await update_database_timestamp_by_id(datasette, db_id)
-
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated title for {db_name}",
                     {"db_name": db_name, "section": "title"}
                 )
-                
                 return Response.redirect(f"{request.path}?success=Title updated")
             
             if 'description' in post_vars:
@@ -1123,16 +1037,12 @@ async def edit_content(datasette, request):
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
                     [db_id, 'description', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
-                
-                # UPDATE DATABASE TIMESTAMP
                 await update_database_timestamp_by_id(datasette, db_id)
-
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated description for {db_name}",
                     {"db_name": db_name, "section": "description"}
                 )
-                
                 return Response.redirect(f"{request.path}?success=Description updated")
             
             if 'footer' in post_vars:
@@ -1146,16 +1056,12 @@ async def edit_content(datasette, request):
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
                     [db_id, 'footer', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
-                
-                # UPDATE DATABASE TIMESTAMP
                 await update_database_timestamp_by_id(datasette, db_id)
-
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated footer for {db_name}",
                     {"db_name": db_name, "section": "footer"}
                 )
-                
                 return Response.redirect(f"{request.path}?success=Footer updated")
     
     return Response.html(
@@ -1284,29 +1190,39 @@ async def verify_database_structure(query_db):
         return False
 
 async def register_user_databases(datasette, query_db):
-    """Register all user databases with Datasette."""
+    """Register all user databases with Datasette - ENHANCED VERSION."""
     registered_count = 0
     failed_count = 0
     
     try:
-        # Get all active databases
+        # Get all active databases (INCLUDING EXISTING ONES)
         result = await query_db.execute(
-            "SELECT db_name, file_path, status FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
+            "SELECT db_name, file_path, status, user_id FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
         )
         
         for row in result:
             db_name = row['db_name']
             file_path = row['file_path']
             status = row['status']
+            user_id = row['user_id']
             
             try:
+                # Build file path if not available
+                if not file_path:
+                    file_path = os.path.join(DATA_DIR, user_id, f"{db_name}.db")
+                    # Update the database record with the correct file path
+                    await query_db.execute_write(
+                        "UPDATE databases SET file_path = ? WHERE db_name = ?",
+                        [file_path, db_name]
+                    )
+                
                 if file_path and os.path.exists(file_path):
                     # Check if already registered
                     if db_name not in datasette.databases:
                         db_instance = Database(datasette, path=file_path, is_mutable=True)
                         datasette.add_database(db_instance, name=db_name)
                         registered_count += 1
-                        logger.debug(f"Registered database: {db_name} ({status})")
+                        logger.info(f"Registered database: {db_name} ({status}) for user {user_id}")
                     else:
                         logger.debug(f"Database already registered: {db_name}")
                 else:
@@ -1413,7 +1329,7 @@ def permission_allowed(datasette, actor, action, resource):
 
 @hookimpl
 def startup(datasette):
-    """Startup hook with proper database registration"""
+    """Enhanced startup hook with better database registration"""
     
     async def inner():
         try:
@@ -1422,13 +1338,25 @@ def startup(datasette):
             # Ensure directories exist
             ensure_data_directories()
             
-            # Get database path
-            db_path = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
+            # Get database path - SUPPORT BOTH ENVIRONMENTS
+            db_path = os.getenv('PORTAL_DB_PATH')
+            if not db_path:
+                # Check common locations
+                possible_paths = [
+                    "/data/portal.db",  # Docker/production
+                    "data/portal.db",   # Local development
+                    os.path.join(DATA_DIR, "../portal.db")  # Alternative
+                ]
+                
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        db_path = path
+                        break
             
             # Check if portal database exists
-            if not os.path.exists(db_path):
-                logger.error(f"Portal database not found at: {db_path}")
-                logger.error("Run init_db.py first to create the database")
+            if not db_path or not os.path.exists(db_path):
+                logger.warning(f"Portal database not found. Checked paths: {possible_paths if not db_path else [db_path]}")
+                logger.info("The system will work but some features may be limited until the portal database is available.")
                 return
             
             logger.info(f"Using portal database: {db_path}")
@@ -1437,7 +1365,7 @@ def startup(datasette):
             # Verify database structure
             await verify_database_structure(query_db)
             
-            # Register existing user databases
+            # Register existing user databases - ENHANCED VERSION
             registered_count, failed_count = await register_user_databases(datasette, query_db)
             
             # Log startup success
@@ -1449,6 +1377,5 @@ def startup(datasette):
             logger.error(f"Datasette Database Management Module startup failed: {str(e)}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
-            # Don't re-raise - let Datasette continue starting
 
     return inner

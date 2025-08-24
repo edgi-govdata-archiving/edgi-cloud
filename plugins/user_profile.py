@@ -26,13 +26,10 @@ from common_utils import (
     verify_user_session,
     get_portal_content,
     handle_form_errors,
-    redirect_authenticated_user,
     get_success_error_from_request,
     validate_email,
     validate_username,
     validate_password,
-    get_database_statistics,
-    sanitize_text
 )
 
 # Configuration
@@ -561,7 +558,7 @@ def startup(datasette):
     
     async def inner():
         try:
-            logger.info("👤 Starting User Profile Module...")
+            logger.info("Starting User Profile Module...")
             
             # Get database path
             db_path = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
