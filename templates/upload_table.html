@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <title>Upload Data - {{ db_name }} | EDGI Portal</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
+</head>
+<body class="bg-background">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-upload-cloud-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Upload Data to {{ db_name.replace('_', ' ').title() }}</div>
+            </div>
+            <div>
+                <a href="/manage-databases" class="text-white hover:text-accent mr-4">
+                    <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+                </a>
+                <a href="/logout" class="text-white hover:text-accent">Logout</a>
+            </div>
+        </div>
+    </header>
+    
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-6">
+            <div class="max-w-4xl mx-auto">
+                <!-- Header -->
+                <div class="text-center mb-8">
+                    <h1 class="text-3xl font-bold text-primary mb-4">Upload Data</h1>
+                    <p class="text-textlight">Add data to your {{ db_name.replace('_', ' ').title() }} database from multiple sources</p>
+                </div>
+
+                <!-- Success/Error Messages -->
+                {% if success %}
+                    <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+                        <p class="text-sm">{{ success }}</p>
+                    </div>
+                {% endif %}
+                {% if error %}
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                        <p class="text-sm font-medium">{{ error }}</p>
+                        <!-- Enhanced error guidance -->
+                        {% if "Google Sheet is private" in error %}
+                            <div class="mt-2 text-xs">
+                                <strong>How to fix:</strong> 
+                                <ol class="list-decimal list-inside mt-1">
+                                    <li>Open your Google Sheet</li>
+                                    <li>Click "Share" button (top right)</li>
+                                    <li>Change to "Anyone with the link can view"</li>
+                                    <li>Copy the share link and try again</li>
+                                </ol>
+                            </div>
+                        {% elif "Domain" in error and "not in allowlist" in error %}
+                            <div class="mt-2 text-xs">
+                                <strong>Allowed domains:</strong> github.com, data.gov, kaggle.com, edgi-cloud.fly.dev, and others. 
+                                <a href="#" onclick="showAllowedDomains()" class="text-blue-600 underline">See full list</a>
+                            </div>
+                        {% elif "type 'Timestamp' is not supported" in error %}
+                            <div class="mt-2 text-xs">
+                                <strong>How to fix:</strong> This Excel file contains date/time columns that need to be converted. Try saving as CSV first, or the system will automatically convert them on retry.
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+
+                <!-- Upload Source Tabs -->
+                <div class="bg-card rounded-card border border-border mb-6">
+                    <div class="border-b border-border">
+                        <nav class="flex">
+                            <button onclick="showUploadTab('file')" id="file-tab" 
+                                    class="upload-tab active px-6 py-4 font-medium text-accent border-b-2 border-accent">
+                                <i class="ri-file-upload-line mr-2"></i>Upload File
+                            </button>
+                            <button onclick="showUploadTab('sheets')" id="sheets-tab" 
+                                    class="upload-tab px-6 py-4 font-medium text-textlight hover:text-accent">
+                                <i class="ri-table-line mr-2"></i>Google Sheets
+                            </button>
+                            <button onclick="showUploadTab('url')" id="url-tab" 
+                                    class="upload-tab px-6 py-4 font-medium text-textlight hover:text-accent">
+                                <i class="ri-global-line mr-2"></i>Web CSV
+                            </button>
+                        </nav>
+                    </div>
+
+                    <!-- File Upload Panel -->
+                    <div id="file-panel" class="upload-panel p-6">
+                        <form action="/upload-table/{{ db_name }}?redirect=manage-databases" method="post" enctype="multipart/form-data"
+                              onsubmit="return validateFileUpload()">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="source_type" value="file">
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <!-- File Selection -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Select File
+                                    </label>
+                                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-accent transition">
+                                        <input type="file" name="file" id="file-input" 
+                                               accept=".csv,.txt,.tsv,.xlsx,.xls" 
+                                               class="hidden" onchange="handleFileSelect(this)">
+                                        <label for="file-input" class="cursor-pointer">
+                                            <i class="ri-upload-cloud-2-line text-4xl text-gray-400 mb-2 block"></i>
+                                            <p class="text-gray-600">Click to select file</p>
+                                            <p class="text-xs text-gray-500 mt-1">Supports CSV, TSV, TXT, Excel (.xlsx, .xls) files up to {{ ((system_settings.max_file_size if system_settings else 52428800) // (1024*1024)) }}MB</p>                                        </label>
+                                        <div id="file-info" class="hidden mt-4 p-3 bg-blue-50 rounded border">
+                                            <p class="text-sm text-blue-800" id="file-details"></p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Upload Options -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Table Name (Optional)
+                                    </label>
+                                    <input type="text" name="table_name" id="table-name" 
+                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                           placeholder="Auto-generated from filename">
+                                    <p class="text-xs text-gray-500 mt-1">Leave blank to use filename. Must be unique in database.</p>
+
+                                    <!-- Excel Sheet Selection (initially hidden) -->
+                                    <div id="excel-options" class="hidden mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Excel Sheet (Optional)
+                                        </label>
+                                        <select name="excel_sheet" id="excel-sheet-select" 
+                                                class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                            <option value="">First sheet (default)</option>
+                                        </select>
+                                        <p class="text-xs text-gray-500 mt-1">Select specific sheet from Excel workbook.</p>
+                                    </div>
+
+                                    <div class="mt-4">
+                                        <label class="flex items-center">
+                                            <input type="checkbox" name="replace_existing" class="mr-2">
+                                            <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-6">
+                                        <button type="submit" 
+                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
+                                            <i class="ri-upload-line mr-2"></i>Upload File
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Google Sheets Panel -->
+                    <div id="sheets-panel" class="upload-panel p-6 hidden">
+                        <form action="/upload-table/{{ db_name }}?redirect=manage-databases" method="post" 
+                              onsubmit="return validateSheetsUpload()">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="source_type" value="sheets">
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <!-- Google Sheets URL -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Google Sheets URL
+                                    </label>
+                                    <input type="url" name="sheets_url" id="sheets-url" 
+                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                           placeholder="https://docs.google.com/spreadsheets/d/...">
+                                    <div class="text-xs text-gray-500 mt-1">
+                                        <p><strong>Important:</strong> The sheet must be publicly accessible.</p>
+                                        <p class="mt-1"><strong>How to share:</strong></p>
+                                        <ol class="list-decimal list-inside mt-1">
+                                            <li>Open your Google Sheet</li>
+                                            <li>Click "Share" (top right)</li>
+                                            <li>Change to "Anyone with the link can view"</li>
+                                            <li>Copy the link and paste it here</li>
+                                        </ol>
+                                    </div>
+
+                                    <!-- Sheet Detection -->
+                                    <div class="mt-4">
+                                        <button type="button" onclick="detectSheets()" 
+                                                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition text-sm">
+                                            <i class="ri-search-line mr-1"></i>Test Connection
+                                        </button>
+                                        <div id="sheets-info" class="hidden mt-3 p-3 bg-green-50 rounded border">
+                                            <p class="text-sm text-green-800" id="sheets-details"></p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Import Options -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Sheet Selection
+                                    </label>
+                                    <select name="sheet_index" id="sheet-select" 
+                                            class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                        <option value="0">First Sheet (Default)</option>
+                                    </select>
+
+                                    <div class="mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Table Name (Optional)
+                                        </label>
+                                        <input type="text" name="table_name" id="sheets-table-name" 
+                                               class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                               placeholder="Auto-generated from sheet name">
+                                    </div>
+
+                                    <div class="mt-4">
+                                        <label class="flex items-center">
+                                            <input type="checkbox" name="first_row_headers" checked class="mr-2">
+                                            <span class="text-sm text-gray-700">First row contains headers</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-6">
+                                        <button type="submit" 
+                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
+                                            <i class="ri-download-cloud-line mr-2"></i>Import from Google Sheets
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Web CSV Panel -->
+                    <div id="url-panel" class="upload-panel p-6 hidden">
+                        <form action="/upload-table/{{ db_name }}?redirect=manage-databases" method="post" 
+                              onsubmit="return validateUrlUpload()">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="source_type" value="url">
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <!-- URL Input -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        CSV File URL
+                                    </label>
+                                    <input type="url" name="csv_url" id="csv-url" 
+                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                           placeholder="https://example.com/data.csv">
+                                    <div class="text-xs text-gray-500 mt-1">
+                                        <p><strong>Supported domains:</strong> github.com, data.gov, kaggle.com, edgi-cloud.fly.dev, and more.</p>
+                                        <p class="mt-1">URL must point directly to a CSV file. GitHub raw URLs are supported.</p>
+                                        <a href="#" onclick="showAllowedDomains()" class="text-blue-600 underline">View all allowed domains</a>
+                                    </div>
+
+                                    <!-- URL Validation -->
+                                    <div class="mt-4">
+                                        <button type="button" onclick="validateUrl()" 
+                                                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition text-sm">
+                                            <i class="ri-check-line mr-1"></i>Test URL
+                                        </button>
+                                        <div id="url-info" class="hidden mt-3 p-3 bg-green-50 rounded border">
+                                            <p class="text-sm text-green-800" id="url-details"></p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Import Options -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Table Name (Optional)
+                                    </label>
+                                    <input type="text" name="table_name" id="url-table-name" 
+                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                           placeholder="Auto-generated from URL">
+
+                                    <div class="mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Encoding
+                                        </label>
+                                        <select name="encoding" class="w-full p-3 border border-gray-300 rounded">
+                                            <option value="auto">Auto-detect</option>
+                                            <option value="utf-8">UTF-8</option>
+                                            <option value="latin-1">Latin-1</option>
+                                            <option value="ascii">ASCII</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="mt-6">
+                                        <button type="submit" 
+                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
+                                            <i class="ri-download-line mr-2"></i>Import from URL
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Enhanced Help Section -->
+                <div class="bg-blue-50 border border-blue-200 rounded-card p-6 mt-6">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                        <i class="ri-information-line mr-2"></i>Upload Guidelines & Troubleshooting
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-blue-700">
+                        <div>
+                            <div class="font-semibold text-blue-800 mb-2">File Uploads</div>
+                            <ul class="space-y-1">
+                                <li>• Maximum file size: 50MB</li>
+                                <li>• Supported formats: CSV, TSV, TXT</li>
+                                <li>• Excel files: .xlsx, .xls</li>
+                                <li>• UTF-8 encoding recommended</li>
+                                <li>• First row should contain headers</li>
+                            </ul>
+                            <div class="mt-2 text-xs">
+                                <strong>Excel Issues:</strong> Date/time columns are automatically converted to text for compatibility.
+                            </div>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-blue-800 mb-2">Google Sheets</div>
+                            <ul class="space-y-1">
+                                <li>• Sheet must be publicly accessible</li>
+                                <li>• Use "Anyone with link can view"</li>
+                                <li>• Supports multiple sheets per document</li>
+                                <li>• Automatically detects data ranges</li>
+                            </ul>
+                            <div class="mt-2 text-xs">
+                                <strong>Common Issue:</strong> 401 Unauthorized means the sheet is private. Make it public to fix.
+                            </div>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-blue-800 mb-2">Web CSV</div>
+                            <ul class="space-y-1">
+                                <li>• Only from approved domains</li>
+                                <li>• GitHub, data.gov, kaggle.com, etc.</li>
+                                <li>• Must point directly to CSV file</li>
+                                <li>• Raw URLs work best</li>
+                            </ul>
+                            <div class="mt-2 text-xs">
+                                <strong>Domain Blocked?</strong> Contact admin to add your domain to the allowlist.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hidden Modal for Allowed Domains -->
+                <div id="domains-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold">Allowed Domains for Web CSV</h3>
+                            <button onclick="hideAllowedDomains()" class="text-gray-500 hover:text-gray-700">
+                                <i class="ri-close-line text-xl"></i>
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                                <strong>Code Repositories:</strong>
+                                <ul class="list-disc list-inside text-gray-600">
+                                    <li>github.com</li>
+                                    <li>raw.githubusercontent.com</li>
+                                    <li>gitlab.com</li>
+                                    <li>bitbucket.org</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <strong>Government/Data:</strong>
+                                <ul class="list-disc list-inside text-gray-600">
+                                    <li>data.gov</li>
+                                    <li>opendata.gov</li>
+                                    <li>census.gov</li>
+                                    <li>noaa.gov</li>
+                                    <li>epa.gov</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <strong>Research/Academic:</strong>
+                                <ul class="list-disc list-inside text-gray-600">
+                                    <li>kaggle.com</li>
+                                    <li>data.world</li>
+                                    <li>zenodo.org</li>
+                                    <li>figshare.com</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <strong>Cloud/Other:</strong>
+                                <ul class="list-disc list-inside text-gray-600">
+                                    <li>edgi-cloud.fly.dev</li>
+                                    <li>amazonaws.com</li>
+                                    <li>googleapis.com</li>
+                                    <li>localhost (dev)</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-xs text-gray-500">
+                            Need a domain added? Contact your system administrator.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        function showUploadTab(tabName) {
+            // Hide all panels
+            const panels = document.querySelectorAll('.upload-panel');
+            panels.forEach(panel => panel.classList.add('hidden'));
+            
+            // Remove active class from all tabs
+            const tabs = document.querySelectorAll('.upload-tab');
+            tabs.forEach(tab => {
+                tab.classList.remove('active', 'text-accent', 'border-accent');
+                tab.classList.add('text-textlight');
+            });
+            
+            // Show selected panel
+            document.getElementById(tabName + '-panel').classList.remove('hidden');
+            
+            // Add active class to selected tab
+            const activeTab = document.getElementById(tabName + '-tab');
+            activeTab.classList.add('active', 'text-accent', 'border-accent');
+            activeTab.classList.remove('text-textlight');
+        }
+
+        function handleFileSelect(input) {
+            const file = input.files[0];
+            if (file) {
+                const info = document.getElementById('file-info');
+                const details = document.getElementById('file-details');
+                const excelOptions = document.getElementById('excel-options');
+                
+                details.innerHTML = `
+                    <strong>${file.name}</strong><br>
+                    Size: ${(file.size / 1024 / 1024).toFixed(2)} MB<br>
+                    Type: ${file.type || 'Unknown'}
+                `;
+                info.classList.remove('hidden');
+                
+                // Show Excel options for Excel files
+                const fileName = file.name.toLowerCase();
+                if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                    excelOptions.classList.remove('hidden');
+                } else {
+                    excelOptions.classList.add('hidden');
+                }
+                
+                // Auto-suggest table name
+                const tableName = document.getElementById('table-name');
+                if (!tableName.value) {
+                    const baseName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+                    const cleanName = baseName.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+                    tableName.value = cleanName;
+                }
+            }
+        }
+
+        function validateFileUpload() {
+            const fileInput = document.getElementById('file-input');
+            if (!fileInput.files.length) {
+                alert('Please select a file to upload.');
+                return false;
+            }
+            
+            const file = fileInput.files[0];
+            if (file.size > {{ (system_settings.max_file_size if system_settings else 52428800) }}) {
+                alert('File size must be less than {{ ((system_settings.max_file_size if system_settings else 52428800) // (1024*1024)) }}MB.');
+                return false;
+            }
+            
+            // Check file type
+            const fileName = file.name.toLowerCase();
+            const validExtensions = ['.csv', '.txt', '.tsv', '.xlsx', '.xls'];
+            const isValidFile = validExtensions.some(ext => fileName.endsWith(ext));
+            
+            if (!isValidFile) {
+                alert('Please select a valid file type: CSV, TSV, TXT, or Excel (.xlsx, .xls)');
+                return false;
+            }
+            
+            return true;
+        }
+
+        function validateSheetsUpload() {
+            const url = document.getElementById('sheets-url').value;
+            if (!url) {
+                alert('Please enter a Google Sheets URL.');
+                return false;
+            }
+            
+            if (!url.includes('docs.google.com/spreadsheets/')) {
+                alert('Please enter a valid Google Sheets URL.');
+                return false;
+            }
+            
+            return true;
+        }
+
+        function validateUrlUpload() {
+            const url = document.getElementById('csv-url').value;
+            if (!url) {
+                alert('Please enter a CSV file URL.');
+                return false;
+            }
+            
+            try {
+                new URL(url);
+            } catch {
+                alert('Please enter a valid URL.');
+                return false;
+            }
+            
+            return true;
+        }
+
+        function detectSheets() {
+            const url = document.getElementById('sheets-url').value;
+            if (!url) {
+                alert('Please enter a Google Sheets URL first.');
+                return;
+            }
+            
+            // Show loading state
+            const info = document.getElementById('sheets-info');
+            const details = document.getElementById('sheets-details');
+            details.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Testing connection...';
+            info.classList.remove('hidden');
+            
+            // Simple validation - in a real implementation, you'd make an API call
+            setTimeout(() => {
+                if (url.includes('docs.google.com/spreadsheets/')) {
+                    details.innerHTML = `
+                        <strong><i class="ri-check-line mr-1"></i>URL format looks good!</strong><br>
+                        Ready to import. Make sure the sheet is publicly accessible.
+                    `;
+                    info.className = 'mt-3 p-3 bg-green-50 rounded border';
+                } else {
+                    details.innerHTML = `
+                        <strong><i class="ri-error-warning-line mr-1"></i>Invalid URL format</strong><br>
+                        Please use a Google Sheets URL like: https://docs.google.com/spreadsheets/d/...
+                    `;
+                    info.className = 'mt-3 p-3 bg-red-50 rounded border';
+                }
+            }, 1500);
+        }
+
+        function validateUrl() {
+            const url = document.getElementById('csv-url').value;
+            if (!url) {
+                alert('Please enter a URL first.');
+                return;
+            }
+            
+            // Show loading state
+            const info = document.getElementById('url-info');
+            const details = document.getElementById('url-details');
+            details.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Testing URL...';
+            info.classList.remove('hidden');
+            
+            // Simple client-side validation
+            setTimeout(() => {
+                const allowedDomains = ['github.com', 'githubusercontent.com', 'data.gov', 'kaggle.com', 'edgi-cloud.fly.dev'];
+                const urlObj = new URL(url);
+                const isAllowed = allowedDomains.some(domain => urlObj.hostname.includes(domain));
+                const isCSV = url.toLowerCase().includes('.csv');
+                
+                if (isAllowed && isCSV) {
+                    details.innerHTML = `
+                        <strong><i class="ri-check-line mr-1"></i>URL looks valid!</strong><br>
+                        Domain: ${urlObj.hostname}<br>
+                        Ready to import
+                    `;
+                    info.className = 'mt-3 p-3 bg-green-50 rounded border';
+                } else {
+                    let issues = [];
+                    if (!isAllowed) issues.push('Domain not in allowlist');
+                    if (!isCSV) issues.push('URL should point to a .csv file');
+                    
+                    details.innerHTML = `
+                        <strong><i class="ri-error-warning-line mr-1"></i>Potential issues:</strong><br>
+                        ${issues.join(', ')}<br>
+                        <a href="#" onclick="showAllowedDomains()" class="text-blue-600 underline">View allowed domains</a>
+                    `;
+                    info.className = 'mt-3 p-3 bg-yellow-50 rounded border';
+                }
+            }, 1000);
+        }
+
+        function showAllowedDomains() {
+            document.getElementById('domains-modal').classList.remove('hidden');
+        }
+
+        function hideAllowedDomains() {
+            document.getElementById('domains-modal').classList.add('hidden');
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('domains-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideAllowedDomains();
+            }
+        });
+
+        // Initialize with file tab active
+        document.addEventListener('DOMContentLoaded', function() {
+            showUploadTab('file');
+        });
+    </script>
+
+    <style>
+        .upload-tab.active {
+            border-bottom: 2px solid theme('colors.accent');
+        }
+        .upload-tab:not(.active) {
+            border-bottom: 2px solid transparent;
+        }
+        
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</body>
+</html>

@@ -12,16 +12,152 @@ import os
 import bleach
 from datetime import datetime, timedelta
 from pathlib import Path
+from email.parser import BytesParser
+from email.policy import default
 
 logger = logging.getLogger(__name__)
 
-# Configuration Constants
-TRASH_RETENTION_DAYS = 30
-MAX_DATABASES_PER_USER = 10
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-ALLOWED_EXTENSIONS = {'.jpg', '.png', '.csv', '.txt'}
-DATA_DIR = os.getenv('EDGI_DATA_DIR', "/data")
-STATIC_DIR = os.getenv('EDGI_STATIC_DIR', "/static")
+# Constants
+PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(PLUGINS_DIR)
+DATA_DIR = os.getenv("RESETTE_DATA_DIR", os.path.join(ROOT_DIR, "data"))
+STATIC_DIR = os.getenv('RESETTE_STATIC_DIR', os.path.join(ROOT_DIR, "static"))
+
+import sys
+if PLUGINS_DIR not in sys.path:
+    sys.path.insert(0, PLUGINS_DIR)
+
+async def get_system_settings(datasette):
+    """Get system settings with proper error handling and defaults."""
+    try:
+        query_db = datasette.get_database('portal')
+        
+        # Get all settings from the system_settings table
+        result = await query_db.execute("SELECT setting_key, setting_value FROM system_settings")
+        
+        # Convert to dictionary with defaults
+        settings = {}
+        for row in result:
+            row_dict = dict(row)  # Convert Row to dict
+            settings[row_dict['setting_key']] = row_dict['setting_value']
+        
+        # Apply defaults for any missing settings
+        defaults = {
+            'trash_retention_days': 30,
+            'max_databases_per_user': 10,
+            'max_file_size': 50 * 1024 * 1024,  # 50MB in bytes
+            'max_img_size': 5 * 1024 * 1024,   # 5MB in bytes
+            'allowed_extensions': '.jpg, .jpeg, .png, .csv, .xls, .xlsx, .txt'
+        }
+        
+        # FIXED: Ensure all required settings exist with proper type conversion
+        for key, default_value in defaults.items():
+            if key not in settings:
+                settings[key] = default_value
+            else:
+                # Type conversion for numeric settings
+                if key in ['trash_retention_days', 'max_databases_per_user', 'max_file_size', 'max_img_size']:
+                    try:
+                        settings[key] = int(settings[key])
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid value for {key}: {settings[key]}, using default: {default_value}")
+                        settings[key] = default_value
+        
+        logger.debug(f"Retrieved system settings: {settings}")
+        return settings
+        
+    except Exception as e:
+        logger.error(f"Error getting system settings: {e}")
+        # Return all defaults if there's an error
+        return {
+            'trash_retention_days': 30,
+            'max_databases_per_user': 10,
+            'max_file_size': 50 * 1024 * 1024,
+            'max_img_size': 5 * 1024 * 1024,
+            'allowed_extensions': '.jpg, .png, .csv, .xls, .xlsx, .txt'
+        }
+
+async def get_trash_retention_days(datasette):
+    """Get trash retention days specifically."""
+    try:
+        settings = await get_system_settings(datasette)
+        return settings.get('trash_retention_days', 30)
+    except Exception as e:
+        logger.error(f"Error getting trash retention days: {e}")
+        return 30
+
+async def get_max_databases_per_user(datasette):
+    """Get max databases per user."""
+    try:
+        settings = await get_system_settings(datasette)
+        return settings.get('max_databases_per_user', 10)
+    except Exception as e:
+        logger.error(f"Error getting max databases per user: {e}")
+        return 10
+
+async def get_max_file_size(datasette):
+    """Get max file size in bytes."""
+    try:
+        settings = await get_system_settings(datasette)
+        max_file_size = settings.get('max_img_size', 50 * 1024 * 1024)
+        
+        if isinstance(max_file_size, str):
+            max_file_size = int(max_file_size)
+        
+        return max_file_size
+    except Exception as e:
+        logger.error(f"Error getting max image size: {e}")
+        return 50 * 1024 * 1024
+
+async def get_max_image_size(datasette):
+    """Get max image size in bytes."""
+    try:
+        settings = await get_system_settings(datasette)
+        max_img_size = settings.get('max_img_size', 5 * 1024 * 1024)
+        
+        if isinstance(max_img_size, str):
+            max_img_size = int(max_img_size)
+        
+        return max_img_size
+    except Exception as e:
+        logger.error(f"Error getting max image size: {e}")
+        return 5 * 1024 * 1024
+    
+async def get_allowed_extensions(datasette):
+    """Get allowed file extensions."""
+    try:
+        settings = await get_system_settings(datasette)
+        return settings.get('allowed_extensions', '.jpg,.png,.csv,.xls,.xlsx,.txt')
+    except Exception as e:
+        logger.error(f"Error getting allowed extensions: {e}")
+        return '.jpg,.png,.csv,.xls,.xlsx,.txt'
+
+async def get_blocked_domains(datasette):
+    """Get blocked domains list."""
+    try:
+        query_db = datasette.get_database('portal')
+        result = await query_db.execute("SELECT domain, created_at, created_by FROM blocked_domains ORDER BY created_at DESC")
+        
+        blocked_domains = []
+        for row in result:
+            row_dict = dict(row)  # Convert Row to dict
+            blocked_domains.append(row_dict)
+        
+        return blocked_domains
+        
+    except Exception as e:
+        logger.error(f"Error getting blocked domains: {e}")
+        return []
+
+async def is_domain_blocked(datasette, domain):
+    """Check if a domain is in the blocked list."""
+    try:
+        query_db = datasette.get_database('portal')
+        result = await query_db.execute("SELECT COUNT(*) FROM blocked_domains WHERE domain = ?", [domain])
+        return result.first()[0] > 0
+    except Exception as e:
+        logger.error(f"Error checking blocked domain {domain}: {e}")
+        return False
 
 def get_actor_from_request(request):
     """
@@ -212,16 +348,16 @@ async def get_portal_content(datasette):
 
     # Default content structure
     content = {
-        'title': await get_section("title") or {'content': 'EDGI Datasette Cloud Portal'},
+        'title': await get_section("title") or {'content': 'Resette Cloud Portal'},
         'header_image': await get_section("header_image") or {
             'image_url': '/static/default_header.jpg', 
-            'alt_text': 'EDGI Portal Header', 
-            'credit_url': '', 
+            'alt_text': 'Resette Header', 
+            'credit_url': '',
             'credit_text': ''
         },
         'info': await get_section("info") or {
-            'content': 'The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.',
-            'paragraphs': parse_markdown_links('The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites.')
+            'content': 'The Resette Cloud Portal enables users to share environmental datasets as interactive websites.',
+            'paragraphs': parse_markdown_links('The Resette Cloud Portal enables users to share environmental datasets as interactive websites.')
         },
         'footer': await get_section("footer") or {
             'content': 'Made with \u2764\ufe0f by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/).',
@@ -816,3 +952,372 @@ def create_statistics_data(stats):
             "url": "/register"
         }
     ]
+
+def parse_multipart_form_data(request_body, content_type):
+    """
+    FIXED: Robust multipart form parser using email parser (proven reliable).
+    Falls back to custom parser if email parser fails.
+    """
+    try:
+        # Method 1: Use email parser (most reliable)
+        return parse_multipart_with_email_parser(request_body, content_type)
+    except Exception as email_error:
+        logger.warning(f"Email parser failed: {email_error}, trying custom parser")
+        try:
+            # Method 2: Enhanced custom parser as fallback
+            return parse_multipart_custom_enhanced(request_body, content_type)
+        except Exception as custom_error:
+            logger.error(f"All multipart parsers failed: email={email_error}, custom={custom_error}")
+            raise ValueError("Failed to parse multipart form data")
+        
+def parse_multipart_with_email_parser(request_body, content_type):
+    """Use email parser for multipart data (most reliable method)."""
+    # Construct proper headers for email parser
+    headers = f"Content-Type: {content_type}\r\n\r\n".encode()
+    full_body = headers + request_body
+    
+    # Parse with email parser
+    parser = BytesParser(policy=default)
+    message = parser.parsebytes(full_body)
+    
+    forms = {}
+    files = {}
+    
+    if message.is_multipart():
+        for part in message.get_payload():
+            content_disposition = part.get('Content-Disposition', '')
+            
+            # Parse Content-Disposition header
+            name_match = re.search(r'name="([^"]+)"', content_disposition)
+            filename_match = re.search(r'filename="([^"]*)"', content_disposition)
+            
+            if name_match:
+                field_name = name_match.group(1)
+                content = part.get_payload(decode=True)
+                
+                if filename_match and filename_match.group(1):
+                    # File upload
+                    files[field_name] = {
+                        'filename': filename_match.group(1),
+                        'content': content or b''
+                    }
+                else:
+                    # Form field
+                    forms[field_name] = [content.decode('utf-8', errors='ignore') if content else '']
+    
+    return forms, files
+
+def parse_multipart_custom_enhanced(request_body, content_type):
+    """Enhanced custom multipart parser with better boundary handling."""
+    # Extract boundary with multiple patterns
+    boundary = None
+    
+    # Try different boundary patterns
+    patterns = [
+        r'boundary=([^;,\s]+)',
+        r'boundary="([^"]+)"',
+        r'boundary=([a-zA-Z0-9\-_]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, content_type, re.IGNORECASE)
+        if match:
+            boundary = match.group(1).strip('"')
+            break
+    
+    if not boundary:
+        raise ValueError("No boundary found in Content-Type header")
+    
+    # Split by boundary
+    boundary_bytes = f'--{boundary}'.encode()
+    parts = request_body.split(boundary_bytes)
+    
+    forms = {}
+    files = {}
+    
+    for part in parts[1:-1]:  # Skip first empty and last closing parts
+        if len(part) < 10:  # Skip very small parts
+            continue
+        
+        # Find the double CRLF that separates headers from content
+        header_end_patterns = [b'\r\n\r\n', b'\n\n', b'\r\r']
+        headers_bytes = None
+        content = None
+        
+        for pattern in header_end_patterns:
+            if pattern in part:
+                headers_bytes, content = part.split(pattern, 1)
+                break
+        
+        if headers_bytes is None or content is None:
+            continue
+        
+        headers_text = headers_bytes.decode('utf-8', errors='ignore')
+        
+        # Parse Content-Disposition
+        name_match = re.search(r'name="([^"]+)"', headers_text, re.IGNORECASE)
+        filename_match = re.search(r'filename="([^"]*)"', headers_text, re.IGNORECASE)
+        
+        if name_match:
+            field_name = name_match.group(1)
+            
+            # Clean up content (remove trailing CRLF)
+            content = content.rstrip(b'\r\n')
+            
+            if filename_match and filename_match.group(1):
+                # File upload
+                files[field_name] = {
+                    'filename': filename_match.group(1),
+                    'content': content
+                }
+            else:
+                # Form field
+                forms[field_name] = [content.decode('utf-8', errors='ignore')]
+    
+    return forms, files
+
+async def handle_image_upload_robust(datasette, request, db_id, actor, max_img_size):
+    """
+    ROBUST: Image upload handler with comprehensive error handling.
+    db_id: None for portal images, database ID for database-specific images
+    """
+    try:
+        content_type = request.headers.get('content-type', '')
+        if 'multipart/form-data' not in content_type.lower():
+            return None, "Invalid content type for file upload"
+        
+        body = await request.post_body()
+        
+        # Size check before parsing
+        if len(body) > max_img_size:
+            size_mb = max_img_size / (1024 * 1024)
+            return None, f"File too large. Maximum size: {size_mb:.0f}MB"
+        
+        # Parse multipart data with fixed parser
+        try:
+            forms, files = parse_multipart_form_data(body, content_type)
+        except Exception as parse_error:
+            logger.error(f"Multipart parsing failed: {parse_error}")
+            return None, f"Failed to parse upload data: {str(parse_error)}"
+        
+        if 'image' not in files or not files['image']['content']:
+            return None, "No image file found in upload"
+        
+        file_info = files['image']
+        filename = file_info['filename']
+        file_content = file_info['content']
+        
+        # Validate file extension
+        allowed_extensions = ['.jpg', '.jpeg', '.png']
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in allowed_extensions:
+            return None, f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
+        
+        # Final size check on actual file content
+        if len(file_content) > max_img_size:
+            size_mb = max_img_size / (1024 * 1024)
+            return None, f"Image file too large. Maximum size: {size_mb:.0f}MB"
+        
+        # Process image upload
+        return await process_image_upload_robust(datasette, db_id, file_content, filename, forms, actor)
+        
+    except Exception as e:
+        logger.error(f"Image upload handler error: {e}")
+        return None, f"Upload failed: {str(e)}"
+    
+async def process_image_upload_robust(datasette, db_id, file_content, filename, forms, actor):
+    """Process the actual image upload and optimization."""
+    try:
+        from common_utils import DATA_DIR, STATIC_DIR
+        
+        # Determine save location
+        if db_id:
+            # Database-specific image
+            save_dir = os.path.join(DATA_DIR, db_id)
+            image_filename = 'header.jpg'
+            url_path = f"/data/{db_id}/header.jpg"
+            max_size = (1680, 450)  # Smaller for database headers
+        else:
+            # Portal-wide image  
+            save_dir = STATIC_DIR
+            image_filename = 'portal_header.jpg'
+            url_path = f"/static/portal_header.jpg"
+            max_size = (1680, 450)  # Larger for portal header
+        
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Save temporary file
+        temp_path = os.path.join(save_dir, f'temp_{image_filename}')
+        final_path = os.path.join(save_dir, image_filename)
+        
+        with open(temp_path, 'wb') as f:
+            f.write(file_content)
+        
+        # Optimize image with correct arguments
+        success, optimized_size, reduction = await optimize_uploaded_image_robust(
+            temp_path, final_path, max_size=max_size, quality=100
+        )
+        
+        # Clean up temp file
+        if os.path.exists(temp_path) and temp_path != final_path:
+            os.remove(temp_path)
+        
+        # Build result
+        import time
+        timestamp = int(time.time())
+        result = {
+            'image_url': f"{url_path}?v={timestamp}",
+            'alt_text': forms.get('alt_text', [''])[0] if 'alt_text' in forms else '',
+            'credit_text': forms.get('credit_text', [''])[0] if 'credit_text' in forms else '',
+            'credit_url': forms.get('credit_url', [''])[0] if 'credit_url' in forms else ''
+        }
+        
+        return result, None
+        
+    except Exception as e:
+        logger.error(f"Image processing error: {e}")
+        return None, f"Failed to process image: {str(e)}"
+        
+async def optimize_uploaded_image_robust(temp_path, final_path, max_size=(1680, 450), quality=100):
+    """ROBUST: Image optimization with comprehensive error handling."""
+    try:
+        from PIL import Image
+        
+        original_size = os.path.getsize(temp_path)
+        
+        # Skip optimization if file is already small
+        if original_size < 1024 * 1024:  # 1MB
+            if temp_path != final_path:
+                import shutil
+                shutil.move(temp_path, final_path)
+            return True, original_size, 0
+        
+        # Optimize the image
+        with Image.open(temp_path) as img:
+            # Convert to RGB if needed
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            
+            # Resize if too large
+            if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
+                img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # Save optimized version
+            img.save(final_path, 'JPEG', quality=quality, optimize=True)
+        
+        # Calculate savings
+        new_size = os.path.getsize(final_path)
+        space_saved = max(0, original_size - new_size)
+        reduction_percent = (space_saved / original_size) * 100 if original_size > 0 else 0
+        
+        logger.info(f"Image optimized: {original_size} → {new_size} bytes ({reduction_percent:.1f}% reduction)")
+        return True, new_size, reduction_percent
+        
+    except ImportError:
+        logger.warning("PIL/Pillow not available, using original image")
+        if temp_path != final_path:
+            import shutil
+            shutil.move(temp_path, final_path)
+        return True, os.path.getsize(final_path), 0
+        
+    except Exception as e:
+        logger.error(f"Image optimization failed: {e}")
+        # Use original image as fallback
+        if temp_path != final_path and os.path.exists(temp_path):
+            import shutil
+            shutil.move(temp_path, final_path)
+        return False, os.path.getsize(final_path) if os.path.exists(final_path) else 0, 0
+
+def create_image_thumbnail(image_path, thumbnail_path, max_size=(1680, 450), quality=100):
+    """Create thumbnail from image with size optimization."""
+    try:
+        from PIL import Image
+        
+        with Image.open(image_path) as img:
+            # Convert to RGB if necessary (handles RGBA, P, etc.)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Calculate new size maintaining aspect ratio
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # Save as JPEG with specified quality
+            img.save(thumbnail_path, 'JPEG', quality=quality, optimize=True)
+            
+            # Get size reduction info
+            original_size = os.path.getsize(image_path)
+            thumbnail_size = os.path.getsize(thumbnail_path)
+            reduction_percent = ((original_size - thumbnail_size) / original_size) * 100
+            
+            logger.info(f"Created thumbnail: {original_size} bytes → {thumbnail_size} bytes ({reduction_percent:.1f}% reduction)")
+            return True, thumbnail_size, reduction_percent
+            
+    except ImportError:
+        logger.warning("PIL/Pillow not available, cannot create thumbnails")
+        return False, 0, 0
+    except Exception as e:
+        logger.error(f"Error creating thumbnail: {e}")
+        return False, 0, 0
+
+def optimize_existing_header_images(datasette):
+    """Optimize all existing header images by creating thumbnails."""
+    try:
+        optimized_count = 0
+        total_savings = 0
+        
+        # 1. Optimize portal header image
+        portal_header = os.path.join(DATA_DIR, "../static/portal_header.jpg")
+        if os.path.exists(portal_header):
+            backup_path = portal_header + ".backup"
+            thumbnail_path = portal_header + ".tmp"
+            
+            try:
+                # Create backup
+                import shutil
+                shutil.copy2(portal_header, backup_path)
+                
+                # Create thumbnail
+                success, new_size, reduction = create_image_thumbnail(portal_header, thumbnail_path)
+                if success:
+                    # Replace original with thumbnail
+                    shutil.move(thumbnail_path, portal_header)
+                    optimized_count += 1
+                    
+                    original_size = os.path.getsize(backup_path)
+                    total_savings += (original_size - new_size)
+                    logger.info(f"Optimized portal header: {reduction:.1f}% size reduction")
+                
+            except Exception as e:
+                logger.error(f"Error optimizing portal header: {e}")
+        
+        # 2. Optimize database header images
+        for db_dir in os.listdir(DATA_DIR):
+            db_path = os.path.join(DATA_DIR, db_dir)
+            if os.path.isdir(db_path):
+                header_path = os.path.join(db_path, "header.jpg")
+                if os.path.exists(header_path):
+                    backup_path = header_path + ".backup"
+                    thumbnail_path = header_path + ".tmp"
+                    
+                    try:
+                        import shutil
+                        shutil.copy2(header_path, backup_path)
+                        
+                        success, new_size, reduction = create_image_thumbnail(header_path, thumbnail_path)
+                        if success:
+                            shutil.move(thumbnail_path, header_path)
+                            optimized_count += 1
+                            
+                            original_size = os.path.getsize(backup_path)
+                            total_savings += (original_size - new_size)
+                            logger.info(f"Optimized database header {db_dir}: {reduction:.1f}% reduction")
+                    
+                    except Exception as e:
+                        logger.error(f"Error optimizing database header {db_dir}: {e}")
+        
+        logger.info(f"Image optimization complete: {optimized_count} images optimized, {total_savings} bytes saved")
+        return optimized_count, total_savings
+        
+    except Exception as e:
+        logger.error(f"Error during image optimization: {e}")
+        return 0, 0

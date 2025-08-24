@@ -109,7 +109,7 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-3xl font-bold">{{ stats.user_trashed | default(0) }}</h3>
-                            <p class="text-red-100">Databases in Trash Bin</p>
+                            <p class="text-red-100">Databases in My Trash Bin</p>
                         </div>
                         <i class="ri-delete-bin-line text-4xl text-red-200"></i>
                     </div>
@@ -195,9 +195,9 @@
                                         {% else %}
                                             <!-- REORDERED BUTTONS: Upload / Preview Homepage / View Homepage / Edit Homepage / Publish [Unpublish] / Move to Trash -->
                                             
-                                            <!-- 1. Upload CSV (Always first for active databases) -->
-                                            <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                                <i class="ri-upload-line mr-1"></i>Upload CSV
+                                            <!-- 1. Upload data files (Always first for active databases) -->
+                                            <a href="/upload-table/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                <i class="ri-upload-line mr-1"></i>Upload/ Import Table
                                             </a>
 
                                             <!-- 2. Preview Homepage (Always show if has custom homepage - new feature) -->
@@ -292,8 +292,8 @@
                                             <h4 class="font-semibold text-text">
                                                 <i class="ri-table-line mr-2"></i>Data Tables
                                             </h4>
-                                            <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                                <i class="ri-upload-line"></i> Upload CSV
+                                            <a href="/upload-table/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                <i class="ri-upload-line mr-1"></i>Upload/ Import Table
                                             </a>
                                         </div>
 
@@ -316,7 +316,7 @@
                                                             </a>
                                                             <a href="/{{ db.db_name }}/{{ table.name }}.csv" target="_blank" 
                                                             class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
-                                                                <i class="ri-download-line mr-1"></i>CSV
+                                                                <i class="ri-table-line mr-1"></i>CSV
                                                             </a>
                                                             <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
                                                             class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
@@ -331,8 +331,8 @@
                                             <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded">
                                                 <i class="ri-table-line text-3xl text-textlight mb-2"></i>
                                                 <p class="text-textlight text-sm mb-3">No data tables yet</p>
-                                                <a href="/upload-secure/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                                    <i class="ri-upload-line"></i> Upload CSV
+                                                <a href="/upload-table/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                    <i class="ri-upload-line mr-1"></i>Upload/ Import Table
                                                 </a>
                                             </div>
                                         {% endif %}
@@ -388,7 +388,7 @@
                             {% elif status_filter == 'unpublished' %}
                                 You don't have any unpublished databases.
                             {% else %}
-                                Create your first environmental data portal to get started. Upload CSV files and customize your site.
+                                Create your first environmental data portal to get started. Upload data files and customize your site.
                             {% endif %}
                         </p>
                         {% if status_filter != 'trash' %}

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>System Trash Bin - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>System Trash Bin - {{ content.title.content | default("Resette Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -152,7 +152,7 @@
 
                                     {% if db.is_own_database %}
                                         <!-- Regular Delete Button - Only for own databases -->
-                                        <a href="/db/{{ db.db_name }}/delete-permanent?from=system-trash" 
+                                        <a href="/db/{{ db.db_name }}/delete-permanent?from=system-trash&redirect=system-trash"  
                                            class="bg-red-600 text-white px-4 py-2 rounded-button hover:bg-red-700 transition font-medium"
                                            onclick="return confirm('This will permanently delete the database. Continue to confirmation page?')">
                                             <i class="ri-delete-bin-line mr-2"></i>Delete Permanently

@@ -77,7 +77,7 @@
                     <!-- Website Title -->
                     <div class="bg-card rounded-card p-6 border border-border">
                         <h3 class="text-xl font-semibold text-primary mb-4 flex items-center">
-                            <i class="ri-text mr-2"></i>Website Title
+                            <i class="ri-layout-top-line mr-2"></i>Website Title
                         </h3>
                         <p class="text-textlight text-sm mb-4">
                             The main heading that appears on your database homepage
@@ -127,7 +127,11 @@
                                 <label class="block text-text mb-2 font-medium">Upload New Image:</label>
                                 <div class="border-2 border-dashed border-gray-300 rounded-button p-4 text-center hover:border-accent transition">
                                     <input type="file" name="image" accept=".jpg,.jpeg,.png" 
+                                           onchange="validateImageUpload(this)"
                                            class="w-full text-sm text-textlight file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-accent file:text-white hover:file:bg-primary">
+                                    <div class="mt-2">
+                                        <img id="image-preview" style="display: none; max-width: 200px; max-height: 150px; border-radius: 8px;" alt="Image preview">
+                                    </div>
                                 </div>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -261,5 +265,55 @@
             </div>
         </div>
     </footer>
+    <script>
+    function validateImageUpload(input) {
+        const file = input.files[0];
+        if (!file) return true;
+        
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+        
+        if (file.size > maxSize) {
+            alert('File too large. Maximum size: 5MB');
+            input.value = '';
+            return false;
+        }
+        
+        if (!allowedTypes.includes(file.type)) {
+            alert('Invalid file type. Please select a JPG or PNG image.');
+            input.value = '';
+            return false;
+        }
+        
+        // Show preview if possible
+        if (window.FileReader) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.getElementById('image-preview');
+                if (preview) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        return true;
+    }
+
+    // Add loading state to form submissions
+    document.addEventListener('DOMContentLoaded', function() {
+        const forms = document.querySelectorAll('form[enctype="multipart/form-data"]');
+        forms.forEach(form => {
+            form.addEventListener('submit', function() {
+                const submitBtn = form.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<i class="ri-loader-4-line animate-spin mr-2"></i>Uploading...';
+                }
+            });
+        });
+    });
+    </script>
 </body>
 </html>
