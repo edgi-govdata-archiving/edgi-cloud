@@ -15,6 +15,8 @@ from datasette import hookimpl
 from datasette.utils.asgi import Response
 from datasette.database import Database
 import sqlite3
+from email.parser import BytesParser
+from email.policy import default
 
 # Add the plugins directory to Python path for imports
 import sys
@@ -784,7 +786,7 @@ async def database_homepage(datasette, request):
         return Response.text("Error loading homepage", status=500)
     
 async def edit_content(datasette, request):
-    """FIXED: Edit database content with robust image handling."""
+    """Edit database content and homepage."""
     logger.debug(f"Edit Content request: method={request.method}, path={request.path}")
 
     path_parts = request.path.strip('/').split('/')
@@ -814,43 +816,118 @@ async def edit_content(datasette, request):
     
     if request.method == "POST":
         content_type = request.headers.get('content-type', '').lower()
-        
         if 'multipart/form-data' in content_type:
-            # Handle image upload with robust parser
+            # Handle image upload using email.parser approach
             try:
+                body = await request.post_body()
                 max_img_size = await get_max_image_size(datasette)
-                
-                # Use the robust image upload handler
-                result, error = await handle_image_upload_robust(
-                    datasette, request, db_id, actor, max_img_size
-                )
-                
-                if error:
-                    return Response.redirect(f"{request.path}?error={error}")
-                
-                if result:
-                    # Save to database
-                    await query_db.execute_write(
-                        "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                        [db_id, 'header_image', json.dumps(result), datetime.utcnow().isoformat(), actor['username']]
-                    )
 
-                    # Update database timestamp
-                    await update_database_timestamp_by_id(datasette, db_id)
+                if len(body) > max_img_size:
+                    return Response.text("File too large", status=400)
+                
+                # Parse the content-type header to get boundary
+                boundary = None
+                if 'boundary=' in content_type:
+                    boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
+                
+                if not boundary:
+                    logger.error("No boundary found in Content-Type header")
+                    return Response.redirect(f"{request.path}?error=Invalid form data")
+                
+                # Create headers for email parser
+                headers = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', [])}
+                headers['content-type'] = request.headers.get('content-type', '')
+                
+                # Parse using email parser
+                header_bytes = b'\r\n'.join([f'{k}: {v}'.encode('utf-8') for k, v in headers.items()]) + b'\r\n\r\n'
+                msg = BytesParser(policy=default).parsebytes(header_bytes + body)
+                
+                forms = {}
+                files = {}
+                
+                # Extract form data and files
+                for part in msg.iter_parts():
+                    if not part.is_multipart():
+                        content_disposition = part.get('Content-Disposition', '')
+                        if content_disposition:
+                            disposition_params = {}
+                            for param in content_disposition.split(';'):
+                                param = param.strip()
+                                if '=' in param:
+                                    key, value = param.split('=', 1)
+                                    disposition_params[key.strip()] = value.strip().strip('"')
+                            
+                            field_name = disposition_params.get('name')
+                            filename = disposition_params.get('filename')
+                            
+                            if field_name:
+                                if filename:
+                                    files[field_name] = {
+                                        'filename': filename,
+                                        'content': part.get_payload(decode=True)
+                                    }
+                                else:
+                                    forms[field_name] = [part.get_payload(decode=True).decode('utf-8')]
+                
+                logger.debug(f"Parsed forms: {forms}")
+                logger.debug(f"Parsed files: {files}")
+                
+                new_content = content.get('header_image', {})
+                
+                # Handle image upload
+                if 'image' in files and files['image']['content']:
+                    file = files['image']
+                    filename = file['filename']
+                    ext = Path(filename).suffix.lower()
                     
-                    await log_database_action(
-                        datasette, actor.get("id"), "edit_content", 
-                        f"Updated and optimized header image for {db_name}",
-                        {"db_name": db_name, "section": "header_image", "image_optimized": True}
-                    )
-                    
-                    return Response.redirect(f"{request.path}?success=Header image updated successfully")
+                    if ext in ['.jpg', '.jpeg', '.png']:
+                        # Create database-specific directory under data/db_id
+                        db_data_dir = os.path.join(DATA_DIR, db_id)
+                        os.makedirs(db_data_dir, exist_ok=True)
+                        
+                        # Save image as header.jpg in database directory
+                        image_path = os.path.join(db_data_dir, 'header.jpg')
+                        with open(image_path, 'wb') as f:
+                            f.write(file['content'])
+                        
+                        # Update content with correct image URL
+                        import time
+                        timestamp = int(time.time())
+                        new_content['image_url'] = f"/data/{db_id}/header.jpg?v={timestamp}"
+                        logger.debug(f"Saved image to {image_path}, URL with cache busting: {new_content['image_url']}")
+                
+                # Update other fields from forms
+                if 'alt_text' in forms:
+                    new_content['alt_text'] = forms['alt_text'][0]
+                if 'credit_text' in forms:
+                    new_content['credit_text'] = forms['credit_text'][0]
+                if 'credit_url' in forms:
+                    new_content['credit_url'] = forms['credit_url'][0]
+                
+                # Save to database
+                await query_db.execute_write(
+                    "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [db_id, 'header_image', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
+                )
+
+                # UPDATE DATABASE TIMESTAMP
+                await update_database_timestamp_by_id(datasette, db_id)                               
+                
+                await log_database_action(
+                    datasette, actor.get("id"), "edit_content", 
+                    f"Updated header image for {db_name}",
+                    {"db_name": db_name, "section": "header_image"}
+                )
+                                
+                return Response.redirect(f"{request.path}?success=Header image updated")
                 
             except Exception as e:
                 logger.error(f"Error handling image upload: {e}")
-                return Response.redirect(f"{request.path}?error=Image upload failed: {str(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                return Response.redirect(f"{request.path}?error=Error uploading image: {str(e)}")
         else:
-            # Handle text form data (unchanged but simplified)
+            # Handle text form data
             post_vars = await request.post_vars()
             
             if 'title' in post_vars:
@@ -859,12 +936,16 @@ async def edit_content(datasette, request):
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
                     [db_id, 'title', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
+                
+                # UPDATE DATABASE TIMESTAMP
                 await update_database_timestamp_by_id(datasette, db_id)
+
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated title for {db_name}",
                     {"db_name": db_name, "section": "title"}
                 )
+                
                 return Response.redirect(f"{request.path}?success=Title updated")
             
             if 'description' in post_vars:
@@ -876,12 +957,16 @@ async def edit_content(datasette, request):
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
                     [db_id, 'description', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
+                
+                # UPDATE DATABASE TIMESTAMP
                 await update_database_timestamp_by_id(datasette, db_id)
+
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated description for {db_name}",
                     {"db_name": db_name, "section": "description"}
                 )
+                
                 return Response.redirect(f"{request.path}?success=Description updated")
             
             if 'footer' in post_vars:
@@ -895,12 +980,16 @@ async def edit_content(datasette, request):
                     "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
                     [db_id, 'footer', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
+                
+                # UPDATE DATABASE TIMESTAMP
                 await update_database_timestamp_by_id(datasette, db_id)
+
                 await log_database_action(
                     datasette, actor.get("id"), "edit_content", 
                     f"Updated footer for {db_name}",
                     {"db_name": db_name, "section": "footer"}
                 )
+                
                 return Response.redirect(f"{request.path}?success=Footer updated")
     
     return Response.html(

@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from datasette import hookimpl
 from datasette.utils.asgi import Response
 from datasette.database import Database
+from email.parser import BytesParser
+from email.policy import default
 
 import sys
 PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -163,7 +165,7 @@ async def delete_user(datasette, request):
     return Response.redirect("/system-admin")
 
 async def edit_portal_homepage(datasette, request):
-    """FIXED: Edit portal homepage with robust image handling."""
+    """Edit portal homepage content - System Admin only."""
     logger.debug(f"Edit Portal Homepage request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -181,51 +183,120 @@ async def edit_portal_homepage(datasette, request):
         return Response.redirect("/login?error=Unauthorized access")
 
     query_db = datasette.get_database('portal')
+
+    # Get current portal content using common utility
     content = await get_portal_content(datasette)
 
     if request.method == "POST":
         content_type = request.headers.get('content-type', '').lower()
         
         if 'multipart/form-data' in content_type:
-            # FIXED: Handle image upload with robust parser
+            # Handle image upload (similar to database header image upload)
             try:
+                body = await request.post_body()
                 max_img_size = await get_max_image_size(datasette)
+
+                if len(body) > max_img_size:
+                    return Response.redirect(f"{request.path}?error=File too large")
                 
-                # Use the robust image upload handler (db_id=None for portal images)
-                result, error = await handle_image_upload_robust(
-                    datasette, request, None, actor, max_img_size
+                # Parse multipart form data (reuse the email parser approach)
+                boundary = None
+                if 'boundary=' in content_type:
+                    boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
+                
+                if not boundary:
+                    logger.error("No boundary found in Content-Type header")
+                    return Response.redirect(f"{request.path}?error=Invalid form data")
+                
+                headers = {k.decode('utf-8'): v.decode('utf-8') for k, v in request.scope.get('headers', [])}
+                headers['content-type'] = request.headers.get('content-type', '')
+                
+                header_bytes = b'\r\n'.join([f'{k}: {v}'.encode('utf-8') for k, v in headers.items()]) + b'\r\n\r\n'
+                msg = BytesParser(policy=default).parsebytes(header_bytes + body)
+                
+                forms = {}
+                files = {}
+                
+                for part in msg.iter_parts():
+                    if not part.is_multipart():
+                        content_disposition = part.get('Content-Disposition', '')
+                        if content_disposition:
+                            disposition_params = {}
+                            for param in content_disposition.split(';'):
+                                param = param.strip()
+                                if '=' in param:
+                                    key, value = param.split('=', 1)
+                                    disposition_params[key.strip()] = value.strip().strip('"')
+                            
+                            field_name = disposition_params.get('name')
+                            filename = disposition_params.get('filename')
+                            
+                            if field_name:
+                                if filename:
+                                    files[field_name] = {
+                                        'filename': filename,
+                                        'content': part.get_payload(decode=True)
+                                    }
+                                else:
+                                    forms[field_name] = [part.get_payload(decode=True).decode('utf-8')]
+                
+                new_content = content.get('header_image', {})
+                
+                # Handle image upload for portal
+                if 'image' in files and files['image']['content']:
+                    file = files['image']
+                    filename = file['filename']
+                    ext = Path(filename).suffix.lower()
+                    
+                    if ext in ['.jpg', '.jpeg', '.png']:
+                        # Save portal header image in static directory
+                        portal_header_path = os.path.join(STATIC_DIR, 'portal_header.jpg')
+                        with open(portal_header_path, 'wb') as f:
+                            f.write(file['content'])
+                        
+                        # Update content with timestamp for cache busting
+                        import time
+                        timestamp = int(time.time())
+                        new_content['image_url'] = f"/static/portal_header.jpg?v={timestamp}"
+                        logger.debug(f"Saved portal header to {portal_header_path}")
+                
+                # Update other fields
+                if 'alt_text' in forms:
+                    new_content['alt_text'] = forms['alt_text'][0]
+                if 'credit_text' in forms:
+                    new_content['credit_text'] = forms['credit_text'][0]
+                if 'credit_url' in forms:
+                    new_content['credit_url'] = forms['credit_url'][0]
+                
+                # Save to database - Handle NULL db_id properly
+                # First delete existing record for this section with NULL db_id
+                await query_db.execute_write(
+                    "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
+                    ['header_image']
+                )
+                # Then insert new record
+                await query_db.execute_write(
+                    "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [None, 'header_image', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
                 )
                 
-                if error:
-                    return Response.redirect(f"{request.path}?error={error}")
+                await log_admin_activity(
+                    datasette, actor.get("id"), "edit_portal_homepage", 
+                    f"Updated portal header image"
+                )
                 
-                if result:
-                    # Save to database
-                    await query_db.execute_write(
-                        "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
-                        ['header_image']
-                    )
-                    await query_db.execute_write(
-                        "INSERT INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                        [None, 'header_image', json.dumps(result), datetime.utcnow().isoformat(), actor['username']]
-                    )
-                    
-                    await log_admin_activity(
-                        datasette, actor.get("id"), "edit_portal_homepage", 
-                        f"Updated and optimized portal header image"
-                    )
-                    
-                    return Response.redirect(f"{request.path}?success=Portal header image updated successfully")
+                return Response.redirect(f"{request.path}?success=Portal header image updated")
                 
             except Exception as e:
                 logger.error(f"Error handling portal image upload: {e}")
-                return Response.redirect(f"{request.path}?error=Image upload failed: {str(e)}")
+                return Response.redirect(f"{request.path}?error=Error uploading image: {str(e)}")
         else:
-            # Handle text form data (unchanged)
+            # Handle text form data
             post_vars = await request.post_vars()
             
             if 'title' in post_vars:
                 new_content = {"content": post_vars['title']}
+                # Handle NULL db_id properly for title
                 await query_db.execute_write(
                     "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
                     ['title']
@@ -241,12 +312,13 @@ async def edit_portal_homepage(datasette, request):
                 )
                 
                 return Response.redirect(f"{request.path}?success=Portal title updated")
-                        
+            
             if 'description' in post_vars:
                 new_content = {
                     "content": post_vars['description'],
                     "paragraphs": parse_markdown_links(post_vars['description'])
                 }
+                # Handle NULL db_id properly for info
                 await query_db.execute_write(
                     "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
                     ['info']
@@ -270,6 +342,7 @@ async def edit_portal_homepage(datasette, request):
                     "odbl_url": "https://opendatacommons.org/licenses/odbl/",
                     "paragraphs": parse_markdown_links(post_vars['footer'])
                 }
+                # Handle NULL db_id properly for footer
                 await query_db.execute_write(
                     "DELETE FROM admin_content WHERE db_id IS NULL AND section = ?",
                     ['footer']
