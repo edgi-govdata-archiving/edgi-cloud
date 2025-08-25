@@ -14,6 +14,35 @@ pandas>=1.5.0                 # Data processing and CSV handling
 chardet>=5.1.0                # Character encoding detection
 validators>=0.20.0            # URL validation
 
+# Enhanced Upload and Data Processing Dependencies
+openpyxl>=3.0.0              # Excel file (.xlsx) reading and writing
+xlrd>=2.0.0                  # Excel file (.xls) reading (legacy format)
+
 # Optional: For better Google Sheets support (if using API)
 # gspread>=5.7.0              # Google Sheets API client
 # google-auth>=2.15.0         # Google authentication
+
+# Image Processing (for header image optimization)
+Pillow>=9.0.0                # Image processing and optimization
+
+# Additional Data Format Support
+lxml>=4.6.0                  # XML parsing (for some Excel formats)
+beautifulsoup4>=4.11.0       # HTML parsing (for web scraping if needed)
+
+# Optional: Advanced Excel and Google Sheets Support
+# Uncomment these if you need Google Sheets integration:
+# gspread>=5.7.0              # Google Sheets API client
+# google-auth>=2.15.0         # Google authentication
+# google-auth-oauthlib>=0.5.0 # OAuth2 flow for Google APIs
+# google-auth-httplib2>=0.1.0 # HTTP transport for Google APIs
+
+# Optional: Advanced Data Analysis
+# Uncomment these for more advanced data processing:
+# numpy>=1.21.0               # Numerical computing (pandas dependency)
+# matplotlib>=3.5.0           # Data visualization
+# seaborn>=0.11.0             # Statistical data visualization
+
+# Development and Testing (uncomment for development)
+# pytest>=7.0.0               # Testing framework
+# black>=22.0.0               # Code formatting
+# flake8>=4.0.0               # Code linting

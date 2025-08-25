@@ -46,11 +46,9 @@
                     </p>
                 </div>
                 <div class="flex gap-3">
-                    {% if db_status == 'Published' %}
-                        <a href="/db/{{ db_name }}/homepage" target="_blank" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition text-sm">
-                            <i class="ri-external-link-line mr-1"></i>View Live Site
-                        </a>
-                    {% endif %}
+                    <a href="/db/{{ db_name }}/homepage" target="_blank" class="bg-green-500 text-white px-4 py-2 rounded-button hover:bg-green-600 transition text-sm">
+                        <i class="ri-external-link-line mr-1"></i>Preview Homepage
+                    </a>
                     <a href="/manage-databases" class="bg-gray-500 text-white px-4 py-2 rounded-button hover:bg-gray-600 transition text-sm">
                         <i class="ri-arrow-left-line mr-1"></i>Back to Databases
                     </a>

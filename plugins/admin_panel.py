@@ -29,6 +29,7 @@ from common_utils import (
     ensure_data_directories,
     optimize_existing_header_images,
     DATA_DIR,
+    handle_image_upload_robust,
 )
 
 import logging
