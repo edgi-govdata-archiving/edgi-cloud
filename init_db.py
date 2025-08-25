@@ -52,7 +52,7 @@ def create_database_schema(portal_db):
     }, pk="db_id", if_not_exists=True)
     print("   ✅ Created databases table (with complete deletion support)")
 
-    # Admin content table - unchanged
+    # Admin content table
     portal_db.create_table("admin_content", {
         "db_id": str,                    # Database ID (NULL for portal content)
         "section": str,                  # Content section (title, info, footer, header_image)
