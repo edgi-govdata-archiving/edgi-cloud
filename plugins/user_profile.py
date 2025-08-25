@@ -14,9 +14,10 @@ from datasette.utils.asgi import Response
 
 # Add the plugins directory to Python path for imports
 import sys
-plugins_dir = os.path.dirname(os.path.abspath(__file__))
-if plugins_dir not in sys.path:
-    sys.path.insert(0, plugins_dir)
+PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
+if PLUGINS_DIR not in sys.path:
+    sys.path.insert(0, PLUGINS_DIR)
+ROOT_DIR = os.path.dirname(PLUGINS_DIR)
 
 # Import from common_utils
 from common_utils import (
@@ -26,13 +27,10 @@ from common_utils import (
     verify_user_session,
     get_portal_content,
     handle_form_errors,
-    redirect_authenticated_user,
     get_success_error_from_request,
     validate_email,
     validate_username,
     validate_password,
-    get_database_statistics,
-    sanitize_text
 )
 
 # Configuration
@@ -561,11 +559,25 @@ def startup(datasette):
     
     async def inner():
         try:
-            logger.info("👤 Starting User Profile Module...")
+            logger.info("Starting User Profile Module...")
             
             # Get database path
-            db_path = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
+            db_path = None
+            possible_paths = [
+                os.getenv('PORTAL_DB_PATH'),  # Environment variable
+                "/data/portal.db",            # Docker/production
+                "data/portal.db",             # Local development relative
+                os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
+                os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
+                "portal.db"                   # Current directory fallback
+            ]
             
+            # Find the portal database
+            for path in possible_paths:
+                if path and os.path.exists(path):
+                    db_path = path
+                    logger.info(f"Found portal database at: {db_path}")
+                    break
             # Check if portal database exists
             if not os.path.exists(db_path):
                 logger.error(f"Portal database not found at: {db_path}")

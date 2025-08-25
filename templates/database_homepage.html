@@ -139,7 +139,7 @@
         </section>
 
         <!-- Database Information -->
-        <section class="container mx-auto px-4 mt-4">
+        <section class="container w-[90%] mx-auto px-4 mt-4">
             <div class="bg-card rounded-card p-6 border border-border">
                 <div class="flex items-center justify-between mb-4">
                     <div>
@@ -199,7 +199,7 @@
 
         <!-- Statistics Section -->
         <section class="container mx-auto px-4 mt-6">
-            <div class="bg-card rounded-card p-6 border border-border">
+            <div class="bg-card rounded-card p-6 border border-border w-[90%] mx-auto">
                 <h2 class="text-xl font-semibold text-primary mb-4">
                     <i class="ri-bar-chart-line mr-2"></i>Database Statistics
                 </h2>
@@ -207,21 +207,19 @@
                     {% for stat in statistics %}
                         {% if stat.url %}
                             <!-- Clickable Stat Card -->
-                            <a href="{{ stat.url }}" class="flex items-center p-4 
+                            <a href="{{ stat.url }}" class="p-4 
                                 {% if loop.index0 == 0 %}bg-cyan-50 hover:bg-cyan-100{% endif %}
                                 {% if loop.index0 == 1 %}bg-indigo-50 hover:bg-indigo-100{% endif %}
                                 {% if loop.index0 == 2 %}bg-yellow-50 hover:bg-yellow-100{% endif %}
-                                rounded-card transition">
-                                
-                                <div class="w-12 h-12 
+                              text-center">
+                                <div class="
                                     {% if loop.index0 == 0 %}bg-cyan-500{% endif %}
                                     {% if loop.index0 == 1 %}bg-indigo-500{% endif %}
                                     {% if loop.index0 == 2 %}bg-yellow-500{% endif %}
-                                    rounded-full flex items-center justify-center mr-4">
-                                    <i class="ri-database-2-line text-white ri-lg"></i>
+                                    ">
                                 </div>
                                 <div>
-                                    <h3 class="font-semibold 
+                                    <h3 class="font-semibold text-lg
                                         {% if loop.index0 == 0 %}text-cyan-800{% endif %}
                                         {% if loop.index0 == 1 %}text-indigo-800{% endif %}
                                         {% if loop.index0 == 2 %}text-yellow-800{% endif %}
@@ -230,26 +228,24 @@
                                         {% if loop.index0 == 0 %}text-cyan-600{% endif %}
                                         {% if loop.index0 == 1 %}text-indigo-600{% endif %}
                                         {% if loop.index0 == 2 %}text-yellow-600{% endif %}
-                                        text-sm">{{ stat.label }}</p>
+                                        text-base">{{ stat.label }}</p>
                                 </div>
                             </a>
                         {% else %}
                             <!-- Non-clickable Stat Card -->
-                            <div class="flex items-center p-4 
+                            <div class=" p-4 
                                 {% if loop.index0 == 0 %}bg-cyan-50{% endif %}
                                 {% if loop.index0 == 1 %}bg-indigo-50{% endif %}
                                 {% if loop.index0 == 2 %}bg-yellow-50{% endif %}
-                                rounded-card">
-                                
-                                <div class="w-12 h-12 
+                                text-center">
+                                <div class="
                                     {% if loop.index0 == 0 %}bg-cyan-500{% endif %}
                                     {% if loop.index0 == 1 %}bg-indigo-500{% endif %}
                                     {% if loop.index0 == 2 %}bg-yellow-500{% endif %}
-                                    rounded-full flex items-center justify-center mr-4">
-                                    <i class="ri-database-2-line text-white ri-lg"></i>
+                                    ">
                                 </div>
                                 <div>
-                                    <h3 class="font-semibold 
+                                    <h3 class="font-semibold text-lg
                                         {% if loop.index0 == 0 %}text-cyan-800{% endif %}
                                         {% if loop.index0 == 1 %}text-indigo-800{% endif %}
                                         {% if loop.index0 == 2 %}text-yellow-800{% endif %}
@@ -258,7 +254,7 @@
                                         {% if loop.index0 == 0 %}text-cyan-600{% endif %}
                                         {% if loop.index0 == 1 %}text-indigo-600{% endif %}
                                         {% if loop.index0 == 2 %}text-yellow-600{% endif %}
-                                        text-sm">{{ stat.label }}</p>
+                                        text-base">{{ stat.label }}</p>
                                 </div>
                             </div>
                         {% endif %}
@@ -268,39 +264,39 @@
         </section>
 
         <!-- Data Sources & Usage -->
-        <section class="container mx-auto px-4 mt-6">
-            <div class="grid grid-cols-1 lg:grid-cols-1 gap-y-8">
-                <div class="bg-card rounded-card p-6 border border-border">
-                    <h3 class="text-lg font-semibold text-primary mb-8 text-center">
-                        <i class="ri-lightbulb-line mr-2"></i>How to Use This Database
-                    </h3>
-                    <div class="flex justify-center ">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-64 gap-y-8 max-w-16xl">
-                            <div class="flex items-center">
-                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-                                    <i class="ri-search-line text-white ri-lg"></i>
-                                </div>
-                                <span>Use the search function to find specific records</span>
-                            </div>
-                            <div class="flex items-center">
-                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-                                    <i class="ri-filter-line text-white ri-lg"></i>
-                                </div>
-                                <span>Apply filters to narrow down your results</span>
-                            </div>
-                            <div class="flex items-center">
-                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-                                    <i class="ri-download-line text-white ri-lg"></i>
-                                </div>
-                                <span>Export data in CSV, JSON formats for analysis</span>
-                            </div>
-                            <div class="flex items-center">
-                                <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-                                    <i class="ri-share-line text-white ri-lg"></i>
-                                </div>
-                                <span>Share direct links to specific data views</span>
-                            </div>
+        <section class="container mx-auto px-4 mt-8 w-[90%]">
+            <div class="bg-card rounded-card p-6 border border-border">
+                <h3 class="text-lg font-semibold text-primary mb-6 text-center">
+                    <i class="ri-roadmap-line mr-2"></i>How to Use This Database
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="text-center">
+                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <i class="ri-search-line text-white ri-lg"></i>
                         </div>
+                        <h4 class="font-semibold text-text mb-2">Search Data</h4>
+                        <p class="text-textlight text-sm">Use the search function to find specific records</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <i class="ri-filter-line text-white ri-lg"></i>
+                        </div>
+                        <h4 class="font-semibold text-text mb-2">Use Filter</h4>
+                        <p class="text-textlight text-sm">Apply filters to narrow down your results</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <i class="ri-download-line text-white ri-lg"></i>
+                        </div>
+                        <h4 class="font-semibold text-text mb-2">Save Data</h4>
+                        <p class="text-textlight text-sm">Export data in CSV, JSON formats for analysis</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <i class="ri-share-line text-white ri-lg"></i>
+                        </div>
+                        <h4 class="font-semibold text-text mb-2">Share Data</h4>
+                        <p class="text-textlight text-sm">Share direct links to specific data views</p>
                     </div>
                 </div>
             </div>

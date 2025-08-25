@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>System Administration - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>System Administration - {{ content.title.content | default("Resette Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -22,13 +23,9 @@
             {% if actor %}
                 <div>
                     <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
-                    <a href="/manage-databases?status=trash" class="text-white hover:text-accent mr-4">
-                        My Trash 
-                        {% if actor.user_trashed and actor.user_trashed > 0 %}
-                            <span class="bg-red-500 text-white px-2 py-1 rounded-full text-xs ml-1">{{ actor.user_trashed }}</span>
-                        {% endif %}
-                    </a>
+                    <a href="#" onclick="showTab('settings'); return false;" class="text-white hover:text-accent mr-4">System Settings</a>
                     <a href="/system-trash" class="text-white hover:text-accent mr-4">System Trash</a>
+
                     <a href="/profile" class="text-white hover:text-accent mr-4">Profile ({{ actor.username }})</a>
                     <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
@@ -42,7 +39,7 @@
         <div class="flex justify-between items-center mb-6 w-[90%] mx-auto">
             <div>
                 <h1 class="text-3xl font-bold text-primary">System Administration</h1>
-                <p class="text-textlight mt-2">Manage users, databases, and system activity</p>
+                <p class="text-textlight mt-2">Manage users, databases, system settings, and activity</p>
             </div>
             <div class="flex gap-3">
                 <a href="/edit-portal-homepage" class="bg-blue-500 text-white px-6 py-3 rounded-button hover:bg-blue-600 transition font-medium">
@@ -66,7 +63,7 @@
             </div>
         {% endif %}
 
-        <!-- Statistics Cards - 90% width -->
+        <!-- Statistics Cards - 90% width (4 cards only) -->
         <div class="w-[90%] mx-auto">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                 <a href="#" onclick="showTab('users'); return false;" class="block bg-blue-500 rounded-card p-6 text-white hover:bg-blue-600 transition-all duration-200 transform hover:scale-105">
@@ -99,16 +96,15 @@
                     </div>
                 </a>
 
-                <a href="/system-trash" class="block bg-red-500 rounded-card p-6 text-white hover:bg-red-600 transition-all duration-200 transform hover:scale-105">
+                <a href="#" onclick="showTab('settings'); return false;" class="block bg-indigo-500 rounded-card p-6 text-white hover:bg-indigo-600 transition-all duration-200 transform hover:scale-105">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h3 class="text-3xl font-bold">{{ total_trashed | default(0) }}</h3>
-                            <p class="text-red-100">System Trash</p>
+                            <h3 class="text-2xl font-bold"><i class="ri-settings-3-line"></i></h3>
+                            <p class="text-indigo-100">System Settings</p>
                         </div>
-                        <i class="ri-delete-bin-line text-4xl text-red-200"></i>
+                        <i class="ri-settings-gear-line text-4xl text-indigo-200"></i>
                     </div>
                 </a>
-
             </div>
 
             <!-- Tab Navigation -->
@@ -124,10 +120,13 @@
                         <button onclick="showTab('activity')" id="activity-tab" class="tab-button px-6 py-4 font-medium text-textlight hover:text-accent">
                             <i class="ri-activity-line mr-2"></i>Activity Logs
                         </button>
+                        <button onclick="showTab('settings')" id="settings-tab" class="tab-button px-6 py-4 font-medium text-textlight hover:text-accent">
+                            <i class="ri-settings-3-line mr-2"></i>Settings
+                        </button>
                     </nav>
                 </div>
 
-                <!-- Databases Tab (Now First and Default) -->
+                <!-- Databases Tab (Default) -->
                 <div id="databases-content" class="tab-content p-6">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="text-xl font-semibold text-primary">Database Overview</h3>
@@ -406,8 +405,242 @@
                         {% endfor %}
                     </div>
                 </div>
+
+                <!-- Settings Tab -->
+                <div id="settings-content" class="tab-content p-6 hidden">
+                    <h3 class="text-xl font-semibold text-primary mb-6">System Settings</h3>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <!-- System Configuration button -->
+                        <div class="bg-gray-50 rounded-lg p-6">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                <i class="ri-settings-line mr-2"></i>System Configuration
+                            </h4>
+                            
+                            <form id="system-settings-form" class="space-y-4">
+                                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                <input type="hidden" name="action" value="update_system_settings">
+                                <input type="hidden" name="redirect_tab" value="settings">
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Trash Retention Days
+                                    </label>
+                                    <input type="number" name="trash_retention_days" 
+                                        value="{{ system_settings.trash_retention_days | default(30) }}" 
+                                        min="1" max="365"
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                    <p class="text-xs text-gray-500 mt-1">Days before permanently deleting trashed databases</p>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Max Databases Per User
+                                    </label>
+                                    <input type="number" name="max_databases_per_user" 
+                                        value="{{ system_settings.max_databases_per_user | default(10) }}" 
+                                        min="1" max="100"
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                    <p class="text-xs text-gray-500 mt-1">Maximum number of databases each user can create</p>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        DB Max File Size (MB)
+                                    </label>
+                                    <input type="number" name="max_file_size_mb" 
+                                        value="{{ ((system_settings.max_file_size  | int) // (1024*1024)) if system_settings.max_file_size else 50 }}" 
+                                        min="1" max="500"
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                    <p class="text-xs text-gray-500 mt-1">Maximum Database file size for uploads in megabytes</p>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Picture Max File Size (MB)
+                                    </label>
+                                    <input type="number" name="max_img_size_mb" 
+                                        value="{{ ((system_settings.max_img_size | int) // (1024*1024)) if system_settings.max_img_size else 5 }}" 
+                                        min="1" max="500"
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                    <p class="text-xs text-gray-500 mt-1">Maximum picture file size for uploads in megabytes</p>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Allowed File Extensions
+                                    </label>
+                                    <input type="text" name="allowed_extensions" 
+                                        value="{{ system_settings.allowed_extensions | default('.jpg,.png,.csv,.xls,.xlsx,.txt') }}" 
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                    <p class="text-xs text-gray-500 mt-1">Comma-separated list of allowed file extensions (e.g., .csv,.xlsx,.txt)</p>
+                                </div>
+                                
+                                <button type="button" onclick="saveSystemSettingsWithConfirmation()" 
+                                        class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
+                                    <i class="ri-save-line mr-2"></i>Save System Settings
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Domain Management button -->
+                        <div class="bg-gray-50 rounded-lg p-6">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                <i class="ri-global-line mr-2"></i>Web CSV Domain Management
+                            </h4>
+                            
+                            <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded">
+                                <p class="text-blue-800 text-sm">
+                                    <strong>Security Policy:</strong> All domains are allowed by default except those in the blocked list below. 
+                                    Add domains to the blocked list to prevent users from importing CSV files from those sources.
+                                </p>
+                            </div>
+                            
+                            <!-- Add Blocked Domain -->
+                            <form id="block-domain-form" class="mb-6">
+                                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                <input type="hidden" name="action" value="add_blocked_domain">
+                                <input type="hidden" name="redirect_tab" value="settings">
+                                
+                                <div class="flex gap-2 mb-4">
+                                    <input type="text" name="domain" id="domain-input"
+                                        placeholder="example.com" 
+                                        required
+                                        class="flex-1 p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                    <button type="button" onclick="blockDomainWithConfirmation()"
+                                            class="bg-red-500 text-white px-4 py-3 rounded hover:bg-red-600 transition">
+                                        <i class="ri-forbid-line mr-1"></i>Block Domain
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 mb-4">Enter domain name without protocol (e.g., malicious-site.com)</p>
+                            </form>
+
+                            <!-- Blocked Domains List -->
+                            <div class="space-y-2 max-h-64 overflow-y-auto">
+                                <h5 class="font-medium text-gray-700 mb-3">Currently Blocked Domains</h5>
+                                
+                                {% if blocked_domains %}
+                                    {% for domain in blocked_domains %}
+                                        <div class="flex items-center justify-between p-3 bg-white border border-gray-200 rounded">
+                                            <div class="flex items-center">
+                                                <i class="ri-forbid-line text-red-500 mr-2"></i>
+                                                <span class="font-mono text-sm">{{ domain.domain }}</span>
+                                            </div>
+                                            <form method="post" action="/admin/update-settings" class="inline">
+                                                <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                                                <input type="hidden" name="action" value="remove_blocked_domain">
+                                                <input type="hidden" name="domain" value="{{ domain.domain }}">
+                                                <input type="hidden" name="redirect_tab" value="settings">
+                                                <button type="submit" 
+                                                        class="text-red-500 hover:text-red-700 text-sm px-2 py-1 rounded transition"
+                                                        onclick="return confirm('Remove {{ domain.domain }} from blocked list?')">
+                                                    <i class="ri-delete-bin-line mr-1"></i>Remove
+                                                </button>
+                                            </form>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="text-center py-8 text-gray-500">
+                                        <i class="ri-shield-check-line text-3xl mb-2 block"></i>
+                                        <p class="text-sm">No domains are currently blocked</p>
+                                        <p class="text-xs">All domains are allowed for CSV imports</p>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- Common Domains to Block (Suggestions) -->
+                            <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                                <h5 class="font-medium text-yellow-800 mb-2">
+                                    <i class="ri-lightbulb-line mr-1"></i>Common Domains to Consider Blocking
+                                </h5>
+                                <div class="text-yellow-700 text-xs space-y-1">
+                                    <p>• Social media platforms (twitter.com, facebook.com)</p>
+                                    <p>• File sharing services with potential security risks</p>
+                                    <p>• Known malicious or suspicious domains</p>
+                                    <p>• Personal file hosting that might be unreliable</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- System Statistics (unchanged) -->
+                        <div class="bg-gray-50 rounded-lg p-6">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                <i class="ri-bar-chart-line mr-2"></i>System Statistics
+                            </h4>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="bg-white p-4 rounded border">
+                                    <div class="text-2xl font-bold text-blue-600">{{ system_stats.total_db | default(0) }}</div>
+                                    <div class="text-gray-600 text-sm">Total Databases</div>
+                                </div>
+                                <div class="bg-white p-4 rounded border">
+                                    <div class="text-2xl font-bold text-blue-600">{{ system_stats.total_uploads | default(0) }}</div>
+                                    <div class="text-gray-600 text-sm">Total File Uploads</div>
+                                </div>
+                                <div class="bg-white p-4 rounded border">
+                                    <div class="text-2xl font-bold text-green-600">{{ system_stats.total_storage_mb | default(0) }}</div>
+                                    <div class="text-gray-600 text-sm">Storage Used (MB)</div>
+                                </div>
+                                <div class="bg-white p-4 rounded border">
+                                    <div class="text-2xl font-bold text-purple-600">{{ system_stats.avg_db_size | default(0) }}</div>
+                                    <div class="text-gray-600 text-sm">Avg DB Size (KB)</div>
+                                </div>
+                            </div>
+                            <!-- Enhanced File Size Info -->
+                            <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded">
+                                <h5 class="font-medium text-blue-800 mb-2">
+                                    <i class="ri-information-line mr-1"></i>File Upload Information
+                                </h5>
+                                <div class="text-blue-700 text-sm space-y-1">
+                                    <p>• Current max file size: <strong>{{ (system_settings.max_file_size / (1024*1024)) | int if system_settings.max_file_size else 50 }}MB</strong></p>
+                                    <p>• Images are automatically optimized for web display</p>
+                                    <p>• Header images are resized to max 1680x450px with 90% quality</p>
+                                    <p>• Optimization typically reduces file size by 30-70%</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Maintenance Actions - CLEAN -->
+                        <div class="bg-gray-50 rounded-lg p-6">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                <i class="ri-tools-line mr-2"></i>Maintenance Actions
+                            </h4>
+                            
+                            <div class="space-y-3">
+                                <button onclick="window.location.href='/admin/confirm-password?operation=clear_old_trash'" 
+                                        class="w-full bg-orange-500 text-white py-3 px-4 rounded hover:bg-orange-600 transition text-sm font-medium">
+                                    <i class="ri-delete-bin-line mr-2"></i>Clear Expired Trash ({{ expired_trash_count | default(0) }} items)
+                                </button>
+                                
+                                <button onclick="window.location.href='/admin/confirm-password?operation=optimize_database'" 
+                                        class="w-full bg-blue-500 text-white py-3 px-4 rounded hover:bg-blue-600 transition text-sm font-medium">
+                                    <i class="ri-database-line mr-2"></i>Optimize Database
+                                </button>
+                                
+                                <button onclick="window.location.href='/admin/confirm-password?operation=regenerate_thumbnails'" 
+                                        class="w-full bg-purple-500 text-white py-3 px-4 rounded hover:bg-purple-600 transition text-sm font-medium">
+                                    <i class="ri-image-line mr-2"></i>Optimize Images (Regenerate Thumbnails)
+                                </button>
+                                
+                                <button onclick="window.location.href='/admin/confirm-password?operation=export_system_logs'" 
+                                        class="w-full bg-indigo-500 text-white py-3 px-4 rounded hover:bg-indigo-600 transition text-sm font-medium">
+                                    <i class="ri-download-line mr-2"></i>Export System Logs
+                                </button>
+                            </div>
+
+                            <div class="mt-6 p-4 bg-red-50 border border-red-200 rounded">
+                                <h5 class="font-medium text-red-800 mb-2">Danger Zone</h5>
+                                <button onclick="window.location.href='/admin/confirm-password?operation=reset_system_settings'" 
+                                        class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition text-sm font-medium">
+                                    <i class="ri-refresh-line mr-1"></i>Reset All Settings to Default
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </section>
+        </div>
+    </section>
     </main>
 
     <!-- User Edit Modal -->
@@ -445,6 +678,76 @@
         </div>
     </div>
 
+    <!-- NEW: Admin Password Confirmation Modal -->
+    <div id="admin-password-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <!-- Modal Header -->
+                <div class="flex items-center mb-4">
+                    <div class="w-10 h-10 flex items-center justify-center mr-3 bg-red-100 rounded-full">
+                        <i class="ri-shield-check-line text-red-600 text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-800">Security Verification Required</h3>
+                        <p class="text-sm text-gray-600">Administrator password confirmation needed</p>
+                    </div>
+                </div>
+
+                <!-- Operation Details -->
+                <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                    <h4 class="font-medium text-yellow-800 mb-2">
+                        <i class="ri-alert-line mr-2"></i><span id="operation-title">System Operation</span>
+                    </h4>
+                    <p class="text-yellow-700 text-sm" id="operation-description">This operation requires administrator verification for security.</p>
+                </div>
+
+                <!-- Error Message -->
+                <div id="password-error" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 hidden">
+                    <div class="flex items-center">
+                        <i class="ri-error-warning-line mr-2"></i>
+                        <span class="text-sm" id="error-message"></span>
+                    </div>
+                </div>
+
+                <!-- Password Form -->
+                <form id="admin-password-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            <i class="ri-lock-line mr-2"></i>Enter your administrator password to confirm this operation:
+                        </label>
+                        <input type="password" 
+                               id="admin-password-input" 
+                               required 
+                               autofocus
+                               class="w-full p-4 border-2 border-red-300 rounded-button focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 text-lg"
+                               placeholder="Administrator password">
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="flex gap-3 pt-4">
+                        <button type="submit" 
+                                class="flex-1 bg-red-600 text-white py-3 px-4 rounded-button hover:bg-red-700 transition font-medium">
+                            <i class="ri-shield-check-line mr-2"></i>Confirm and Proceed
+                        </button>
+                        <button type="button" onclick="closePasswordModal()" 
+                               class="flex-1 bg-gray-300 text-gray-700 py-3 px-4 rounded-button hover:bg-gray-400 transition font-medium">
+                            <i class="ri-close-line mr-2"></i>Cancel
+                        </button>
+                    </div>
+                </form>
+                
+                <!-- Security Notice -->
+                <div class="mt-6 p-3 bg-blue-50 border border-blue-200 rounded text-center">
+                    <p class="text-blue-700 text-xs">
+                        <i class="ri-information-line mr-1"></i>
+                        This verification helps protect against unauthorized system changes. 
+                        Your password is verified securely and not stored.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="bg-gray-50 border-t border-gray-100 py-8">
         <div class="container mx-auto px-4">
             <div class="flex flex-col md:flex-row justify-between items-center">
@@ -465,6 +768,7 @@
         </div>
     </footer>
 
+    <!-- SCRIPT SECTION -->
     <script>
         function showTab(tabName) {
             // Hide all tab contents
@@ -480,13 +784,110 @@
             
             // Show selected tab content
             document.getElementById(tabName + '-content').classList.remove('hidden');
-                     
+                    
             // Add active class to selected tab
             const activeTab = document.getElementById(tabName + '-tab');
             activeTab.classList.add('active', 'text-accent', 'border-accent');
             activeTab.classList.remove('text-textlight');
         }
 
+        // UPDATED: Redirect to confirmation page for sensitive operations
+        function submitWithPasswordConfirmation(operation, operationTitle) {
+            // Collect form data based on operation
+            let formData = new URLSearchParams();
+            formData.append('operation', operation);
+            
+            if (operation === 'update_system_settings') {
+                const form = document.getElementById('system-settings-form');
+                const inputs = form.querySelectorAll('input, select, textarea');
+                inputs.forEach(input => {
+                    if (input.name && input.name !== 'csrftoken') {
+                        formData.append(input.name, input.value);
+                    }
+                });
+            } else if (operation === 'add_blocked_domain') {
+                const form = document.getElementById('block-domain-form');
+                const domainInput = form.querySelector('input[name="domain"]');
+                if (domainInput && domainInput.value.trim()) {
+                    formData.append('domain', domainInput.value.trim());
+                } else {
+                    alert('Please enter a domain name.');
+                    return;
+                }
+            }
+            
+            // Redirect to confirmation page
+            window.location.href = `/admin/confirm-password?${formData.toString()}`;
+        }
+
+        // Update the maintenance operations to redirect to confirmation page
+        function performMaintenanceWithConfirmation(action, actionTitle) {
+            const confirmMessage = `Confirm ${actionTitle}?\n\nYou will be asked to enter your administrator password for security verification.`;
+            if (confirm(confirmMessage)) {
+                window.location.href = `/admin/confirm-password?operation=${action}`;
+            }
+        }
+
+        // UPDATED: Button click handlers that redirect to confirmation page
+        function saveSystemSettingsWithConfirmation() {
+            // Collect form data from the system settings form
+            const form = document.getElementById('system-settings-form');
+            const formData = new FormData(form);
+            const params = new URLSearchParams();
+            
+            // Add operation type
+            params.append('operation', 'update_system_settings');
+            
+            // Add all form fields except CSRF token
+            for (let [key, value] of formData.entries()) {
+                if (key !== 'csrftoken') {
+                    params.append(key, value);
+                }
+            }
+            
+            // Redirect to confirmation page with form data
+            window.location.href = `/admin/confirm-password?${params.toString()}`;
+        }
+
+        function blockDomainWithConfirmation() {
+            const domainInput = document.getElementById('domain-input');
+            const domain = domainInput.value.trim();
+            
+            if (!domain) {
+                alert('Please enter a domain name.');
+                domainInput.focus();
+                return;
+            }
+            
+            // Validate domain format (basic check)
+            if (domain.includes('://') || domain.includes('/')) {
+                alert('Please enter only the domain name (e.g., example.com) without protocol or paths.');
+                domainInput.focus();
+                return;
+            }
+            
+            // Redirect to confirmation page with domain data
+            const params = new URLSearchParams();
+            params.append('operation', 'add_blocked_domain');
+            params.append('domain', domain);
+            params.append('action', 'add_blocked_domain');
+            params.append('redirect_tab', 'settings');
+            
+            window.location.href = `/admin/confirm-password?${params.toString()}`;
+        }
+
+        function clearOldTrash() {
+            performMaintenanceWithConfirmation('clear_old_trash', 'Clear Expired Trash');
+        }
+
+        function resetSystemSettings() {
+            const confirmMessage = `WARNING: This will reset ALL system settings to defaults!\n\nThis action cannot be undone. You will be asked to enter your administrator password for security verification.\n\nAre you sure you want to continue?`;
+            if (confirm(confirmMessage)) {
+                window.location.href = `/admin/confirm-password?operation=reset_system_settings`;
+            }
+        }
+
+        // Keep all other existing functions (filterUsers, filterDatabases, etc.)
         function filterUsers() {
             const searchInput = document.getElementById('user-search').value.toLowerCase();
             const roleFilter = document.getElementById('role-filter').value;
@@ -612,9 +1013,17 @@
             }
         }
 
-        // Initialize with databases tab active
+        // Initialize page
         document.addEventListener('DOMContentLoaded', function() {
-            showTab('databases');
+            // Check if we should show the settings tab (from URL parameter or redirect)
+            const urlParams = new URLSearchParams(window.location.search);
+            const tab = urlParams.get('tab');
+            
+            if (tab === 'settings') {
+                showTab('settings');
+            } else {
+                showTab('databases');
+            }
             
             // Fix any display issues after page load
             setTimeout(() => {
@@ -631,20 +1040,118 @@
             }, 100);
         });
 
-        // Close modal when clicking outside
-        document.getElementById('edit-user-modal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeEditModal();
+        // Close modals when clicking outside
+        document.addEventListener('DOMContentLoaded', function() {
+            const editModal = document.getElementById('edit-user-modal');
+            if (editModal) {
+                editModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        closeEditModal();
+                    }
+                });
             }
         });
     </script>
 
+    <!-- STYLE SECTION -->
     <style>
         .tab-button.active {
             border-bottom: 2px solid theme('colors.accent');
         }
         .tab-button:not(.active) {
             border-bottom: 2px solid transparent;
+        }
+
+        /* Spinner animation for loading states */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+
+        /* Modal backdrop styling */
+        .modal-backdrop {
+            backdrop-filter: blur(2px);
+        }
+
+        /* Password modal specific styling */
+        #admin-password-modal .bg-white {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+
+        /* Focus states for better accessibility */
+        #admin-password-input:focus {
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+        }
+
+        /* Button hover effects */
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            transition: transform 0.2s ease;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Success/Error message styling */
+        .success-message {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .error-message {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Table hover effects */
+        .database-row:hover,
+        .user-row:hover {
+            background-color: rgba(59, 130, 246, 0.05);
+            transition: background-color 0.2s ease;
+        }
+
+        /* Card hover effects for statistics */
+        .transform:hover {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .grid.grid-cols-4 {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .w-\\[90\\%\\] {
+                width: 95%;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .grid.grid-cols-4 {
+                grid-template-columns: 1fr;
+            }
+            
+            .flex.gap-3 {
+                flex-direction: column;
+            }
+            
+            .flex.gap-2 {
+                flex-direction: column;
+            }
         }
     </style>
 </body>
