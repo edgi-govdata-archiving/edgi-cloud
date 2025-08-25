@@ -12,6 +12,7 @@ import sys
 PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
 if PLUGINS_DIR not in sys.path:
     sys.path.insert(0, PLUGINS_DIR)
+ROOT_DIR = os.path.dirname(PLUGINS_DIR)
 
 # Import from common_utils
 from common_utils import (
@@ -1334,14 +1335,24 @@ def startup(datasette):
             ensure_data_directories()
                        
             # Get database path - SUPPORT BOTH ENVIRONMENTS
-            db_path = os.getenv('PORTAL_DB_PATH')
+            db_path = None
             if not db_path:
                 # Check common locations
                 possible_paths = [
-                    os.path.join(PLUGINS_DIR, "../data/portal.db"),   # Docker/production
-                    "data/portal.db",   # Local development
-                    os.path.join(DATA_DIR, "../portal.db")  # Alternative
+                    os.getenv('PORTAL_DB_PATH'),  # Environment variable
+                    "/data/portal.db",            # Docker/production
+                    "data/portal.db",             # Local development relative
+                    os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
+                    os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
+                    "portal.db"                   # Current directory fallback
                 ]
+                
+                # Find the portal database
+                for path in possible_paths:
+                    if path and os.path.exists(path):
+                        db_path = path
+                        logger.info(f"Found portal database at: {db_path}")
+                        break
 
             # Check if portal database exists
             if not os.path.exists(db_path):

@@ -790,14 +790,23 @@ async def user_owns_database(datasette, user_id, db_name):
 
 def validate_database_name(db_name):
     """
-    Validate database name format.
+    UPDATED: Validate database name format - now allows hyphens.
     Returns (is_valid, error_message)
     """
     if not db_name:
         return False, "Database name is required"
     
-    if not re.match(r'^[a-z0-9_]+$', db_name):
-        return False, "Database name must contain only lowercase letters, numbers, and underscores"
+    # Allow lowercase letters, numbers, underscores, and hyphens
+    if not re.match(r'^[a-z0-9_-]+$', db_name):
+        return False, "Database name must contain only lowercase letters, numbers, underscores, and hyphens"
+    
+    # Cannot start or end with hyphen or underscore
+    if db_name.startswith(('-', '_')) or db_name.endswith(('-', '_')):
+        return False, "Database name cannot start or end with hyphen or underscore"
+    
+    # Cannot have consecutive hyphens or underscores
+    if '--' in db_name or '__' in db_name or '-_' in db_name or '_-' in db_name:
+        return False, "Database name cannot have consecutive hyphens or underscores"
     
     if len(db_name) < 3:
         return False, "Database name must be at least 3 characters long"
