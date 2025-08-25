@@ -473,8 +473,8 @@ async def create_simple_homepage(datasette, db_id, db_name, actor, current_time,
             }),
             ("header_image", {
                 "image_url": "/static/default_header.jpg",
-                "alt_text": f"{display_name} Data Portal",
-                "credit_text": "Environmental Data Portal",
+                "alt_text": f"{display_name} Portal",
+                "credit_text": "",
                 "credit_url": ""
             }),
             ("footer", {
