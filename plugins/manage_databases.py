@@ -14,12 +14,14 @@ from datetime import datetime
 from datasette import hookimpl
 from datasette.utils.asgi import Response
 from datasette.database import Database
+import sqlite3
 
 # Add the plugins directory to Python path for imports
 import sys
 PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
 if PLUGINS_DIR not in sys.path:
     sys.path.insert(0, PLUGINS_DIR)
+ROOT_DIR = os.path.dirname(PLUGINS_DIR)
 
 # Import from common_utils
 from common_utils import (
@@ -320,169 +322,6 @@ async def manage_databases(datasette, request):
                 "status_filter": status_filter,
                 "stats": stats,
                 **get_success_error_from_request(request)
-            },
-            request=request
-        )
-    )
-
-async def create_database(datasette, request):
-    """Create new database with validation."""
-    logger.debug(f"Create Database request: method={request.method}")
-
-    actor = get_actor_from_request(request)
-    if not actor:
-        logger.warning(f"Unauthorized create database attempt: actor=None")
-        return Response.redirect("/login?error=Session expired or invalid")
-
-    # Verify user session
-    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
-    if not is_valid:
-        return redirect_response
-
-    # Get content for template
-    content = await get_portal_content(datasette)
-
-    if request.method == "POST":
-        post_vars = await request.post_vars()
-        db_name = post_vars.get("db_name", "").strip()
-        
-        # Validate database name
-        is_valid_name, name_error = validate_database_name(db_name)
-        if not is_valid_name:
-            return await handle_form_errors(
-                datasette, "create_database.html",
-                {
-                    "metadata": datasette.metadata(),
-                    "content": content,
-                    "actor": actor,
-                },
-                request, name_error
-            )
-
-        # Check if name is available
-        is_available = await check_database_name_available(datasette, db_name)
-        if not is_available:
-            return await handle_form_errors(
-                datasette, "create_database.html",
-                {
-                    "metadata": datasette.metadata(),
-                    "content": content,
-                    "actor": actor,
-                },
-                request, f"Database name '{db_name}' already exists. Please choose a different name."
-            )
-
-        user_id = actor.get("id")
-        
-        # Check database limit
-        query_db = datasette.get_database('portal')
-        result = await query_db.execute("SELECT COUNT(*) FROM databases WHERE user_id = ? AND status != 'Deleted'", [user_id])
-        db_count = result.first()[0]
-        max_databases = await get_max_databases_per_user(datasette)
-        if db_count >= max_databases:
-            return await handle_form_errors(
-                datasette, "create_database.html",
-                {
-                    "metadata": datasette.metadata(),
-                    "content": content,
-                    "actor": actor,
-                },
-                request, f"Maximum {max_databases} databases per user reached"
-            )
-
-        try:
-            db_id = uuid.uuid4().hex[:20]
-            website_url = generate_website_url(request, db_name)
-            
-            # Create user directory and database file
-            user_dir = os.path.join(DATA_DIR, user_id)
-            os.makedirs(user_dir, exist_ok=True)
-            db_path = os.path.join(user_dir, f"{db_name}.db")
-            
-            # Create new SQLite database
-            user_db = sqlite_utils.Database(db_path)
-
-            # Insert database record with proper timestamps
-            current_time = datetime.utcnow().isoformat()
-            await query_db.execute_write(
-                "INSERT INTO databases (db_id, user_id, db_name, website_url, status, created_at, updated_at, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [db_id, user_id, db_name, website_url, "Draft", current_time, current_time, db_path]
-            )
-            
-            # AUTO-CREATE CUSTOM HOMEPAGE
-            custom_title = f"{db_name.replace('_', ' ').title()}"
-            custom_description = f"Welcome to the {db_name.replace('_', ' ').title()}."
-            custom_footer = f"{db_name.replace('_', ' ').title()} | Powered by Resette"
-            
-            custom_content = [
-                ("title", {"content": custom_title}),
-                ("description", {
-                    "content": custom_description,
-                    "paragraphs": parse_markdown_links(custom_description)
-                }),
-                ("header_image", {
-                    "image_url": "/static/default_header.jpg",
-                    "alt_text": f"{db_name.replace('_', ' ').title()} Portal Header",
-                    "credit_text": "",
-                    "credit_url": ""
-                }),
-                ("footer", {
-                    "content": custom_footer,
-                    "odbl_text": "Data licensed under ODbL",
-                    "odbl_url": "https://opendatacommons.org/licenses/odbl/",
-                    "paragraphs": parse_markdown_links(custom_footer)
-                })
-            ]
-            
-            # Insert custom content for auto-created homepage
-            for section, content_data in custom_content:
-                await query_db.execute_write(
-                    "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
-                    [db_id, section, json.dumps(content_data), current_time, actor['username']]
-                )
-            
-            # Register database with Datasette immediately (even for drafts)
-            try:
-                db_instance = Database(datasette, path=db_path, is_mutable=True)
-                datasette.add_database(db_instance, name=db_name)
-                logger.debug(f"Successfully registered new database: {db_name} (Draft)")
-            except Exception as reg_error:
-                logger.error(f"Error registering new database {db_name}: {reg_error}")
-
-            # Log activity
-            await log_database_action(
-                datasette, user_id, "create_database", 
-                f"Created database {db_name} with custom homepage",
-                {
-                    "db_name": db_name,
-                    "db_id": db_id,
-                    "website_url": website_url,
-                    "auto_homepage_created": True
-                }
-            )
-            
-            logger.debug(f"Database created with homepage: {db_name}, website_url={website_url}, file_path={db_path}")
-            return Response.redirect(f"/manage-databases?success=Database '{db_name}' created successfully with custom homepage. You can now upload data files and customize your portal.")
-
-        except Exception as e:
-            logger.error(f"Create database error: {str(e)}")
-            return await handle_form_errors(
-                datasette, "create_database.html",
-                {
-                    "metadata": datasette.metadata(),
-                    "content": content,
-                    "actor": actor,
-                },
-                request, f"Create database error: {str(e)}"
-            )
-
-    return Response.html(
-        await datasette.render_template(
-            "create_database.html",
-            {
-                "metadata": datasette.metadata(),
-                "content": content,
-                "actor": actor,
             },
             request=request
         )
@@ -1167,11 +1006,11 @@ async def serve_database_image(datasette, request):
         logger.error(f"Traceback: {traceback.format_exc()}")
         return Response.text("Internal server error", status=500)
 
-async def verify_database_structure(query_db):
-    """Verify the database has the required structure."""
+async def verify_database_structure_startup(query_db):
+    """Verify the portal database has required structure."""
     try:
         # Check if required tables exist
-        required_tables = ['users', 'databases', 'admin_content', 'activity_logs']
+        required_tables = ['users', 'databases', 'admin_content', 'activity_logs', 'system_settings']
         
         result = await query_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
         existing_tables = [row['name'] for row in result.rows]
@@ -1180,128 +1019,187 @@ async def verify_database_structure(query_db):
         
         if missing_tables:
             logger.error(f"Missing required tables: {missing_tables}")
+            logger.error("Please ensure the portal database is properly initialized")
             return False
         
-        logger.info("Database structure verified successfully")
+        # Check for basic data integrity
+        try:
+            users_result = await query_db.execute("SELECT COUNT(*) FROM users")
+            databases_result = await query_db.execute("SELECT COUNT(*) FROM databases WHERE status != 'Deleted'")
+            
+            user_count = users_result.first()[0] if users_result.first() else 0
+            db_count = databases_result.first()[0] if databases_result.first() else 0
+            
+            logger.info(f"Portal database verified: {user_count} users, {db_count} active databases")
+            
+        except Exception as check_error:
+            logger.warning(f"Database integrity check failed: {check_error}")
+            # Continue anyway - structure exists
+        
         return True
         
     except Exception as e:
         logger.error(f"Error verifying database structure: {e}")
         return False
 
-async def register_user_databases(datasette, query_db):
-    """Register all user databases with Datasette - ENHANCED VERSION."""
+async def register_user_databases_startup(datasette, query_db):
+    """ENHANCED: Register all user databases with comprehensive error handling."""
     registered_count = 0
     failed_count = 0
+    skipped_count = 0
     
     try:
-        # Get all active databases (INCLUDING EXISTING ONES)
+        # Get all active databases (exclude Deleted status)
         result = await query_db.execute(
-            "SELECT db_name, file_path, status, user_id FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
+            """SELECT db_name, file_path, status, user_id, db_id, created_at 
+               FROM databases 
+               WHERE status IN ('Draft', 'Published', 'Unpublished', 'Trashed') 
+               ORDER BY created_at DESC"""
         )
         
-        for row in result:
+        total_databases = len(result.rows)
+        logger.info(f"Found {total_databases} databases to register")
+        
+        for row in result.rows:
             db_name = row['db_name']
             file_path = row['file_path']
             status = row['status']
             user_id = row['user_id']
+            db_id = row['db_id']
             
             try:
                 # Build file path if not available
                 if not file_path:
                     file_path = os.path.join(DATA_DIR, user_id, f"{db_name}.db")
                     # Update the database record with the correct file path
-                    await query_db.execute_write(
-                        "UPDATE databases SET file_path = ? WHERE db_name = ?",
-                        [file_path, db_name]
-                    )
+                    try:
+                        await query_db.execute_write(
+                            "UPDATE databases SET file_path = ? WHERE db_id = ?",
+                            [file_path, db_id]
+                        )
+                        logger.debug(f"Updated file path for {db_name}: {file_path}")
+                    except Exception as update_error:
+                        logger.warning(f"Could not update file path for {db_name}: {update_error}")
                 
-                if file_path and os.path.exists(file_path):
-                    # Check if already registered
-                    if db_name not in datasette.databases:
-                        db_instance = Database(datasette, path=file_path, is_mutable=True)
-                        datasette.add_database(db_instance, name=db_name)
-                        registered_count += 1
-                        logger.info(f"Registered database: {db_name} ({status}) for user {user_id}")
-                    else:
-                        logger.debug(f"Database already registered: {db_name}")
-                else:
-                    logger.warning(f"Database file not found: {file_path} for {db_name}")
+                # Check if file exists
+                if not file_path or not os.path.exists(file_path):
+                    logger.warning(f"Database file not found: {file_path} for {db_name} (status: {status})")
                     failed_count += 1
+                    continue
+                
+                # Validate SQLite file
+                try:
+                    conn = sqlite3.connect(file_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+                    test_result = cursor.fetchone()
+                    conn.close()
                     
-            except Exception as reg_error:
-                logger.error(f"Failed to register database {db_name}: {reg_error}")
+                    if not test_result:
+                        logger.warning(f"Database file exists but contains no tables: {db_name}")
+                        # Still register it - user might add tables later
+                
+                except Exception as sqlite_error:
+                    logger.error(f"Invalid SQLite file {db_name}: {sqlite_error}")
+                    failed_count += 1
+                    continue
+                
+                # Check if already registered with Datasette
+                if db_name in datasette.databases:
+                    logger.debug(f"Database already registered: {db_name}")
+                    skipped_count += 1
+                    continue
+                
+                # Register with Datasette
+                try:
+                    db_instance = Database(datasette, path=file_path, is_mutable=True)
+                    datasette.add_database(db_instance, name=db_name)
+                    registered_count += 1
+                    
+                    logger.info(f"✓ Registered database: {db_name} ({status}) for user {user_id}")
+                    
+                except Exception as reg_error:
+                    logger.error(f"✗ Failed to register database {db_name}: {reg_error}")
+                    failed_count += 1
+                    continue
+                    
+            except Exception as process_error:
+                logger.error(f"Error processing database {db_name}: {process_error}")
                 failed_count += 1
+                continue
         
-        logger.info(f"Database registration complete: {registered_count} registered, {failed_count} failed")
-        return registered_count, failed_count
+        logger.info(f"Database registration summary:")
+        logger.info(f"  - Successfully registered: {registered_count}")
+        logger.info(f"  - Failed to register: {failed_count}")  
+        logger.info(f"  - Already registered: {skipped_count}")
+        logger.info(f"  - Total processed: {total_databases}")
+        
+        return registered_count, failed_count, skipped_count
         
     except Exception as e:
         logger.error(f"Error during database registration: {e}")
-        return 0, 0
+        return 0, 0, 0
 
-async def log_startup_success(datasette, registered_count, failed_count):
-    """Log successful startup."""
+async def fix_missing_registrations_startup(datasette, query_db):
+    """Attempt to fix databases that failed initial registration."""
+    fixed_count = 0
+    
     try:
-        startup_details = f"Registered {registered_count} databases, {failed_count} failed"
+        # Get databases that should be registered but aren't
+        result = await query_db.execute(
+            "SELECT db_name, file_path, user_id FROM databases WHERE status = 'Published'"
+        )
+        
+        for row in result.rows:
+            db_name = row['db_name']
+            file_path = row['file_path'] 
+            user_id = row['user_id']
+            
+            # Skip if already registered
+            if db_name in datasette.databases:
+                continue
+                
+            try:
+                # Try to register again
+                if file_path and os.path.exists(file_path):
+                    db_instance = Database(datasette, path=file_path, is_mutable=True)
+                    datasette.add_database(db_instance, name=db_name)
+                    fixed_count += 1
+                    logger.info(f"Fixed registration for: {db_name}")
+                
+            except Exception as fix_error:
+                logger.error(f"Could not fix registration for {db_name}: {fix_error}")
+                continue
+        
+        return fixed_count
+        
+    except Exception as e:
+        logger.error(f"Error fixing missing registrations: {e}")
+        return 0
+
+async def log_startup_success_startup(datasette, registered_count, failed_count, skipped_count):
+    """Log successful startup with detailed metrics."""
+    try:
+        startup_details = (
+            f"Startup completed: {registered_count} registered, "
+            f"{failed_count} failed, {skipped_count} skipped"
+        )
+        
         await log_database_action(
             datasette, "system", "startup", 
-            f"EDGI Cloud Portal started successfully: {startup_details}",
+            f"EDGI Database Management Module started: {startup_details}",
             {
                 "registered_databases": registered_count,
                 "failed_databases": failed_count,
-                "startup_time": datetime.utcnow().isoformat()
+                "skipped_databases": skipped_count,
+                "startup_time": datetime.utcnow().isoformat(),
+                "total_processed": registered_count + failed_count + skipped_count
             }
         )
+        
     except Exception as e:
         logger.error(f"Error logging startup: {e}")
-
-async def fix_missing_database_registrations(datasette):
-    """Fix missing database registrations by checking all active databases and re-registering them."""
-    logger.info("Checking for missing database registrations...")
-    
-    query_db = datasette.get_database('portal')
-    try:
-        # Get all active databases from portal database
-        result = await query_db.execute(
-            "SELECT db_name, file_path, status FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
-        )
-        
-        fixed_count = 0
-        missing_files_count = 0
-        
-        for row in result:
-            db_name = row['db_name']
-            file_path = row['file_path']
-            status = row['status']
-            
-            try:
-                # Check if database is registered with Datasette
-                if db_name not in datasette.databases:
-                    # Check if file exists
-                    if file_path and os.path.exists(file_path):
-                        # Re-register the database
-                        db_instance = Database(datasette, path=file_path, is_mutable=True)
-                        datasette.add_database(db_instance, name=db_name)
-                        fixed_count += 1
-                        logger.info(f"Re-registered missing database: {db_name} ({status})")
-                    else:
-                        missing_files_count += 1
-                        logger.warning(f"Database file missing for {db_name}: {file_path}")
-                        
-                        # Could optionally mark as corrupted or remove from portal database
-                        # For now, just log the issue
-                        
-            except Exception as reg_error:
-                logger.error(f"Failed to re-register database {db_name}: {reg_error}")
-        
-        logger.info(f"Database registration check complete: {fixed_count} fixed, {missing_files_count} missing files")
-        return fixed_count, missing_files_count
-        
-    except Exception as e:
-        logger.error(f"Error during database registration check: {e}")
-        return 0, 0
-
+        # Don't fail startup just because logging failed
 
 @hookimpl
 def register_routes():
@@ -1310,7 +1208,6 @@ def register_routes():
         (r"^/$", index_page),
         (r"^/all-databases$", all_databases_page),
         (r"^/manage-databases$", manage_databases),
-        (r"^/create-database$", create_database),
         (r"^/db/([^/]+)/publish$", publish_database),
         (r"^/db/([^/]+)/unpublish$", unpublish_database),
         (r"^/db/([^/]+)/homepage$", database_homepage),
@@ -1329,53 +1226,76 @@ def permission_allowed(datasette, actor, action, resource):
 
 @hookimpl
 def startup(datasette):
-    """Enhanced startup hook with better database registration"""
+    """ENHANCED: Robust startup hook with comprehensive database registration and error handling"""
     
     async def inner():
         try:
-            logger.info("Starting Datasette Database Management Module...")
+            logger.info("Starting EDGI Datasette Database Management Module...")
             
             # Ensure directories exist
             ensure_data_directories()
             
-            # Get database path - SUPPORT BOTH ENVIRONMENTS
-            db_path = os.getenv('PORTAL_DB_PATH')
-            if not db_path:
-                # Check common locations
-                possible_paths = [
-                    "/data/portal.db",  # Docker/production
-                    "data/portal.db",   # Local development
-                    os.path.join(DATA_DIR, "../portal.db")  # Alternative
-                ]
-                
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        db_path = path
-                        break
+            # Get database path - SUPPORT MULTIPLE ENVIRONMENTS
+            db_path = None
+            possible_paths = [
+                os.getenv('PORTAL_DB_PATH'),  # Environment variable
+                "/data/portal.db",            # Docker/production
+                "data/portal.db",             # Local development relative
+                os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
+                os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
+                "portal.db"                   # Current directory fallback
+            ]
             
-            # Check if portal database exists
-            if not db_path or not os.path.exists(db_path):
-                logger.warning(f"Portal database not found. Checked paths: {possible_paths if not db_path else [db_path]}")
-                logger.info("The system will work but some features may be limited until the portal database is available.")
+            # Find the portal database
+            for path in possible_paths:
+                if path and os.path.exists(path):
+                    db_path = path
+                    logger.info(f"Found portal database at: {db_path}")
+                    break
+            
+            if not db_path:
+                logger.warning("Portal database not found. Checked paths:")
+                for path in possible_paths:
+                    if path:
+                        logger.warning(f"  - {path} {'(exists)' if os.path.exists(path) else '(not found)'}")
+                logger.warning("Database registration will be skipped. Some features may not work.")
                 return
             
-            logger.info(f"Using portal database: {db_path}")
-            query_db = datasette.get_database('portal')
+            # Connect to portal database
+            try:
+                query_db = datasette.get_database('portal')
+                if not query_db:
+                    logger.error("Failed to get portal database connection")
+                    return
+            except Exception as conn_error:
+                logger.error(f"Error connecting to portal database: {conn_error}")
+                return
             
             # Verify database structure
-            await verify_database_structure(query_db)
+            if not await verify_database_structure_startup(query_db):
+                logger.error("Portal database structure verification failed")
+                return
             
-            # Register existing user databases - ENHANCED VERSION
-            registered_count, failed_count = await register_user_databases(datasette, query_db)
+            # Register existing user databases with enhanced error handling
+            registered_count, failed_count, skipped_count = await register_user_databases_startup(datasette, query_db)
             
-            # Log startup success
-            await log_startup_success(datasette, registered_count, failed_count)
+            # Log startup results
+            await log_startup_success_startup(datasette, registered_count, failed_count, skipped_count)
             
-            logger.info("Datasette Database Management Module startup completed successfully")
+            # Optional: Fix any missing registrations
+            if failed_count > 0:
+                logger.info("Attempting to fix missing database registrations...")
+                fixed_count = await fix_missing_registrations_startup(datasette, query_db)
+                if fixed_count > 0:
+                    logger.info(f"Fixed {fixed_count} missing database registrations")
+            
+            logger.info(f"Database Management Module startup completed successfully")
+            logger.info(f"Summary: {registered_count} registered, {failed_count} failed, {skipped_count} skipped")
             
         except Exception as e:
-            logger.error(f"Datasette Database Management Module startup failed: {str(e)}")
+            logger.error(f"CRITICAL: Database Management Module startup failed: {str(e)}")
             import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Startup traceback: {traceback.format_exc()}")
+            # Don't raise - allow Datasette to continue even if registration fails
 
     return inner
