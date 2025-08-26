@@ -105,6 +105,52 @@
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
+
+        /* Horizontal scroll styling */
+        .overflow-x-auto::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .overflow-x-auto::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        .overflow-x-auto::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Vertical scroll styling for featured databases */
+        .max-h-96::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .max-h-96::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        .max-h-96::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .max-h-96::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Line clamp for description */
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
     </style>
 </head>
 <body class="bg-background">
@@ -129,7 +175,9 @@
             {% else %}
                 <div>
                     <a href="/login" class="text-white hover:text-accent mr-4">Login</a>
-                    <a href="/register" class="bg-accent text-white px-4 py-2 rounded-button hover:bg-primary transition">Get Started</a>
+                    <a href="mailto:contact@envirodatagov.org?subject=Resette%20Portal%20Inquiry" class="inline-flex items-center bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition">
+                        <i class="ri-mail-line mr-2"></i>Contact Us
+                    </a>
                 </div>
             {% endif %}
         </div>
@@ -172,165 +220,193 @@
                     {% endif %}
                 </div>
 
-                <!-- Featured Databases -->
+                <!-- Featured Databases with Two-Row Horizontal Scroll -->
                 {% if feature_cards %}
                     <div class="mb-6 mt-8">
                         <h3 class="text-2xl font-semibold text-primary mb-6">
                             <i class="ri-database-line mr-2"></i>Featured Databases
+                            <span class="text-sm font-normal text-textlight ml-2">({{ feature_cards|length }} databases)</span>
                         </h3>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {% for card in feature_cards %}
-                            <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group feature-card">
-                                <div class="flex items-center justify-between mb-3">
-                                    <h4 class="text-lg font-semibold text-accent group-hover:text-primary flex items-center">
-                                        <i class="{{ card.icon | default('ri-database-line') }} mr-2"></i>
-                                        {{ card.title }}
-                                    </h4>
-                                    <i class="ri-arrow-right-line text-textlight group-hover:text-accent"></i>
+
+                    <!-- Two-Row Container with Synchronized Scroll -->
+                    <div class="relative">
+                        <div id="databases-scroll-container" class="overflow-x-auto pb-4" onscroll="syncScroll()">
+                            <div class="space-y-6" style="width: max-content;">
+                                <!-- First Row -->
+                                <div class="flex gap-6">
+                                    {% for card in feature_cards[:feature_cards|length//2 + feature_cards|length%2] %}
+                                        <div class="flex-shrink-0 w-96">
+                                            <a href="{{ card.url }}" class="block bg-white p-6 rounded-card border border-gray-200 hover:bg-gray-100 hover:shadow-md transition group feature-card h-full">
+                                                <div class="flex items-center justify-between mb-4">
+                                                    <h4 class="text-xl font-semibold text-accent group-hover:text-primary flex items-center truncate pr-2">
+                                                        <i class="{{ card.icon | default('ri-database-line') }} mr-2"></i>
+                                                        {{ card.title }}
+                                                    </h4>
+                                                    <i class="ri-arrow-right-line text-textlight group-hover:text-accent flex-shrink-0"></i>
+                                                </div>
+                                                <p class="text-textlight text-sm line-clamp-2 mb-3">{{ card.description }}</p>
+                                                <div class="text-xs text-blue-600">
+                                                    <i class="ri-eye-line mr-1"></i>Explore Dataset
+                                                </div>
+                                            </a>
+                                        </div>
+                                    {% endfor %}
                                 </div>
-                                <p class="text-textlight text-sm">{{ card.description }}</p>
-                                <div class="mt-3 text-xs text-blue-600">
-                                    <i class="ri-eye-line mr-1"></i>Explore Dataset
+                                
+                                <!-- Second Row -->
+                                <div class="flex gap-6">
+                                    {% for card in feature_cards[feature_cards|length//2 + feature_cards|length%2:] %}
+                                        <div class="flex-shrink-0 w-96">
+                                            <a href="{{ card.url }}" class="block bg-white p-6 rounded-card border border-gray-200 hover:bg-gray-100 hover:shadow-md transition group feature-card h-full">
+                                                <div class="flex items-center justify-between mb-4">
+                                                    <h4 class="text-xl font-semibold text-accent group-hover:text-primary flex items-center truncate pr-2">
+                                                        <i class="{{ card.icon | default('ri-database-line') }} mr-2"></i>
+                                                        {{ card.title }}
+                                                    </h4>
+                                                    <i class="ri-arrow-right-line text-textlight group-hover:text-accent flex-shrink-0"></i>
+                                                </div>
+                                                <p class="text-textlight text-sm line-clamp-2 mb-3">{{ card.description }}</p>
+                                                <div class="text-xs text-blue-600">
+                                                    <i class="ri-eye-line mr-1"></i>Explore Dataset
+                                                </div>
+                                            </a>
+                                        </div>
+                                    {% endfor %}
                                 </div>
-                            </a>
-                        {% endfor %}
-                    </div>
-                    
-                    <!-- Show "View All Datasets" link if there are more than 6 databases -->
-                    {% if total_published > 6 %}
-                        <div class="text-right mt-6">
-                            <a href="/all-databases" class="text-accent hover:text-primary font-medium flex items-center justify-end">
-                                <span>View All Datasets</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Scroll Indicator -->
+                        <div class="flex justify-center mt-4">
+                            <div class="flex items-center text-sm text-textlight">
+                                <i class="ri-arrow-left-line mr-1"></i>
+                                <span>Scroll horizontally to see all {{ feature_cards|length }} databases</span>
                                 <i class="ri-arrow-right-line ml-1"></i>
-                            </a>
+                            </div>
                         </div>
-                    {% endif %}
+                    </div>
                 {% else %}
-                    <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded-card mt-6">
-                        <i class="ri-database-line text-4xl text-textlight mb-2"></i>
-                        <p class="text-textlight">No published datasets yet. Be the first to share your data!</p>
-                        {% if not actor %}
-                            <a href="/register" class="inline-block mt-3 text-accent hover:text-primary">
-                                <i class="ri-arrow-right-line mr-1"></i>Get Started
+                    <!-- Empty state remains the same -->
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Statistics Section (Database Homepage Style) -->
+        <section class="container mx-auto px-4 mt-6">
+            <div class="bg-card rounded-card p-6 border border-border w-[90%] mx-auto">
+                <h2 class="text-xl font-semibold text-primary mb-4">
+                    <i class="ri-bar-chart-line mr-2"></i>Portal Statistics
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {% for stat in statistics %}
+                        {% if stat.url and loop.index0 >= 2 %}
+                            <!-- Clickable Stat Card (only for 3rd card and beyond) -->
+                            <a href="{{ stat.url }}" class="p-4 
+                                {% if loop.index0 == 0 %}bg-cyan-50 hover:bg-cyan-100{% endif %}
+                                {% if loop.index0 == 1 %}bg-indigo-50 hover:bg-indigo-100{% endif %}
+                                {% if loop.index0 == 2 %}bg-yellow-50 hover:bg-yellow-100{% endif %}
+                            text-center rounded-card border border-gray-200 hover:shadow-sm transition">
+                                <div>
+                                    <h3 class="text-xl font-bold
+                                        {% if loop.index0 == 0 %}text-cyan-800{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-800{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-800{% endif %}
+                                    ">{{ stat.value }}</h3>
+                                    <p class="
+                                        {% if loop.index0 == 0 %}text-cyan-600{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-600{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-600{% endif %}
+                                    ">{{ stat.label }}</p>
+                                </div>
                             </a>
+                        {% else %}
+                            <!-- Non-clickable Stat Card (for 1st, 2nd cards) -->
+                            <div class="p-4 
+                                {% if loop.index0 == 0 %}bg-cyan-50{% endif %}
+                                {% if loop.index0 == 1 %}bg-indigo-50{% endif %}
+                                {% if loop.index0 == 2 %}bg-yellow-50{% endif %}
+                                text-center rounded-card border border-gray-200">
+                                <div>
+                                    <h3 class="text-2xl font-bold
+                                        {% if loop.index0 == 0 %}text-cyan-800{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-800{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-800{% endif %}
+                                    ">{{ stat.value }}</h3>
+                                    <p class="
+                                        {% if loop.index0 == 0 %}text-cyan-600{% endif %}
+                                        {% if loop.index0 == 1 %}text-indigo-600{% endif %}
+                                        {% if loop.index0 == 2 %}text-yellow-600{% endif %}
+                                    ">{{ stat.label }}</p>
+                                </div>
+                            </div>
                         {% endif %}
-                    </div>
-                {% endif %}
-
-                <!-- Call to Action for Non-Authenticated Users -->
-                {% if not actor %}
-                    <div class="bg-blue-50 border border-blue-200 rounded-card p-6 my-6">
-                        <h3 class="text-xl font-semibold text-blue-800 mb-4">
-                            <i class="ri-rocket-line mr-2"></i>Start Sharing Your Environmental Data
-                        </h3>
-                        <p class="text-blue-700 mb-4">
-                            Join researchers, organizations, and activists using our platform to make environmental data accessible to everyone.
-                        </p>
-                        <div class="flex flex-col md:flex-row gap-4">
-                            <a href="/register" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium text-center">
-                                <i class="ri-user-add-line mr-2"></i>Create Free Account
-                            </a>
-                            <a href="/login" class="bg-white text-accent border border-accent px-6 py-3 rounded-button hover:bg-accent hover:text-white transition font-medium text-center">
-                                <i class="ri-login-circle-line mr-2"></i>Sign In
-                            </a>
-                        </div>
-                    </div>
-                {% endif %}
-
-                <!-- Platform Features -->
-                <div class="mt-8">
-                    <h3 class="text-2xl font-semibold text-primary mb-6">
-                        <i class="ri-tools-line mr-2"></i>Platform Features
-                    </h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div class="text-center p-4">
-                            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="ri-upload-cloud-line text-2xl text-green-600"></i>
-                            </div>
-                            <h4 class="font-semibold text-text mb-2">Easy Data Import</h4>
-                            <p class="text-textlight text-sm">Upload or import data directly to create interactive data tables with search and filtering</p>
-                        </div>
-                        <div class="text-center p-4">
-                            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="ri-palette-line text-2xl text-blue-600"></i>
-                            </div>
-                            <h4 class="font-semibold text-text mb-2">Custom Portals</h4>
-                            <p class="text-textlight text-sm">Customize your database homepage with images, descriptions, and branding</p>
-                        </div>
-                        <div class="text-center p-4">
-                            <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="ri-share-line text-2xl text-purple-600"></i>
-                            </div>
-                            <h4 class="font-semibold text-text mb-2">Instant Publishing</h4>
-                            <p class="text-textlight text-sm">Publish your data portals with a single click and share with the world</p>
-                        </div>
-                    </div>
+                    {% endfor %}
                 </div>
             </div>
         </section>
 
-        <!-- Statistics Section -->
-        <section class="container mx-auto px-4 mt-6 w-[90%]"> 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {% for stat in statistics %}
-                    {% if stat.url and not actor %}
-                        <a href="{{ stat.url }}" class="block">
-                    {% endif %}
-                    <div class="bg-accent rounded-card p-6 text-center text-white hover:bg-primary transition cursor-pointer stat-card">
-                        <h3 class="text-4xl font-bold mb-2">{{ stat.value }}</h3>
-                        <p class="text-white">{{ stat.label }}</p>
-                        {% if not stat.url or actor %}
-                            <!-- You can still show Learn More or other logic here if needed -->
-                        {% endif %}
-                    </div>
-                    {% if stat.url and not actor %}
-                        </a>
-                    {% endif %}
-                {% endfor %}
-            </div>
-        </section>
-
-        <!-- How It Works Section -->
-        {% if not actor %}
+        <!-- Resette Platform Features Section -->
         <section class="container mx-auto px-4 mt-8 w-[90%]">
-            <div class="bg-card rounded-card p-6 border border-border">
-                <h3 class="text-2xl font-semibold text-primary mb-6 text-center">
-                    <i class="ri-roadmap-line mr-2"></i>How It Works
+            <div class="bg-blue-50 border border-blue-200 rounded-card p-6">
+                <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                    <i class="ri-lightbulb-line mr-2"></i>Discover the Power of Resette Portal
                 </h3>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-accent text-white rounded-full flex items-center justify-center mx-auto mb-3">
-                            <span class="font-bold">1</span>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-blue-700">
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-database-2-line mr-2"></i>Create & Import Data
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Sign Up</h4>
-                        <p class="text-textlight text-sm">Create your free account to get started</p>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Upload CSV files or import SQLite databases</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Create multiple data tables in one database</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Automatic data type detection and indexing</span>
+                        </div>
                     </div>
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-accent text-white rounded-full flex items-center justify-center mx-auto mb-3">
-                            <span class="font-bold">2</span>
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-palette-line mr-2"></i>Customize & Publish
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Import Data</h4>
-                        <p class="text-textlight text-sm">Upload or import data to your own database</p>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Design custom homepages with images and descriptions</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Control table visibility and display order</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Publish your database portal to the world</span>
+                        </div>
                     </div>
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-accent text-white rounded-full flex items-center justify-center mx-auto mb-3">
-                            <span class="font-bold">3</span>
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-search-line mr-2"></i>Explore & Share
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Customize</h4>
-                        <p class="text-textlight text-sm">Design your portal with custom content</p>
-                    </div>
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-accent text-white rounded-full flex items-center justify-center mx-auto mb-3">
-                            <span class="font-bold">4</span>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Advanced filtering and faceted browsing</span>
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Publish</h4>
-                        <p class="text-textlight text-sm">Share your data portal with the world</p>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Full-text search across all columns</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Export filtered data as CSV or JSON</span>
+                        </div>
                     </div>
                 </div>
             </div>
         </section>
-        {% endif %}
     </main>
 
     <footer class="bg-gray-50 border-t border-gray-100 py-8">

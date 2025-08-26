@@ -76,7 +76,7 @@ async def index_page(datasette, request):
     stats = await get_database_statistics(datasette)
     
     # Format featured databases as cards using common utility
-    feature_cards = create_feature_cards_from_databases(stats['featured_databases'], limit=6)
+    feature_cards = create_feature_cards_from_databases(stats['featured_databases'], limit=50)
     
     # Statistics for the cards section using common utility
     statistics_data = create_statistics_data(stats)
@@ -766,7 +766,7 @@ async def database_homepage(datasette, request):
                     },
                     {
                         'label': 'View all available data tables',
-                        'value': 'Browse All Tables',
+                        'value': 'Explore All Tables',
                         'url': f'/{db_name}'
                     }
                 ]

@@ -166,19 +166,36 @@ async def login_page(datasette, request):
     )
 
 async def register_page(datasette, request):
-    """User registration page."""
+    """User registration page - ADMIN ONLY."""
     logger.debug(f"Register request: method={request.method}")
 
     actor = get_actor_from_request(request)
     content = await get_portal_content(datasette)
 
-    # Determine available roles based on who is accessing the page
-    is_admin = actor and actor.get("role") == "system_admin"
-    available_roles = ["system_user"]
-    if is_admin:
-        available_roles.append("system_admin")
+    # ADMIN ACCESS CONTROL - ADD THIS AT THE TOP
+    if not actor or actor.get("role") != "system_admin":
+        return Response.html(
+            await datasette.render_template(
+                "register.html",
+                {
+                    "metadata": datasette.metadata(),
+                    "content": content,
+                    "actor": actor,
+                    "error": "Access restricted to system administrators only."
+                },
+                request=request
+            )
+        )
+
+    # Determine available roles - only admins get here now
+    is_admin = True  # Always true since we check above
+    available_roles = ["system_user", "system_admin"]
 
     if request.method == "POST":
+        # ADDITIONAL POST SECURITY CHECK
+        if not actor or actor.get("role") != "system_admin":
+            return Response.redirect("/?error=Unauthorized access")
+        
         post_vars = await request.post_vars()
         logger.debug(f"Register POST vars keys: {list(post_vars.keys())}")
         username = post_vars.get("username")
@@ -200,15 +217,11 @@ async def register_page(datasette, request):
                 request, "Username, password, email, and role are required"
             )
         
-        # Role validation based on who is registering
+        # Role validation
         if role not in available_roles:
-            error_msg = "Invalid role selected"
-            if role == "system_admin" and not is_admin:
-                error_msg = "Only system administrators can create admin accounts"
-            
             return await handle_form_errors(
                 datasette, "register.html", template_data,
-                request, error_msg
+                request, "Invalid role selected"
             )
         
         # Validate username format
@@ -269,21 +282,17 @@ async def register_page(datasette, request):
                 {"username": username, "role": role, "email": email}
             )
             
-            # Log who created the user (if admin is creating)
-            if is_admin:
-                await log_user_activity(
-                    datasette, actor.get("id"), "create_user", 
-                    f"Admin {actor.get('username')} created user {username} with role {role}",
-                    {"created_username": username, "created_role": role}
-                )
+            # Log admin creation action
+            await log_user_activity(
+                datasette, actor.get("id"), "create_user", 
+                f"Admin {actor.get('username')} created user {username} with role {role}",
+                {"created_username": username, "created_role": role}
+            )
             
-            logger.debug("User registered: %s with role: %s, user_id: %s", username, role, user_id)
+            logger.debug("User registered by admin: %s with role: %s, user_id: %s", username, role, user_id)
             
-            # Redirect based on who created the account
-            if is_admin:
-                return Response.redirect("/system-admin?success=User account created successfully")
-            else:
-                return Response.redirect("/login?success=Registration successful")
+            # Always redirect to admin panel since only admins can access this
+            return Response.redirect("/system-admin?success=User account created successfully")
                 
         except Exception as e:
             logger.error(f"Registration error: {str(e)}")
