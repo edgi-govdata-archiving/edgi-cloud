@@ -13,20 +13,20 @@ COPY templates/ ./templates/
 COPY static/ ./static/
 COPY init_db.py .
 COPY migrate_db.py .
-
+COPY generate_metadata.py .
 
 # Create data directory
 RUN mkdir -p /data && chmod 755 /data
 
 # Environment variables
 ENV PORT=8001
-ENV EDGI_DATA_DIR=/data
-ENV EDGI_STATIC_DIR=/static
+ENV RESETTE_DATA_DIR=/data
+ENV RESETTE_STATIC_DIR=/static
 ENV PORTAL_DB_PATH=/data/portal.db
 
 EXPOSE 8001
 
-# Create startup script
+# Create startup script with dynamic metadata generation
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting EDGI Cloud Portal..."\n\
@@ -48,6 +48,16 @@ else\n\
   echo "📊 Using existing database"\n\
   echo "🔄 Running migration check..."\n\
   python migrate_db.py\n\
+fi\n\
+\n\
+# Generate dynamic metadata for all registered databases\n\
+echo "🔧 Generating dynamic metadata..."\n\
+python generate_metadata.py\n\
+if [ -f "/app/metadata.json" ]; then\n\
+  echo "✅ Metadata generated successfully"\n\
+  echo "📄 Size: $(du -h /app/metadata.json | cut -f1)"\n\
+else\n\
+  echo "⚠️  Using fallback metadata"\n\
 fi\n\
 \n\
 # Start Datasette\n\

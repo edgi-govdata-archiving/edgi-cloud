@@ -10,8 +10,8 @@ primary_region = 'ord'
 
 [env]
   CSRF_SECRET_KEY = 'fd93c677e08304855095d266835d86c9a2eadda209d6c2c9fe0bea65fe0941d4'
-  EDGI_DATA_DIR = '/data'
-  EDGI_STATIC_DIR = '/app/static'
+  RESETTE_DATA_DIR = '/data'
+  RESETTE_STATIC_DIR = '/app/static'
   PORTAL_DB_PATH = '/data/portal.db'
   DEFAULT_PASSWORD = 'edgi2025!'
   APP_URL = 'https://edgi-cloud.fly.dev'

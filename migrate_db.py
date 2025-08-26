@@ -14,7 +14,7 @@ def migrate_database():
         print("❌ Database not found at:", PORTAL_DB_PATH)
         return
     
-    print("📄 Starting comprehensive database migration...")
+    print("🔄 Starting comprehensive database migration...")
     
     try:
         db = sqlite_utils.Database(PORTAL_DB_PATH)
@@ -93,6 +93,27 @@ def migrate_database():
             updated_count = result.rowcount if hasattr(result, 'rowcount') else 0
             if updated_count > 0:
                 print(f"   ✅ Updated {updated_count} records with updated_at timestamps")
+
+        # Fix activity_logs table structure
+        if 'activity_logs' in existing_tables:
+            print("🔧 Updating activity_logs table structure...")
+            
+            # Get current columns
+            current_columns = [col.name for col in db['activity_logs'].columns]
+            print(f"   Current activity_logs columns: {current_columns}")
+            
+            # Add missing action_metadata column
+            if 'action_metadata' not in current_columns:
+                try:
+                    db.executescript("ALTER TABLE activity_logs ADD COLUMN action_metadata TEXT;")
+                    print("   ✅ Added: action_metadata to activity_logs")
+                except Exception as e:
+                    if "duplicate column" in str(e).lower():
+                        print("   ⚪ Exists: action_metadata")
+                    else:
+                        print(f"   ❌ Failed to add action_metadata: {e}")
+            else:
+                print("   ⚪ Exists: action_metadata")
             
         else:
             print("🔧 Creating databases table...")
@@ -129,7 +150,27 @@ def migrate_database():
         else:
             print("   ⚪ blocked_domains table already exists")
         
-        # 4. Verify table structures
+        # 4. Create database_tables table if it doesn't exist
+        if 'database_tables' not in existing_tables:
+            print("🔧 Creating database_tables table...")
+            db.executescript("""
+                CREATE TABLE database_tables (
+                    table_id TEXT PRIMARY KEY,
+                    db_id TEXT NOT NULL,
+                    table_name TEXT NOT NULL,
+                    show_in_homepage BOOLEAN DEFAULT 1,
+                    display_order INTEGER DEFAULT 0,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    FOREIGN KEY (db_id) REFERENCES databases (db_id),
+                    UNIQUE (db_id, table_name)
+                );
+            """)
+            print("   ✅ Created database_tables table")
+        else:
+            print("   ⚪ database_tables table already exists")
+        
+        # 5. Verify table structures
         print("🔍 Verifying table structures...")
         
         # Check system_settings
@@ -163,16 +204,30 @@ def migrate_database():
         else:
             print("   ✅ blocked_domains structure verified")
         
-        # 5. Database statistics
+        # Check database_tables
+        database_tables_columns = [col.name for col in db['database_tables'].columns]
+        expected_database_tables = [
+            'table_id', 'db_id', 'table_name', 'show_in_homepage', 'display_order', 
+            'created_at', 'updated_at'
+        ]
+        missing_database_tables = [col for col in expected_database_tables if col not in database_tables_columns]
+        if missing_database_tables:
+            print(f"   ⚠️  Missing database_tables columns: {missing_database_tables}")
+        else:
+            print("   ✅ database_tables structure verified")
+        
+        # 6. Database statistics
         print("📊 Database statistics:")
         try:
             users_count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0] if 'users' in existing_tables else 0
             databases_count = db.execute("SELECT COUNT(*) FROM databases").fetchone()[0]
             settings_count = db.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0]
             domains_count = db.execute("SELECT COUNT(*) FROM blocked_domains").fetchone()[0]
+            tables_count = db.execute("SELECT COUNT(*) FROM database_tables").fetchone()[0]
             
             print(f"   👥 Users: {users_count}")
             print(f"   🗄️  Databases: {databases_count}")
+            print(f"   📋 Database tables: {tables_count}")
             print(f"   ⚙️  Settings: {settings_count}")
             print(f"   🚫 Blocked domains: {domains_count}")
         except Exception as stats_error:
@@ -196,7 +251,7 @@ def verify_migration():
     try:
         db = sqlite_utils.Database(PORTAL_DB_PATH)
         
-        required_tables = ['system_settings', 'databases', 'blocked_domains']
+        required_tables = ['system_settings', 'databases', 'blocked_domains', 'database_tables']
         existing_tables = [table.name for table in db.tables]
         
         missing_tables = [table for table in required_tables if table not in existing_tables]
@@ -209,6 +264,13 @@ def verify_migration():
         settings_count = db.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0]
         if settings_count == 0:
             print("⚠️  Warning: system_settings table is empty")
+        
+        # Verify foreign key constraint exists for database_tables
+        try:
+            db.execute("PRAGMA foreign_key_check(database_tables)").fetchall()
+            print("✅ database_tables foreign key constraints verified")
+        except Exception as fk_error:
+            print(f"⚠️  Foreign key check warning: {fk_error}")
         
         print("✅ Migration verification passed!")
         return True
