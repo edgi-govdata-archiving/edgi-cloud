@@ -1,7 +1,7 @@
 """
 Enhanced Upload Module - Multi-source data upload with Google Sheets integration and Excel support
 Handles: File uploads (CSV, Excel), Google Sheets, Web CSV, custom table names
-FIXES: Data type conversion, domain allowlist, better error handling
+FIXES: HTTP header errors, data type conversion, domain allowlist, better error handling
 """
 
 import json
@@ -14,6 +14,7 @@ import io
 import requests
 import pandas as pd
 import numpy as np
+import urllib.parse
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
@@ -42,9 +43,78 @@ from common_utils import (
     DATA_DIR,
     is_domain_blocked,
     sync_database_tables_on_upload,
+    get_system_settings,
 )
 
 logger = logging.getLogger(__name__)
+
+def sanitize_error_message(message):
+    """
+    Sanitize error message for HTTP redirect URLs.
+    Removes newlines, limits length, and handles special characters.
+    """
+    if not message:
+        return "Unknown error occurred"
+    
+    # Convert to string and remove problematic characters
+    sanitized = str(message).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+    
+    # Remove extra whitespace
+    sanitized = ' '.join(sanitized.split())
+    
+    # Limit length to prevent URL length issues
+    if len(sanitized) > 200:
+        sanitized = sanitized[:197] + "..."
+    
+    # Remove potentially problematic characters for URLs
+    sanitized = re.sub(r'[<>"\']', '', sanitized)
+    
+    return sanitized
+
+def validate_csv_structure(content, max_sample_lines=10):
+    """
+    Quick validation of CSV structure before pandas processing.
+    Returns (is_valid, error_message)
+    """
+    try:
+        if not content or not content.strip():
+            return False, "CSV file appears to be empty"
+        
+        lines = content.strip().split('\n')
+        if len(lines) < 1:
+            return False, "CSV must have at least one line"
+        
+        # Check for basic CSV structure in first few lines
+        sample_lines = lines[:max_sample_lines]
+        if len(sample_lines) < 2:
+            return True, None  # Single line is OK for headers-only
+        
+        # Simple field count validation
+        try:
+            first_row = list(csv.reader([lines[0]]))[0]
+            first_row_fields = len(first_row)
+            
+            if first_row_fields == 0:
+                return False, "First row appears to be empty"
+            
+            # Check a few more rows for consistency
+            for i, line in enumerate(lines[1:4]):  # Check first 3 data rows
+                if line.strip():  # Skip empty lines
+                    try:
+                        row = list(csv.reader([line]))[0]
+                        if len(row) != first_row_fields and len(row) != 0:
+                            return False, f"Inconsistent column count: expected {first_row_fields}, found {len(row)} on line {i+2}"
+                    except csv.Error:
+                        continue  # Skip malformed lines in validation
+            
+            return True, None
+            
+        except csv.Error as e:
+            return False, f"CSV format issue: {str(e)}"
+        
+    except Exception as e:
+        logger.error(f"CSV validation error: {e}")
+        return False, "Could not validate CSV structure"
 
 class GoogleSheetsHandler:
     """Handle Google Sheets data import."""
@@ -74,7 +144,7 @@ class GoogleSheetsHandler:
         try:
             sheet_id = GoogleSheetsHandler.extract_sheet_id(sheet_url)
             if not sheet_id:
-                raise ValueError("Invalid Google Sheets URL. Please ensure the URL is in the format: https://docs.google.com/spreadsheets/d/SHEET_ID/")
+                raise ValueError("Invalid Google Sheets URL format")
             
             # Try to extract gid from URL if present
             gid = 0
@@ -97,37 +167,31 @@ class GoogleSheetsHandler:
             
             # Check for specific error conditions
             if response.status_code == 401:
-                raise ValueError("The Google Sheet is private. Please make it public or share it with 'Anyone with the link can view' permissions.")
+                raise ValueError("Google Sheet is private - please make it publicly accessible")
             elif response.status_code == 404:
-                raise ValueError("Google Sheet not found. Please check the URL and ensure the sheet exists.")
+                raise ValueError("Google Sheet not found - please check the URL")
             elif response.status_code != 200:
-                raise ValueError(f"Failed to access Google Sheet (HTTP {response.status_code}). Please check the URL and sharing permissions.")
+                raise ValueError(f"Failed to access Google Sheet (HTTP {response.status_code})")
             
             # Check if we got actual CSV data
             content_type = response.headers.get('content-type', '').lower()
             if 'text/html' in content_type:
-                raise ValueError("Received HTML instead of CSV data. The sheet may be private or the URL may be incorrect.")
+                raise ValueError("Sheet appears to be private or URL is incorrect")
             
             # Validate CSV content
             csv_content = response.text.strip()
             if not csv_content:
-                raise ValueError("The Google Sheet appears to be empty.")
+                raise ValueError("The Google Sheet appears to be empty")
             
             # Basic CSV validation
-            try:
-                # Try to parse first few lines to validate CSV format
-                sample_lines = csv_content.split('\n')[:5]
-                csv.reader(sample_lines)
-            except csv.Error:
-                raise ValueError("The downloaded content doesn't appear to be valid CSV data.")
+            is_valid, error = validate_csv_structure(csv_content)
+            if not is_valid:
+                raise ValueError(f"Invalid CSV structure: {error}")
             
             return csv_content
             
         except requests.RequestException as e:
-            if "Unauthorized" in str(e):
-                raise ValueError("The Google Sheet is private. Please make it public or share it with 'Anyone with the link can view' permissions.")
-            else:
-                raise ValueError(f"Network error while fetching Google Sheets data: {str(e)}")
+            raise ValueError(f"Network error accessing Google Sheets: connection failed")
 
 class WebCSVHandler:
     """Handle web-based CSV import with dynamic domain blocking."""
@@ -152,7 +216,7 @@ class WebCSVHandler:
             for i in range(len(domain_parts)):
                 parent_domain = '.'.join(domain_parts[i:])
                 if await is_domain_blocked(datasette, parent_domain):
-                    raise ValueError(f"Domain '{domain}' is blocked (parent domain '{parent_domain}' is blocked)")
+                    raise ValueError(f"Domain '{domain}' is blocked")
             
             # Check file extension
             path_lower = parsed.path.lower()
@@ -196,7 +260,7 @@ class WebCSVHandler:
             return content
             
         except requests.RequestException as e:
-            raise ValueError(f"Failed to fetch CSV from URL: {str(e)}")
+            raise ValueError(f"Failed to fetch CSV from URL: connection error")
 
 class ExcelHandler:
     """Handle Excel file processing with better data type handling."""
@@ -223,7 +287,8 @@ class ExcelHandler:
             return df, None
             
         except Exception as e:
-            return None, f"Error processing Excel file: {str(e)}"
+            error_msg = f"Error processing Excel file: {type(e).__name__}"
+            return None, error_msg
     
     @staticmethod
     def convert_data_types(df):
@@ -344,15 +409,29 @@ class DataProcessor:
     
     @staticmethod
     def process_csv_content(content, table_name, first_row_headers=True):
-        """Process CSV content and return cleaned DataFrame."""
+        """Process CSV content and return cleaned DataFrame with better error handling."""
         try:
-            # Parse CSV
-            if first_row_headers:
-                df = pd.read_csv(io.StringIO(content))
-            else:
-                df = pd.read_csv(io.StringIO(content), header=None)
-                # Generate column names
-                df.columns = [f'column_{i+1}' for i in range(len(df.columns))]
+            # Validate CSV structure first
+            is_valid, validation_error = validate_csv_structure(content)
+            if not is_valid:
+                return None, validation_error
+            
+            # Parse CSV with error handling
+            try:
+                if first_row_headers:
+                    df = pd.read_csv(io.StringIO(content), on_bad_lines='skip', low_memory=False)
+                else:
+                    df = pd.read_csv(io.StringIO(content), header=None, on_bad_lines='skip', low_memory=False)
+                    # Generate column names
+                    df.columns = [f'column_{i+1}' for i in range(len(df.columns))]
+            except pd.errors.ParserError as e:
+                return None, "CSV format error - file may have inconsistent columns or formatting issues"
+            except pd.errors.EmptyDataError:
+                return None, "CSV file appears to be empty or contains no data"
+            
+            # Check if DataFrame is empty
+            if df.empty:
+                return None, "No data found in CSV file"
             
             # Clean column names
             df.columns = DataProcessor.clean_column_names(df.columns)
@@ -363,7 +442,8 @@ class DataProcessor:
             return df, None
             
         except Exception as e:
-            return None, f"Error processing CSV: {str(e)}"
+            logger.error(f"CSV processing error: {e}")
+            return None, f"Error processing CSV: {type(e).__name__}"
     
     @staticmethod
     def clean_column_names(columns):
@@ -493,8 +573,6 @@ def parse_multipart_form_data(body, boundary):
         return forms, files
     except Exception as e:
         logger.error(f"Error parsing multipart data: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
         return {}, {}
 
 async def enhanced_upload_page(datasette, request):
@@ -521,10 +599,8 @@ async def enhanced_upload_page(datasette, request):
     try:
         target_db = datasette.get_database(db_name)
         if not target_db:
-            # Database not registered, try to register it
             await ensure_database_registered(datasette, db_name, actor["id"])
     except KeyError:
-        # Database not registered, try to register it
         await ensure_database_registered(datasette, db_name, actor["id"])
 
     if request.method == "POST":
@@ -532,7 +608,14 @@ async def enhanced_upload_page(datasette, request):
     
     # GET request - show upload form
     content = await get_portal_content(datasette)
-    
+
+    # Get system settings for template
+    try:
+        system_settings = await get_system_settings(datasette)
+    except Exception as e:
+        logger.error(f"Error loading system settings: {e}")
+        system_settings = {'max_file_size': 524288000}  # 500MB fallback
+
     return Response.html(
         await datasette.render_template(
             "upload_table.html",
@@ -541,6 +624,7 @@ async def enhanced_upload_page(datasette, request):
                 "content": content,
                 "actor": actor,
                 "db_name": db_name,
+                "system_settings": system_settings,
                 **get_success_error_from_request(request)
             },
             request=request
@@ -578,16 +662,14 @@ async def ensure_database_registered(datasette, db_name, user_id):
         raise
 
 async def handle_enhanced_upload(datasette, request, db_name, actor):
-    """Handle enhanced upload form submission."""
+    """Handle enhanced upload form submission with improved error handling."""
     try:
         content_type = request.headers.get('content-type', '').lower()
         logger.debug(f"Content type: {content_type}")
         
         if 'multipart/form-data' in content_type:
-            # Handle file upload
             return await handle_file_upload(datasette, request, db_name, actor)
         else:
-            # Handle form data (Google Sheets, URL)
             post_vars = await request.post_vars()
             source_type = post_vars.get('source_type')
             logger.debug(f"Source type: {source_type}")
@@ -597,16 +679,15 @@ async def handle_enhanced_upload(datasette, request, db_name, actor):
             elif source_type == 'url':
                 return await handle_url_upload(datasette, request, post_vars, db_name, actor)
             else:
-                return Response.redirect(f"/upload-table/{db_name}?error=Invalid source type")
+                return redirect_after_upload(request, db_name, "Invalid source type", is_error=True)
     
     except Exception as e:
         logger.error(f"Enhanced upload error: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return Response.redirect(f"/upload-table/{db_name}?error=Upload failed: {str(e)}")
+        error_msg = sanitize_error_message(f"Upload failed: {str(e)}")
+        return redirect_after_upload(request, db_name, error_msg, is_error=True)
 
 async def handle_file_upload(datasette, request, db_name, actor):
-    """Handle traditional file upload with enhanced data type handling."""
+    """Handle traditional file upload with enhanced error handling."""
     try:
         logger.debug("Starting file upload processing")
         
@@ -616,9 +697,10 @@ async def handle_file_upload(datasette, request, db_name, actor):
         
         max_file_size = await get_max_file_size(datasette)
         if len(body) > max_file_size:
-            return Response.redirect(f"/upload-table/{db_name}?error=File too large (max {max_file_size // (1024*1024)}MB)")
+            size_mb = max_file_size // (1024*1024)
+            return redirect_after_upload(request, db_name, f"File too large (max {size_mb}MB)", is_error=True)
         
-        # Parse form data using email parser
+        # Parse form data
         content_type = request.headers.get('content-type', '')
         boundary = None
         if 'boundary=' in content_type:
@@ -626,7 +708,7 @@ async def handle_file_upload(datasette, request, db_name, actor):
         
         if not boundary:
             logger.error("No boundary found in content type")
-            return Response.redirect(f"/upload-table/{db_name}?error=Invalid form data - no boundary")
+            return redirect_after_upload(request, db_name, "Invalid form data", is_error=True)
         
         logger.debug(f"Using boundary: {boundary}")
         
@@ -636,7 +718,7 @@ async def handle_file_upload(datasette, request, db_name, actor):
         # Process file upload
         if 'file' not in files:
             logger.error("No file found in upload")
-            return Response.redirect(f"/upload-table/{db_name}?error=No file uploaded")
+            return redirect_after_upload(request, db_name, "No file uploaded", is_error=True)
         
         file_info = files['file']
         filename = file_info['filename']
@@ -653,32 +735,38 @@ async def handle_file_upload(datasette, request, db_name, actor):
         file_ext = os.path.splitext(filename)[1].lower()
         
         if file_ext in ['.xlsx', '.xls']:
-            # Process Excel file with enhanced data type handling
+            # Process Excel file
             sheet_name = excel_sheet if excel_sheet else None
             df, error = ExcelHandler.process_excel_file(file_content, sheet_name)
             if error:
-                return Response.redirect(f"/upload-table/{db_name}?error={error}")
+                return redirect_after_upload(request, db_name, error, is_error=True)
                 
         elif file_ext in ['.csv', '.txt', '.tsv']:
-            # Process CSV file
+            # Process CSV file with better error handling
             try:
-                # Try UTF-8 first, then fall back to other encodings
-                try:
-                    csv_content = file_content.decode('utf-8-sig')
-                except UnicodeDecodeError:
+                # Try different encodings
+                csv_content = None
+                for encoding in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
                     try:
-                        csv_content = file_content.decode('utf-8')
+                        csv_content = file_content.decode(encoding)
+                        logger.debug(f"Successfully decoded with {encoding}")
+                        break
                     except UnicodeDecodeError:
-                        csv_content = file_content.decode('latin-1')
+                        continue
+                
+                if csv_content is None:
+                    return redirect_after_upload(request, db_name, "Could not decode file - unsupported encoding", is_error=True)
                 
                 df, error = DataProcessor.process_csv_content(csv_content, custom_table_name or filename)
                 if error:
-                    return Response.redirect(f"/upload-table/{db_name}?error={error}")
+                    return redirect_after_upload(request, db_name, error, is_error=True)
+                    
             except Exception as e:
                 logger.error(f"Error processing CSV: {e}")
-                return Response.redirect(f"/upload-table/{db_name}?error=Error processing CSV: {str(e)}")
+                error_msg = sanitize_error_message(f"Error processing CSV file: {str(e)}")
+                return redirect_after_upload(request, db_name, error_msg, is_error=True)
         else:
-            return Response.redirect(f"/upload-table/{db_name}?error=Unsupported file type. Supported: CSV, TSV, TXT, Excel (.xlsx, .xls)")
+            return redirect_after_upload(request, db_name, "Unsupported file type. Use CSV, TSV, TXT, or Excel files", is_error=True)
         
         logger.debug(f"Processed DataFrame: {len(df)} rows, {len(df.columns)} columns")
         
@@ -692,7 +780,7 @@ async def handle_file_upload(datasette, request, db_name, actor):
         # Validate table name
         is_valid, error_msg = TableNameManager.validate_table_name(table_name)
         if not is_valid:
-            return Response.redirect(f"/upload-table/{db_name}?error=Invalid table name: {error_msg}")
+            return redirect_after_upload(request, db_name, f"Invalid table name: {error_msg}", is_error=True)
         
         logger.debug(f"Using table name: {table_name}")
         
@@ -706,7 +794,7 @@ async def handle_file_upload(datasette, request, db_name, actor):
                 await target_db.execute_write(f"DROP TABLE [{table_name}]")
                 logger.debug(f"Dropped existing table: {table_name}")
             else:
-                return Response.redirect(f"/upload-table/{db_name}?error=Table '{table_name}' already exists. Enable 'Replace existing table' to overwrite.")
+                return redirect_after_upload(request, db_name, f"Table '{table_name}' already exists. Enable 'Replace existing table' to overwrite", is_error=True)
         
         # Data preparation
         records = DataProcessor.prepare_for_sqlite(df)
@@ -732,16 +820,17 @@ async def handle_file_upload(datasette, request, db_name, actor):
         await target_db.execute_write(create_sql)
         
         # Insert data in batches
-        batch_size = 1000
-        for i in range(0, len(records), batch_size):
-            batch = records[i:i + batch_size]
-            
-            placeholders = ", ".join(["?" for _ in df.columns])
-            columns = ", ".join([f"[{col}]" for col in df.columns])
-            insert_sql = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
-            
-            await target_db.execute_write_many(insert_sql, batch)
-            logger.debug(f"Inserted batch {i//batch_size + 1}: {len(batch)} rows")
+        if records:
+            batch_size = 1000
+            for i in range(0, len(records), batch_size):
+                batch = records[i:i + batch_size]
+                
+                placeholders = ", ".join(["?" for _ in df.columns])
+                columns = ", ".join([f"[{col}]" for col in df.columns])
+                insert_sql = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
+                
+                await target_db.execute_write_many(insert_sql, batch)
+                logger.debug(f"Inserted batch {i//batch_size + 1}: {len(batch)} rows")
         
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
@@ -778,9 +867,8 @@ async def handle_file_upload(datasette, request, db_name, actor):
         
     except Exception as e:
         logger.error(f"File upload error: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return redirect_after_upload(request, db_name, f"Upload failed: {str(e)}", is_error=True)
+        error_msg = sanitize_error_message(f"Upload failed: {str(e)}")
+        return redirect_after_upload(request, db_name, error_msg, is_error=True)
 
 async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
     """Handle Google Sheets upload with better error handling."""
@@ -793,9 +881,9 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
         logger.debug(f"Google Sheets params: url='{sheets_url}', sheet_index={sheet_index}, table_name='{custom_table_name}', headers={first_row_headers}")
         
         if not sheets_url:
-            return Response.redirect(f"/upload-table/{db_name}?error=Google Sheets URL is required")
+            return redirect_after_upload(request, db_name, "Google Sheets URL is required", is_error=True)
         
-        # Fetch data from Google Sheets with enhanced error handling
+        # Fetch data from Google Sheets
         csv_content = GoogleSheetsHandler.fetch_sheet_data(sheets_url, sheet_index)
         
         # Generate table name
@@ -808,17 +896,16 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
         # Validate table name
         is_valid, error_msg = TableNameManager.validate_table_name(table_name)
         if not is_valid:
-            return Response.redirect(f"/upload-table/{db_name}?error=Invalid table name: {error_msg}")
+            return redirect_after_upload(request, db_name, f"Invalid table name: {error_msg}", is_error=True)
         
-        # Process CSV data with first_row_headers parameter
+        # Process CSV data
         df, error = DataProcessor.process_csv_content(csv_content, table_name, first_row_headers)
         if error:
-            return Response.redirect(f"/upload-table/{db_name}?error={error}")
+            return redirect_after_upload(request, db_name, error, is_error=True)
         
         # Insert data into database
         target_db = datasette.get_database(db_name)
         
-        # Use enhanced data preparation
         records = DataProcessor.prepare_for_sqlite(df)
         
         # Create table
@@ -827,11 +914,12 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
         await target_db.execute_write(create_sql)
         
         # Insert data
-        placeholders = ", ".join(["?" for _ in df.columns])
-        columns = ", ".join([f"[{col}]" for col in df.columns])
-        insert_sql = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
-        
-        await target_db.execute_write_many(insert_sql, records)
+        if records:
+            placeholders = ", ".join(["?" for _ in df.columns])
+            columns = ", ".join([f"[{col}]" for col in df.columns])
+            insert_sql = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
+            
+            await target_db.execute_write_many(insert_sql, records)
         
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
@@ -865,9 +953,8 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
 
     except Exception as e:
         logger.error(f"Google Sheets upload error: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return redirect_after_upload(request, db_name, f"Upload failed: {str(e)}", is_error=True)
+        error_msg = sanitize_error_message(f"Upload failed: {str(e)}")
+        return redirect_after_upload(request, db_name, error_msg, is_error=True)
 
 async def handle_url_upload(datasette, request, post_vars, db_name, actor):
     """Handle web CSV upload with dynamic domain validation."""
@@ -879,9 +966,9 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         logger.debug(f"Web CSV params: url='{csv_url}', table_name='{custom_table_name}', encoding='{encoding}'")
         
         if not csv_url:
-            return Response.redirect(f"/upload-table/{db_name}?error=CSV URL is required")
+            return redirect_after_upload(request, db_name, "CSV URL is required", is_error=True)
         
-        # Fetch CSV from URL with dynamic domain checking
+        # Fetch CSV from URL
         csv_content = await WebCSVHandler.fetch_csv_from_url(datasette, csv_url, encoding)
         
         # Generate table name
@@ -896,17 +983,16 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         # Validate table name
         is_valid, error_msg = TableNameManager.validate_table_name(table_name)
         if not is_valid:
-            return Response.redirect(f"/upload-table/{db_name}?error=Invalid table name: {error_msg}")
+            return redirect_after_upload(request, db_name, f"Invalid table name: {error_msg}", is_error=True)
         
         # Process CSV data
         df, error = DataProcessor.process_csv_content(csv_content, table_name, first_row_headers=True)
         if error:
-            return Response.redirect(f"/upload-table/{db_name}?error={error}")
+            return redirect_after_upload(request, db_name, error, is_error=True)
         
         # Insert data into database
         target_db = datasette.get_database(db_name)
         
-        # Use enhanced data preparation
         records = DataProcessor.prepare_for_sqlite(df)
         
         # Create table
@@ -915,11 +1001,12 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         await target_db.execute_write(create_sql)
         
         # Insert data
-        placeholders = ", ".join(["?" for _ in df.columns])
-        columns = ", ".join([f"[{col}]" for col in df.columns])
-        insert_sql = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
-        
-        await target_db.execute_write_many(insert_sql, records)
+        if records:
+            placeholders = ", ".join(["?" for _ in df.columns])
+            columns = ", ".join([f"[{col}]" for col in df.columns])
+            insert_sql = f"INSERT INTO [{table_name}] ({columns}) VALUES ({placeholders})"
+            
+            await target_db.execute_write_many(insert_sql, records)
         
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
@@ -953,19 +1040,30 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         
     except Exception as e:
         logger.error(f"Web CSV upload error: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return redirect_after_upload(request, db_name, f"Upload failed: {str(e)}", is_error=True)
+        error_msg = sanitize_error_message(f"Upload failed: {str(e)}")
+        return redirect_after_upload(request, db_name, error_msg, is_error=True)
 
 def redirect_after_upload(request, db_name, message, is_error=False):
-    """Helper to redirect after upload based on request parameter."""
-    redirect_to = request.args.get('redirect', 'upload')
-    param = 'error' if is_error else 'success'
-    
-    if redirect_to == 'manage-databases':
-        return Response.redirect(f"/manage-databases?{param}={message}")
-    else:
-        return Response.redirect(f"/upload-table/{db_name}?{param}={message}")
+    """Helper to redirect after upload with properly sanitized and encoded messages."""
+    try:
+        # Sanitize and encode the message
+        sanitized_message = sanitize_error_message(message)
+        encoded_message = urllib.parse.quote(sanitized_message)
+        
+        redirect_to = request.args.get('redirect', 'upload')
+        param = 'error' if is_error else 'success'
+        
+        if redirect_to == 'manage-databases':
+            return Response.redirect(f"/manage-databases?{param}={encoded_message}")
+        else:
+            return Response.redirect(f"/upload-table/{db_name}?{param}={encoded_message}")
+            
+    except Exception as e:
+        logger.error(f"Error in redirect_after_upload: {e}")
+        # Fallback with minimal message
+        fallback_msg = "Upload completed" if not is_error else "Upload failed"
+        param = 'error' if is_error else 'success'
+        return Response.redirect(f"/upload-table/{db_name}?{param}={fallback_msg}")
 
 @hookimpl
 def register_routes():

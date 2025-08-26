@@ -45,7 +45,7 @@
                 {% endif %}
                 {% if error %}
                     <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-                        <p class="text-sm font-medium">{{ error }}</p>
+                        <p class="text-sm font-medium">{{ error|urldecode }}</p>
                         <!-- Enhanced error guidance -->
                         {% if "Google Sheet is private" in error %}
                             <div class="mt-2 text-xs">
@@ -109,7 +109,7 @@
                                         <label for="file-input" class="cursor-pointer">
                                             <i class="ri-upload-cloud-2-line text-4xl text-gray-400 mb-2 block"></i>
                                             <p class="text-gray-600">Click to select file</p>
-                                            <p class="text-xs text-gray-500 mt-1">Supports CSV, TSV, TXT, Excel (.xlsx, .xls) files up to {{ ((system_settings.max_file_size if system_settings else 52428800) // (1024*1024)) }}MB</p>                                        </label>
+                                            <p class="text-xs text-gray-500 mt-1">Supports CSV, TSV, TXT, Excel (.xlsx, .xls) files up to {{ ((system_settings.max_file_size if system_settings else 524288000) // (1024*1024)) }}MB</p>                                        </label>
                                         <div id="file-info" class="hidden mt-4 p-3 bg-blue-50 rounded border">
                                             <p class="text-sm text-blue-800" id="file-details"></p>
                                         </div>
@@ -464,8 +464,8 @@
             }
             
             const file = fileInput.files[0];
-            if (file.size > {{ (system_settings.max_file_size if system_settings else 52428800) }}) {
-                alert('File size must be less than {{ ((system_settings.max_file_size if system_settings else 52428800) // (1024*1024)) }}MB.');
+            if (file.size > {{ (system_settings.max_file_size if system_settings else 524288000) }}) {
+                alert('File size must be less than {{ ((system_settings.max_file_size if system_settings else 524288000) // (1024*1024)) }}MB.');
                 return false;
             }
             

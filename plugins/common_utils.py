@@ -1,5 +1,5 @@
 """
-Common Utilities Module for EDGI Datasette Cloud Portal
+Common Utilities Module
 Shared functions across all backend modules to eliminate code duplication
 """
 
@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from email.parser import BytesParser
 from email.policy import default
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ async def get_system_settings(datasette):
         defaults = {
             'trash_retention_days': 30,
             'max_databases_per_user': 10,
-            'max_file_size': 50 * 1024 * 1024,  # 50MB in bytes
+            'max_file_size': 500 * 1024 * 1024,  # 50MB in bytes
             'max_img_size': 5 * 1024 * 1024,   # 5MB in bytes
             'allowed_extensions': '.jpg, .jpeg, .png, .csv, .xls, .xlsx, .txt'
         }
@@ -72,7 +73,7 @@ async def get_system_settings(datasette):
         return {
             'trash_retention_days': 30,
             'max_databases_per_user': 10,
-            'max_file_size': 50 * 1024 * 1024,
+            'max_file_size': 500 * 1024 * 1024,
             'max_img_size': 5 * 1024 * 1024,
             'allowed_extensions': '.jpg, .png, .csv, .xls, .xlsx, .txt'
         }
@@ -99,7 +100,7 @@ async def get_max_file_size(datasette):
     """Get max file size in bytes."""
     try:
         settings = await get_system_settings(datasette)
-        max_file_size = settings.get('max_img_size', 50 * 1024 * 1024)
+        max_file_size = settings.get('max_file_size', 500 * 1024 * 1024)
         
         if isinstance(max_file_size, str):
             max_file_size = int(max_file_size)
@@ -107,7 +108,7 @@ async def get_max_file_size(datasette):
         return max_file_size
     except Exception as e:
         logger.error(f"Error getting max image size: {e}")
-        return 50 * 1024 * 1024
+        return 500 * 1024 * 1024
 
 async def get_max_image_size(datasette):
     """Get max image size in bytes."""
@@ -1352,3 +1353,356 @@ def is_system_table(table_name):
             return True
     
     return False
+
+
+def sanitize_url_parameter(text):
+    """
+    Sanitize text for use in URL parameters.
+    Removes problematic characters that can break HTTP headers or URLs.
+    """
+    if not text:
+        return ""
+    
+    # Convert to string and handle newlines/control characters
+    sanitized = str(text)
+    
+    # Remove or replace problematic characters
+    sanitized = sanitized.replace('\n', ' ')
+    sanitized = sanitized.replace('\r', ' ')
+    sanitized = sanitized.replace('\t', ' ')
+    
+    # Remove other control characters
+    sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', sanitized)
+    
+    # Normalize whitespace
+    sanitized = ' '.join(sanitized.split())
+    
+    # Limit length to prevent URL length issues
+    if len(sanitized) > 200:
+        sanitized = sanitized[:197] + "..."
+    
+    # Remove potentially dangerous characters for URLs
+    sanitized = re.sub(r'[<>"\'&]', '', sanitized)
+    
+    return sanitized
+
+def create_safe_redirect_url(base_url, param_name, message, is_error=False):
+    """
+    Create a safe redirect URL with properly encoded parameters.
+    Returns a URL string that won't cause HTTP header errors.
+    """
+    try:
+        # Sanitize the message
+        clean_message = sanitize_url_parameter(message)
+        
+        # URL encode the message
+        encoded_message = urllib.parse.quote(clean_message)
+        
+        # Build URL with proper separator
+        separator = '&' if '?' in base_url else '?'
+        safe_url = f"{base_url}{separator}{param_name}={encoded_message}"
+        
+        # Validate final URL length
+        if len(safe_url) > 2000:  # Most browsers support 2000+ char URLs
+            # Truncate message if URL is too long
+            max_msg_len = 2000 - len(base_url) - len(param_name) - 20  # Buffer for encoding
+            truncated = clean_message[:max_msg_len] + "..." if max_msg_len > 0 else "Error message too long"
+            encoded_message = urllib.parse.quote(truncated)
+            safe_url = f"{base_url}{separator}{param_name}={encoded_message}"
+        
+        return safe_url
+        
+    except Exception as e:
+        logger.error(f"Error creating redirect URL: {e}")
+        # Return fallback URL
+        fallback_msg = "Upload completed" if not is_error else "Upload failed"
+        return f"{base_url}{separator}{param_name}={fallback_msg}"
+
+def parse_multipart_form_data_robust(body, content_type):
+    """
+    Enhanced multipart form parser with comprehensive error handling.
+    Returns (forms, files) tuple.
+    """
+    try:
+        # Method 1: Use email parser (most reliable)
+        return parse_multipart_with_email_parser(body, content_type)
+    except Exception as email_error:
+        logger.warning(f"Email parser failed: {email_error}, trying custom parser")
+        try:
+            # Method 2: Enhanced custom parser as fallback
+            return parse_multipart_custom_enhanced(body, content_type)
+        except Exception as custom_error:
+            logger.error(f"All multipart parsers failed: email={email_error}, custom={custom_error}")
+            # Return empty forms/files rather than raising
+            return {}, {}
+
+def validate_file_upload_size(content_length, max_size):
+    """
+    Validate file upload size before processing.
+    Returns (is_valid, error_message)
+    """
+    try:
+        if content_length is None:
+            return True, None  # Can't validate without content length
+        
+        size = int(content_length)
+        if size > max_size:
+            max_mb = max_size // (1024 * 1024)
+            current_mb = size / (1024 * 1024)
+            return False, f"File too large: {current_mb:.1f}MB (max: {max_mb}MB)"
+        
+        return True, None
+        
+    except (ValueError, TypeError):
+        return True, None  # Invalid content length, allow processing
+
+def clean_csv_error_message(error_msg):
+    """
+    Clean up pandas/CSV error messages for user display.
+    Removes technical details and makes messages more user-friendly.
+    """
+    if not error_msg:
+        return "Unknown CSV processing error"
+    
+    error_str = str(error_msg)
+    
+    # Common pandas error patterns and their user-friendly replacements
+    error_patterns = [
+        (r"Error tokenizing data\. C error:.*", "CSV format error - inconsistent number of columns detected"),
+        (r"Expected \d+ fields.*saw \d+.*", "CSV format error - rows have different numbers of columns"),
+        (r"ParserError:.*", "CSV format error - file may have formatting issues"),
+        (r"UnicodeDecodeError:.*", "File encoding error - try saving as UTF-8"),
+        (r"EmptyDataError.*", "CSV file appears to be empty"),
+        (r"PermissionError.*", "File access error - file may be open in another program"),
+        (r"FileNotFoundError.*", "File not found or was deleted during processing"),
+    ]
+    
+    # Apply patterns to clean up the message
+    for pattern, replacement in error_patterns:
+        if re.search(pattern, error_str, re.IGNORECASE):
+            return replacement
+    
+    # Fallback: extract the core error type if available
+    if "Error:" in error_str:
+        core_error = error_str.split("Error:")[-1].strip()
+        if len(core_error) < 100:
+            return f"Processing error: {core_error}"
+    
+    # Final fallback
+    return "File processing error - please check file format and try again"
+
+async def handle_upload_error_gracefully(datasette, error, context=None):
+    """
+    Handle upload errors gracefully with proper logging and user feedback.
+    Returns a user-friendly error message.
+    """
+    try:
+        error_type = type(error).__name__
+        error_msg = str(error)
+        
+        # Log the full error for debugging
+        logger.error(f"Upload error in {context or 'unknown'}: {error_type}: {error_msg}")
+        
+        # Categorize and provide user-friendly messages
+        if "UnicodeDecodeError" in error_type:
+            return "File encoding error. Please save your file as UTF-8 and try again."
+        
+        elif "ParserError" in error_type or "tokenizing" in error_msg.lower():
+            return "CSV format error. Please check that all rows have the same number of columns."
+        
+        elif "PermissionError" in error_type:
+            return "File access error. Please ensure the file is not open in another program."
+        
+        elif "MemoryError" in error_type:
+            return "File too large to process in memory. Please try a smaller file."
+        
+        elif "ConnectionError" in error_type or "timeout" in error_msg.lower():
+            return "Network error. Please check your connection and try again."
+        
+        elif "EmptyDataError" in error_type:
+            return "The uploaded file appears to be empty."
+        
+        elif any(keyword in error_msg.lower() for keyword in ["private", "unauthorized", "403", "401"]):
+            return "Access denied. Please ensure the file/URL is publicly accessible."
+        
+        elif "domain" in error_msg.lower() and "blocked" in error_msg.lower():
+            return "Domain not allowed. Please contact administrator or use an approved domain."
+        
+        else:
+            # Generic fallback with error type
+            return f"Upload failed: {clean_csv_error_message(error_msg)}"
+            
+    except Exception as e:
+        logger.error(f"Error in error handler: {e}")
+        return "Upload failed due to an unexpected error"
+
+def validate_and_sanitize_table_name(raw_name):
+    """
+    Enhanced table name validation and sanitization.
+    Returns (sanitized_name, is_valid, error_message)
+    """
+    if not raw_name:
+        return None, False, "Table name cannot be empty"
+    
+    # Basic sanitization
+    name = str(raw_name).strip()
+    
+    # Remove file extensions
+    name = re.sub(r'\.[^.]*$', '', name)
+    
+    # Replace problematic characters
+    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    
+    # Ensure it starts with letter or underscore
+    if name and not re.match(r'^[a-zA-Z_]', name):
+        name = 'table_' + name
+    
+    # Remove consecutive underscores
+    name = re.sub(r'_{2,}', '_', name)
+    
+    # Truncate if too long
+    if len(name) > 60:
+        name = name[:60].rstrip('_')
+    
+    # Fallback for empty names
+    if not name:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f'table_{timestamp}'
+    
+    # Final validation
+    if len(name) > 64:
+        return None, False, "Table name too long"
+    
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+        return None, False, "Invalid table name format"
+    
+    # Check for SQL keywords (basic set)
+    sql_keywords = {
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
+        'TABLE', 'INDEX', 'VIEW', 'DATABASE', 'FROM', 'WHERE', 'ORDER', 'GROUP'
+    }
+    
+    if name.upper() in sql_keywords:
+        name = name + '_table'
+    
+    return name, True, None
+
+def get_file_encoding_info(file_content, filename=None):
+    """
+    Detect file encoding and provide encoding information.
+    Returns (encoding, confidence, suggested_encoding)
+    """
+    try:
+        # Try to detect encoding
+        import chardet
+        detection = chardet.detect(file_content)
+        detected_encoding = detection.get('encoding', 'unknown')
+        confidence = detection.get('confidence', 0.0)
+        
+        # Suggest best encoding based on detection and filename
+        if confidence > 0.8 and detected_encoding:
+            suggested = detected_encoding
+        elif filename and any(ext in filename.lower() for ext in ['.csv', '.txt']):
+            suggested = 'utf-8'
+        else:
+            suggested = 'utf-8'
+        
+        return detected_encoding, confidence, suggested
+        
+    except ImportError:
+        # chardet not available, use defaults
+        return 'unknown', 0.0, 'utf-8'
+    except Exception as e:
+        logger.error(f"Error detecting encoding: {e}")
+        return 'unknown', 0.0, 'utf-8'
+
+def create_upload_progress_info(current_step, total_steps, message):
+    """
+    Create structured progress information for uploads.
+    Returns dictionary with progress info.
+    """
+    return {
+        'step': current_step,
+        'total_steps': total_steps,
+        'percentage': int((current_step / total_steps) * 100) if total_steps > 0 else 0,
+        'message': message,
+        'timestamp': datetime.utcnow().isoformat()
+    }
+
+async def log_upload_activity_enhanced(datasette, user_id, upload_type, details, metadata=None, error=None):
+    """
+    Enhanced logging for upload activities with error tracking.
+    """
+    try:
+        query_db = datasette.get_database("portal")
+        
+        log_data = {
+            'log_id': uuid.uuid4().hex[:20],
+            'user_id': user_id,
+            'action': f'upload_{upload_type}',
+            'details': details,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        # Enhanced metadata with error info
+        enhanced_metadata = metadata or {}
+        if error:
+            enhanced_metadata['error'] = {
+                'type': type(error).__name__,
+                'message': str(error)[:500],  # Limit error message length
+                'occurred_at': datetime.utcnow().isoformat()
+            }
+        
+        if enhanced_metadata:
+            log_data['action_metadata'] = json.dumps(enhanced_metadata)
+        
+        await query_db.execute_write(
+            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], 
+             log_data['timestamp'], log_data.get('action_metadata')]
+        )
+        
+        logger.debug(f"Logged upload activity for user {user_id}: {upload_type}")
+        
+    except Exception as e:
+        logger.error(f"Error logging upload activity: {e}")
+
+def extract_meaningful_error_context(error, max_length=150):
+    """
+    Extract meaningful context from error messages for user display.
+    Removes stack traces and technical details.
+    """
+    try:
+        error_str = str(error)
+        
+        # Remove common technical prefixes
+        prefixes_to_remove = [
+            r'Traceback \(most recent call last\):.*?\n',
+            r'File ".*?", line \d+, in .*?\n',
+            r'^\s*at\s+.*?\n',  # Stack trace lines
+        ]
+        
+        for prefix in prefixes_to_remove:
+            error_str = re.sub(prefix, '', error_str, flags=re.MULTILINE)
+        
+        # Extract the core error message (usually the last line)
+        lines = error_str.strip().split('\n')
+        if lines:
+            core_message = lines[-1].strip()
+            
+            # Remove error class names if present
+            if ':' in core_message and len(core_message.split(':', 1)) == 2:
+                error_class, message = core_message.split(':', 1)
+                if any(keyword in error_class for keyword in ['Error', 'Exception', 'Warning']):
+                    core_message = message.strip()
+            
+            # Truncate if too long
+            if len(core_message) > max_length:
+                core_message = core_message[:max_length-3] + "..."
+            
+            return core_message if core_message else "Unknown error occurred"
+        
+        return "Unknown error occurred"
+        
+    except Exception:
+        return "Error processing failed"
