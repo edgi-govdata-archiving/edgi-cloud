@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Import Database - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>Import Database - {{ content.title.content | default("Resette Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -17,7 +17,7 @@
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
                     <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
                 </div>
-                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+                <div class="text-xl font-semibold">{{ content.title.content | default("Resette Portal") }}</div>
             </div>
             {% if actor %}
                 <div>

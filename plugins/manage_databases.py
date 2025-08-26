@@ -50,6 +50,7 @@ from common_utils import (
     get_max_image_size,
     get_max_databases_per_user,
     handle_image_upload_robust,
+    get_database_tables_with_visibility,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -224,13 +225,12 @@ async def manage_databases(datasette, request):
     # Get content using common utility
     content = await get_portal_content(datasette)
 
-    # Database processing
+    # Database processing with table visibility integration
     databases_with_tables = []
     for db_info in user_databases:
         db_name = db_info["db_name"]
         db_id = db_info["db_id"]
         total_size = 0
-        tables = []
         table_count = 0
         file_size_kb = 0 
 
@@ -257,48 +257,23 @@ async def manage_databases(datasette, request):
                     logger.error(f"Error getting file size for {db_name}: {size_error}")
                     file_size_kb = 0
                 
-                # Get database contents
-                user_db = sqlite_utils.Database(db_path)
-                table_names = user_db.table_names()
-                table_count = len(table_names)
+                # Get database contents with visibility information
+                tables = await get_database_tables_with_visibility(datasette, db_id, db_name)
+                table_count = len(tables)
                 
-                for name in table_names:
-                    try:
-                        table_info = user_db[name]
-                        record_count = table_info.count
-                        table_size = record_count * 0.001  # Estimate size for display
-                        total_size += table_size
-                        
-                        tables.append({
-                            'name': name,
-                            'full_name': name,
-                            'preview': f"/{db_name}/{name}",
-                            'size': table_size,
-                            'record_count': record_count,
-                            'columns': len(list(table_info.columns_dict.keys())),
-                            'progress': 100
-                        })
-                    except Exception as table_error:
-                        logger.error(f"Error processing table {name} in {db_name}: {table_error}")
-                        tables.append({
-                            'name': name,
-                            'full_name': name,
-                            'preview': f"/{db_name}/{name}",
-                            'size': 0,
-                            'record_count': 0,
-                            'columns': 0,
-                            'progress': 0,
-                            'error': True
-                        })
-                
-                user_db.close()  # Explicitly close the database
+                # Calculate total size estimate
+                for table in tables:
+                    total_size += table.get('size', 0)
                 
             else:
                 logger.warning(f"Database file not found for {db_name}: {db_path}")
                 file_size_kb = 0
+                tables = []
+                
         except Exception as e:
             logger.error(f"Error loading database {db_name}: {str(e)}")
             file_size_kb = 0
+            tables = []
             
         databases_with_tables.append({
             **db_info,
@@ -457,7 +432,7 @@ async def unpublish_database(datasette, request):
         return Response.text(f"Error unpublishing database: {str(e)}", status=500)
     
 async def delete_table(datasette, request):
-    """Delete table from database."""
+    """Delete table from database with database_tables cleanup."""
     actor = get_actor_from_request(request)
     
     # Check if user is authenticated
@@ -496,13 +471,30 @@ async def delete_table(datasette, request):
                 return Response.redirect(
                     f"/manage-databases?error=Table '{table_name}' not found in database '{db_name}'"
                 )
+            
+            # Get db_id for cleanup
+            portal_db = datasette.get_database("portal")
+            db_result = await portal_db.execute(
+                "SELECT db_id FROM databases WHERE db_name = ?", [db_name]
+            )
+            db_record = db_result.first()
                         
             # Delete the table
             await target_db.execute_write(f"DROP TABLE [{table_name}]")
             logger.debug(f"Successfully deleted table {table_name} from {db_name}")
 
+            # Clean up database_tables record
+            if db_record:
+                try:
+                    table_id = f"{db_record['db_id']}_{table_name}"
+                    await portal_db.execute_write(
+                        "DELETE FROM database_tables WHERE table_id = ?", [table_id]
+                    )
+                    logger.debug(f"Cleaned up database_tables record for {table_name}")
+                except Exception as cleanup_error:
+                    logger.error(f"Error cleaning up database_tables: {cleanup_error}")
+
             # Update database timestamp
-            portal_db = datasette.get_database("portal")
             current_time = datetime.utcnow().isoformat()
             await portal_db.execute_write(
                 "UPDATE databases SET updated_at = ? WHERE db_name = ?",
@@ -615,7 +607,7 @@ async def delete_table_ajax(datasette, request):
         return Response.json({"error": f"Failed to delete table: {str(e)}"}, status=500)
 
 async def database_homepage(datasette, request):
-    """Database homepage with preview functionality for owners."""
+    """Database homepage with preview functionality and table visibility filtering."""
     logger.debug(f"Database homepage request: method={request.method}, path={request.path}")
 
     # Handle both /db/{db_name}/homepage and /{db_name}/ patterns
@@ -672,12 +664,11 @@ async def database_homepage(datasette, request):
         logger.error(f"Error checking database {db_name}: {e}")
         return Response.text("Database error", status=500)
     
-    # Rest of the function remains the same...
+    # Get content and check customization
     try:
         content = await get_database_content(datasette, db_name)
         if not content:
             logger.error(f"No content found for database {db_name}")
-            # Redirect to standard Datasette interface
             return Response.redirect(f"/{db_name}")
         
         # Check if content is customized
@@ -703,38 +694,45 @@ async def database_homepage(datasette, request):
             logger.debug(f"No customization found for {db_name}, redirecting to Datasette default")
             return Response.redirect(f"/{db_name}")
         
-        # Get database statistics for custom homepage
+        # Get database statistics with table visibility filtering
         try:
             user_db = datasette.get_database(db_name)
             if user_db:
-                # Use proper async operations
-                table_names_result = await user_db.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                table_names = [row['name'] for row in table_names_result.rows]
+                # Get tables with visibility information
+                tables_with_visibility = await get_database_tables_with_visibility(
+                    datasette, db_info['db_id'], db_name
+                )
+                
+                # Filter visible tables for homepage display
+                visible_tables = [t for t in tables_with_visibility if t.get('show_in_homepage', True)]
                 
                 tables = []
                 total_records = 0
                 
-                for table_name in table_names[:6]:  # Show max 6 featured tables
+                for table in visible_tables[:6]:  # Show max 6 featured tables
                     try:
-                        count_result = await user_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
+                        count_result = await user_db.execute(f"SELECT COUNT(*) as count FROM [{table['name']}]")
                         record_count = count_result.first()['count'] if count_result.first() else 0
                         total_records += record_count
                         
                         tables.append({
-                            'title': table_name.replace('_', ' ').title(),
-                            'description': f"Data table with {record_count:,} records",
-                            'url': f"/{db_name}/{table_name}",
+                            'title': table['name'].replace('_', ' ').title(),
+                            'description': table.get('table_description') or f"Data table with {record_count:,} records",
+                            'url': f"/{db_name}/{table['name']}",
                             'icon': 'ri-table-line',
                             'count': record_count
                         })
                     except Exception as table_error:
-                        logger.error(f"Error processing table {table_name}: {table_error}")
+                        logger.error(f"Error processing table {table['name']}: {table_error}")
                         continue
+                
+                # Use total tables count (including hidden ones) for statistics
+                all_tables_count = len(tables_with_visibility)
                 
                 statistics = [
                     {
                         'label': 'Data Tables',
-                        'value': len(table_names),
+                        'value': all_tables_count,
                         'url': f'/{db_name}'
                     },
                     {
@@ -1304,6 +1302,7 @@ def register_routes():
         (r"^/delete-table/(?P<db_name>[^/]+)/(?P<table_name>[^/]+)$", delete_table),
         (r"^/delete-table-ajax$", delete_table_ajax),
         (r"^/data/[^/]+/[^/]+$", serve_database_image),
+        (r"^/api/toggle-table-visibility$", toggle_table_visibility),
     ]
 
 @hookimpl
@@ -1315,7 +1314,7 @@ def permission_allowed(datasette, actor, action, resource):
 
 @hookimpl
 def startup(datasette):
-    """ENHANCED: Robust startup hook with comprehensive database registration and error handling"""
+    """Startup hook with comprehensive database registration and error handling"""
     
     async def inner():
         try:
@@ -1388,3 +1387,75 @@ def startup(datasette):
             # Don't raise - allow Datasette to continue even if registration fails
 
     return inner
+
+async def toggle_table_visibility(datasette, request):
+    """API endpoint to toggle table visibility."""
+    if request.method != "POST":
+        return Response.json({"error": "Method not allowed"}, status=405)
+    
+    actor = get_actor_from_request(request)
+    if not actor:
+        return Response.json({"error": "Authentication required"}, status=401)
+    
+    try:
+        # Parse JSON body correctly for Datasette
+        body = await request.post_body()
+        data = json.loads(body.decode('utf-8'))
+        
+        db_id = data.get('db_id')
+        table_name = data.get('table_name')
+        show_in_homepage = data.get('show_in_homepage', True)
+        
+        # Verify user owns this database - FIXED query
+        portal_db = datasette.get_database('portal')
+        db_result = await portal_db.execute(
+            "SELECT db_name, user_id FROM databases WHERE db_id = ? AND user_id = ? AND status != 'Deleted'", 
+            [db_id, actor['id']]
+        )
+        db_record = db_result.first()
+        
+        if not db_record:
+            return Response.json({"error": "Database not found or access denied"}, status=404)
+        
+        # Verify table actually exists in the database
+        db_name = db_record['db_name']
+        try:
+            target_db = datasette.get_database(db_name)
+            existing_tables = await target_db.table_names()
+            if table_name not in existing_tables:
+                return Response.json({"error": f"Table '{table_name}' not found"}, status=404)
+        except Exception as e:
+            return Response.json({"error": f"Cannot access database: {str(e)}"}, status=500)
+        
+        # Update or insert table visibility setting
+        table_id = f"{db_id}_{table_name}"
+        current_time = datetime.utcnow().isoformat()
+        
+        await portal_db.execute_write("""
+            INSERT OR REPLACE INTO database_tables 
+            (table_id, db_id, table_name, show_in_homepage, updated_at, created_at)
+            VALUES (?, ?, ?, ?, ?, COALESCE(
+                (SELECT created_at FROM database_tables WHERE table_id = ?), ?
+            ))
+        """, [table_id, db_id, table_name, show_in_homepage, current_time, table_id, current_time])
+        
+        # Log the action
+        await log_database_action(
+            datasette, actor['id'], "toggle_table_visibility",
+            f"{'Showed' if show_in_homepage else 'Hid'} table '{table_name}' on homepage for {db_name}",
+            {
+                "db_id": db_id,
+                "db_name": db_name,
+                "table_name": table_name,
+                "show_in_homepage": show_in_homepage
+            }
+        )
+        
+        return Response.json({
+            "success": True,
+            "message": f"Table '{table_name}' {'shown' if show_in_homepage else 'hidden'} on homepage"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error toggling table visibility: {e}")
+        return Response.json({"error": f"Failed to update visibility: {str(e)}"}, status=500)

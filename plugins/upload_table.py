@@ -41,6 +41,7 @@ from common_utils import (
     update_database_timestamp,
     DATA_DIR,
     is_domain_blocked,
+    sync_database_tables_on_upload,
 )
 
 logger = logging.getLogger(__name__)
@@ -516,7 +517,7 @@ async def enhanced_upload_page(datasette, request):
     if not await user_owns_database(datasette, actor["id"], db_name):
         return Response.text("Access denied", status=403)
 
-    # CRITICAL FIX: Ensure database is registered before upload attempts
+    # Ensure database is registered before upload attempts
     try:
         target_db = datasette.get_database(db_name)
         if not target_db:
@@ -745,6 +746,18 @@ async def handle_file_upload(datasette, request, db_name, actor):
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
         
+        # Sync with database_tables
+        try:
+            portal_db = datasette.get_database('portal')
+            db_result = await portal_db.execute(
+                "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
+            )
+            db_record = db_result.first()
+            if db_record:
+                await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
+        except Exception as sync_error:
+            logger.error(f"Error syncing table visibility: {sync_error}")
+
         # Log activity
         await log_database_action(
             datasette, actor.get("id"), "enhanced_upload", 
@@ -760,7 +773,6 @@ async def handle_file_upload(datasette, request, db_name, actor):
         )
         
         logger.info(f"Successfully uploaded {len(records)} rows to table '{table_name}'")
-        # return Response.redirect(f"/upload-table/{db_name}?success=Successfully uploaded {len(records)} rows to table '{table_name}'")
         return redirect_after_upload(request, db_name, f"Successfully uploaded {len(records)} rows to table '{table_name}'")
 
         
@@ -768,7 +780,6 @@ async def handle_file_upload(datasette, request, db_name, actor):
         logger.error(f"File upload error: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        # return Response.redirect(f"/upload-table/{db_name}?error=File upload failed: {str(e)}")
         return redirect_after_upload(request, db_name, f"Upload failed: {str(e)}", is_error=True)
 
 async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
@@ -825,6 +836,18 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
         
+        # Sync with database_tables
+        try:
+            portal_db = datasette.get_database('portal')
+            db_result = await portal_db.execute(
+                "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
+            )
+            db_record = db_result.first()
+            if db_record:
+                await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
+        except Exception as sync_error:
+            logger.error(f"Error syncing table visibility: {sync_error}")
+
         # Log activity
         await log_database_action(
             datasette, actor.get("id"), "enhanced_upload", 
@@ -838,14 +861,12 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
             }
         )
         
-        # return Response.redirect(f"/upload-table/{db_name}?success=Successfully imported {len(records)} rows from Google Sheets to table '{table_name}'")
         return redirect_after_upload(request, db_name, f"Successfully uploaded {len(records)} rows to table '{table_name}'")
 
     except Exception as e:
         logger.error(f"Google Sheets upload error: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        # return Response.redirect(f"/upload-table/{db_name}?error=Google Sheets import failed: {str(e)}")
         return redirect_after_upload(request, db_name, f"Upload failed: {str(e)}", is_error=True)
 
 async def handle_url_upload(datasette, request, post_vars, db_name, actor):
@@ -903,6 +924,18 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
         
+        # Sync with database_tables
+        try:
+            portal_db = datasette.get_database('portal')
+            db_result = await portal_db.execute(
+                "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
+            )
+            db_record = db_result.first()
+            if db_record:
+                await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
+        except Exception as sync_error:
+            logger.error(f"Error syncing table visibility: {sync_error}")
+        
         # Log activity
         await log_database_action(
             datasette, actor.get("id"), "enhanced_upload", 
@@ -916,14 +949,12 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
             }
         )
         
-        # return Response.redirect(f"/upload-table/{db_name}?success=Successfully imported {len(records)} rows from web CSV to table '{table_name}'")
         return redirect_after_upload(request, db_name, f"Successfully uploaded {len(records)} rows to table '{table_name}'")
-
+        
     except Exception as e:
         logger.error(f"Web CSV upload error: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        # return Response.redirect(f"/upload-table/{db_name}?error=Web CSV import failed: {str(e)}")
         return redirect_after_upload(request, db_name, f"Upload failed: {str(e)}", is_error=True)
 
 def redirect_after_upload(request, db_name, message, is_error=False):
