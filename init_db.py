@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import random
 
 # Configuration
-PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
+PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH')
 DATA_DIR = os.getenv('RESETTE_DATA_DIR', "/data")
 STATIC_DIR = os.getenv('RESETTE_STATIC_DIR', "/static")
 
@@ -657,7 +657,7 @@ def migrate_add_table_visibility_tracking(portal_db):
     """)
     
     print("   ✅ Created database_tables table with indexes")
-    
+
 def main():
     """Main initialization function."""
     try:

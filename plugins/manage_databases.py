@@ -50,7 +50,6 @@ from common_utils import (
     get_max_image_size,
     get_max_databases_per_user,
     handle_image_upload_robust,
-    get_database_tables_with_visibility,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -1375,7 +1374,6 @@ def startup(datasette):
             possible_paths = [
                 os.getenv('PORTAL_DB_PATH'),  # Environment variable
                 "/data/portal.db",            # Docker/production
-                "data/portal.db",             # Local development relative
                 os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
                 os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
                 "portal.db"                   # Current directory fallback
@@ -1434,9 +1432,67 @@ def startup(datasette):
             # Don't raise - allow Datasette to continue even if registration fails
 
     return inner
+    
+async def get_database_tables_with_visibility(datasette, db_id, db_name):
+    """Get database tables with visibility information, properly ordered."""
+    portal_db = datasette.get_database('portal')
+    
+    # Get visibility settings from database_tables - removed table_description
+    visibility_result = await portal_db.execute(
+        "SELECT table_name, show_in_homepage, display_order FROM database_tables WHERE db_id = ? ORDER BY show_in_homepage DESC, display_order DESC", 
+        [db_id]
+    )
+    
+    visibility_settings = {}
+    for row in visibility_result:
+        visibility_settings[row['table_name']] = {
+            'show_in_homepage': row['show_in_homepage'],
+            'display_order': row['display_order']
+        }
+    
+    # Get actual tables from the database
+    tables = []
+    try:
+        target_db = datasette.get_database(db_name)
+        if target_db:
+            table_names = await target_db.table_names()
+            
+            for table_name in table_names:
+                try:
+                    count_result = await target_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
+                    record_count = count_result.first()['count'] if count_result.first() else 0
+                    
+                    # Get column count
+                    columns_result = await target_db.execute(f"PRAGMA table_info([{table_name}])")
+                    column_count = len(columns_result.rows)
+                    
+                    # Merge with visibility settings
+                    visibility = visibility_settings.get(table_name, {})
+                    
+                    tables.append({
+                        'name': table_name,
+                        'full_name': table_name,
+                        'record_count': record_count,
+                        'columns': column_count,
+                        'size': record_count * 0.001,  # Estimate
+                        'show_in_homepage': visibility.get('show_in_homepage', True),
+                        'display_order': visibility.get('display_order', 100)
+                    })
+                    
+                except Exception as table_error:
+                    logger.error(f"Error processing table {table_name}: {table_error}")
+                    continue
+            
+            # Sort by visibility first (visible=True first), then by display_order DESC
+            tables.sort(key=lambda x: (not x['show_in_homepage'], -x['display_order']))
+                    
+    except Exception as db_error:
+        logger.error(f"Error accessing database {db_name}: {db_error}")
+    
+    return tables
 
 async def toggle_table_visibility(datasette, request):
-    """API endpoint to toggle table visibility."""
+    """API endpoint to toggle table visibility - PRESERVE DISPLAY ORDER."""
     if request.method != "POST":
         return Response.json({"error": "Method not allowed"}, status=405)
     
@@ -1445,7 +1501,6 @@ async def toggle_table_visibility(datasette, request):
         return Response.json({"error": "Authentication required"}, status=401)
     
     try:
-        # Parse JSON body correctly for Datasette
         body = await request.post_body()
         data = json.loads(body.decode('utf-8'))
         
@@ -1453,7 +1508,7 @@ async def toggle_table_visibility(datasette, request):
         table_name = data.get('table_name')
         show_in_homepage = data.get('show_in_homepage', True)
         
-        # Verify user owns this database - FIXED query
+        # Verify user owns this database
         portal_db = datasette.get_database('portal')
         db_result = await portal_db.execute(
             "SELECT db_name, user_id FROM databases WHERE db_id = ? AND user_id = ? AND status != 'Deleted'", 
@@ -1464,45 +1519,46 @@ async def toggle_table_visibility(datasette, request):
         if not db_record:
             return Response.json({"error": "Database not found or access denied"}, status=404)
         
-        # Verify table actually exists in the database
-        db_name = db_record['db_name']
-        try:
-            target_db = datasette.get_database(db_name)
-            existing_tables = await target_db.table_names()
-            if table_name not in existing_tables:
-                return Response.json({"error": f"Table '{table_name}' not found"}, status=404)
-        except Exception as e:
-            return Response.json({"error": f"Cannot access database: {str(e)}"}, status=500)
-        
-        # Update or insert table visibility setting
         table_id = f"{db_id}_{table_name}"
         current_time = datetime.utcnow().isoformat()
         
+        # CRITICAL FIX: Get existing display_order or assign a default
+        existing_result = await portal_db.execute(
+            "SELECT display_order FROM database_tables WHERE table_id = ?", [table_id]
+        )
+        existing_row = existing_result.first()
+        
+        if existing_row:
+            # Preserve existing display order
+            display_order = existing_row['display_order']
+        else:
+            # Assign default display order based on table count
+            count_result = await portal_db.execute(
+                "SELECT COUNT(*) as count FROM database_tables WHERE db_id = ?", [db_id]
+            )
+            table_count = count_result.first()['count'] if count_result.first() else 0
+            display_order = table_count + 1  # New tables get highest order (top)
+        
+        # Update with preserved display order
         await portal_db.execute_write("""
             INSERT OR REPLACE INTO database_tables 
-            (table_id, db_id, table_name, show_in_homepage, updated_at, created_at)
-            VALUES (?, ?, ?, ?, ?, COALESCE(
+            (table_id, db_id, table_name, show_in_homepage, display_order, updated_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, COALESCE(
                 (SELECT created_at FROM database_tables WHERE table_id = ?), ?
             ))
-        """, [table_id, db_id, table_name, show_in_homepage, current_time, table_id, current_time])
+        """, [table_id, db_id, table_name, show_in_homepage, display_order, current_time, table_id, current_time])
         
-        # Log the action
         await log_database_action(
             datasette, actor['id'], "toggle_table_visibility",
-            f"{'Showed' if show_in_homepage else 'Hid'} table '{table_name}' on homepage for {db_name}",
+            f"{'Showed' if show_in_homepage else 'Hid'} table '{table_name}' on homepage",
             {
-                "db_id": db_id,
-                "db_name": db_name,
-                "table_name": table_name,
-                "show_in_homepage": show_in_homepage
+                "db_id": db_id, "table_name": table_name, 
+                "show_in_homepage": show_in_homepage, "display_order": display_order
             }
         )
         
-        return Response.json({
-            "success": True,
-            "message": f"Table '{table_name}' {'shown' if show_in_homepage else 'hidden'} on homepage"
-        })
+        return Response.json({"success": True})
         
     except Exception as e:
         logger.error(f"Error toggling table visibility: {e}")
-        return Response.json({"error": f"Failed to update visibility: {str(e)}"}, status=500)
+        return Response.json({"error": str(e)}, status=500)
