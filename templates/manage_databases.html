@@ -389,29 +389,29 @@
                                                             <i class="ri-eye-off-line mr-1"></i>Hide All
                                                         </button>
                                                         
-                                                        <!-- Sort Options -->
+                                                        <!-- Sort Options with Visibility + Display Order as default -->
                                                         <select id="sort-tables-{{ db.db_id }}" onchange="sortTables('{{ db.db_id }}')" 
                                                                 class="px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                                            <option value="visibility-order">Sort by Visibility + Order</option>
+                                                            <option value="order">Sort by Display Order</option>
                                                             <option value="name">Sort by Name</option>
                                                             <option value="records">Sort by Records</option>
                                                             <option value="visibility">Sort by Visibility</option>
-                                                            <option value="order">Sort by Display Order</option>
                                                         </select>
                                                     </div>
                                                 </div>
 
-                                                <!-- Improved Tables List with Arrow Reordering -->
+                                                <!-- Tables List with Descending Order (Higher Numbers at Top) -->
                                                 <div id="tables-container-{{ db.db_id }}" class="space-y-3 max-h-80 overflow-y-auto">
-                                                    {% for table in db.tables %}
-                                                        <div class="table-item flex items-center justify-between p-3 bg-gray-50 rounded"
+                                                    {% for table in db.tables|sort(attribute='show_in_homepage', reverse=true)|sort(attribute='display_order', reverse=true) %}
+                                                        <div class="table-item flex items-center p-3 bg-gray-50 rounded"
                                                             data-table-name="{{ table.name }}" 
                                                             data-records="{{ table.record_count|default(0) }}" 
                                                             data-visible="{{ table.show_in_homepage|default(true)|lower }}"
-                                                            data-order="{{ table.display_order|default(0) }}"
-                                                            data-index="{{ loop.index0 }}">
+                                                            data-order="{{ table.display_order|default(100) }}">
                                                             
-                                                            <!-- Table Info -->
-                                                            <div class="flex-1">
+                                                            <!-- Table Info Section -->
+                                                            <div class="flex-1 min-w-0">
                                                                 <div class="font-medium text-text">{{ table.name.replace('_', ' ').title() }}</div>
                                                                 <div class="text-sm text-textlight">
                                                                     {{ table.record_count | default(0) }} records • 
@@ -420,58 +420,42 @@
                                                                 </div>
                                                             </div>
                                                             
-                                                            <!-- Controls Section -->
-                                                            <div class="flex items-center gap-3">
-                                                                <!-- Reorder Controls -->
-                                                                <div class="flex items-center gap-1">
-                                                                    <button onclick="moveTableUp('{{ db.db_id }}', {{ loop.index0 }})"
-                                                                            class="text-gray-400 hover:text-gray-600 p-1 border border-gray-300 rounded"
-                                                                            title="Move up" {{ 'disabled' if loop.first else '' }}>
-                                                                        <i class="ri-arrow-up-line text-sm"></i>
-                                                                    </button>
-                                                                    <span class="text-xs text-gray-500 w-6 text-center">{{ table.display_order|default(loop.index) }}</span>
-                                                                    <button onclick="moveTableDown('{{ db.db_id }}', {{ loop.index0 }})"
-                                                                            class="text-gray-400 hover:text-gray-600 p-1 border border-gray-300 rounded"
-                                                                            title="Move down" {{ 'disabled' if loop.last else '' }}>
-                                                                        <i class="ri-arrow-down-line text-sm"></i>
-                                                                    </button>
-                                                                </div>
-                                                                
-                                                                <!-- Visibility Status -->
-                                                                <div class="min-w-[60px]">
-                                                                    {% if table.show_in_homepage|default(true) %}
-                                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                                                                            <i class="ri-eye-line mr-1"></i>Show
-                                                                        </span>
-                                                                    {% else %}
-                                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
-                                                                            <i class="ri-eye-off-line mr-1"></i>Hide
-                                                                        </span>
-                                                                    {% endif %}
-                                                                </div>
-                                                                
-                                                                <!-- Action Buttons -->
-                                                                <div class="flex gap-2">
-                                                                    <a href="/{{ db.db_name }}/{{ table.name }}" target="_blank" 
-                                                                    class="text-accent hover:text-primary text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
-                                                                        <i class="ri-eye-line mr-1"></i>View
-                                                                    </a>
-                                                                    <a href="/{{ db.db_name }}/{{ table.name }}.csv" target="_blank" 
-                                                                    class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
-                                                                        <i class="ri-table-line mr-1"></i>CSV
-                                                                    </a>
-                                                                    <button onclick="toggleTableVisibility('{{ db.db_id }}', '{{ table.name }}', {{ table.show_in_homepage|default('true')|lower }})"
-                                                                            class="text-sm flex items-center px-2 py-1 rounded hover:bg-white transition
-                                                                                {{ 'text-blue-600 hover:text-blue-800' if table.show_in_homepage|default(true) else 'text-gray-500 hover:text-gray-700' }}">
-                                                                        <i class="{{ 'ri-eye-line' if table.show_in_homepage|default(true) else 'ri-eye-off-line' }} mr-1"></i>
-                                                                        {{ 'Show' if table.show_in_homepage|default(true) else 'Hide' }}
-                                                                    </button>
-                                                                    <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
-                                                                    class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
-                                                                    onclick="return confirm('This will take you to a confirmation page. Continue?')">
-                                                                        <i class="ri-delete-bin-line mr-1"></i>Delete
-                                                                    </a>
-                                                                </div>
+                                                            <!-- Show/Hide Button -->
+                                                            <div class="mr-4">
+                                                                <button onclick="toggleTableVisibility('{{ db.db_id }}', '{{ table.name }}', {{ table.show_in_homepage|default('true')|lower }})"
+                                                                        class="text-sm flex items-center px-3 py-1 rounded border transition
+                                                                            {{ 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100' if table.show_in_homepage|default(true) else 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100' }}">
+                                                                    <i class="{{ 'ri-eye-line' if table.show_in_homepage|default(true) else 'ri-eye-off-line' }} mr-1"></i>
+                                                                    {{ 'Show' if table.show_in_homepage|default(true) else 'Hide' }}
+                                                                </button>
+                                                            </div>
+                                                            
+                                                            <!-- Display Order Input -->
+                                                            <div class="mr-4">
+                                                                <input type="number" 
+                                                                    value="{{ table.display_order|default(100) }}" 
+                                                                    class="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-accent text-center"
+                                                                    onblur="updateDisplayOrderOnBlur('{{ db.db_id }}', '{{ table.name }}', this.value, this)"
+                                                                    title="Display order (higher numbers appear at top)"
+                                                                    min="0"
+                                                                    step="1">
+                                                            </div>
+                                                            
+                                                            <!-- Action Buttons -->
+                                                            <div class="flex gap-2">
+                                                                <a href="/{{ db.db_name }}/{{ table.name }}" target="_blank" 
+                                                                class="text-accent hover:text-primary text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
+                                                                    <i class="ri-eye-line mr-1"></i>View
+                                                                </a>
+                                                                <a href="/{{ db.db_name }}/{{ table.name }}.csv" target="_blank" 
+                                                                class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
+                                                                    <i class="ri-table-line mr-1"></i>CSV
+                                                                </a>
+                                                                <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
+                                                                class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
+                                                                onclick="return confirm('This will take you to a confirmation page. Continue?')">
+                                                                    <i class="ri-delete-bin-line mr-1"></i>Delete
+                                                                </a>
                                                             </div>
                                                         </div>
                                                     {% endfor %}
@@ -748,6 +732,20 @@
             });
         }
 
+        // Initialize with visibility + order sort
+        document.addEventListener('DOMContentLoaded', function() {
+            const containers = document.querySelectorAll('[id^="tables-container-"]');
+            containers.forEach(container => {
+                const dbId = container.id.replace('tables-container-', '');
+                const sortSelect = document.getElementById(`sort-tables-${dbId}`);
+                if (sortSelect) {
+                    sortSelect.value = 'visibility-order';
+                    sortTables(dbId);
+                }
+            });
+        });
+
+        // Sort function with visibility + display order default
         function sortTables(dbId) {
             const sortSelect = document.getElementById(`sort-tables-${dbId}`);
             const container = document.getElementById(`tables-container-${dbId}`);
@@ -763,9 +761,18 @@
                     case 'visibility':
                         return b.dataset.visible.localeCompare(a.dataset.visible);
                     case 'order':
-                        return parseInt(a.dataset.order) - parseInt(b.dataset.order);
+                        return parseInt(b.dataset.order) - parseInt(a.dataset.order);
+                    case 'visibility-order':
                     default:
-                        return 0;
+                        // First sort by visibility (visible tables first), then by display order DESC
+                        const aVisible = a.dataset.visible === 'true';
+                        const bVisible = b.dataset.visible === 'true';
+                        
+                        if (aVisible !== bVisible) {
+                            return bVisible - aVisible; // Visible (true) comes first
+                        }
+                        // If same visibility, sort by display order DESC
+                        return parseInt(b.dataset.order) - parseInt(a.dataset.order);
                 }
             });
             
@@ -773,6 +780,81 @@
             tables.forEach(table => container.appendChild(table));
         }
 
+        // Update the blur function to use visibility-order sort
+        async function updateDisplayOrderOnBlur(dbId, tableName, newOrder, inputElement) {
+            const currentOrder = inputElement.dataset.originalValue || inputElement.defaultValue;
+            
+            if (newOrder != currentOrder) {
+                try {
+                    const response = await fetch('/api/update-table-order', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
+                        },
+                        body: JSON.stringify({
+                            db_id: dbId,
+                            table_name: tableName,
+                            display_order: parseInt(newOrder)
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        const tableRow = inputElement.closest('.table-item');
+                        tableRow.dataset.order = newOrder;
+                        inputElement.dataset.originalValue = newOrder;
+                        
+                        // Use visibility-order sort after update
+                        const sortSelect = document.getElementById(`sort-tables-${dbId}`);
+                        sortSelect.value = 'visibility-order';
+                        sortTables(dbId);
+                    } else {
+                        inputElement.value = currentOrder;
+                        alert('Failed to update display order');
+                    }
+                } catch (error) {
+                    inputElement.value = currentOrder;
+                    alert('Error updating display order');
+                }
+            }
+        }
+
+        // Store original values when inputs are focused
+        document.addEventListener('focus', function(event) {
+            if (event.target.type === 'number' && event.target.classList.contains('display-order-input')) {
+                event.target.dataset.originalValue = event.target.value;
+            }
+        }, true);
+
+        // Table Hide/Show toggle for homepage
+        async function toggleTableVisibility(dbId, tableName, currentlyVisible) {
+            try {
+                const response = await fetch('/api/toggle-table-visibility', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
+                    },
+                    body: JSON.stringify({
+                        db_id: dbId,
+                        table_name: tableName,
+                        show_in_homepage: !currentlyVisible
+                    })
+                });
+                
+                if (response.ok) {
+                    // Reload the page to reflect changes
+                    location.reload();
+                } else {
+                    alert('Failed to update table visibility');
+                }
+            } catch (error) {
+                console.error('Error toggling table visibility:', error);
+                alert('Error updating table visibility');
+            }
+        }
+
+        // Bulk toggle Hide/Show Table
         async function bulkToggleVisibility(dbId, show) {
             const container = document.getElementById(`tables-container-${dbId}`);
             const tables = Array.from(container.getElementsByClassName('table-item'));
@@ -819,108 +901,6 @@
             
             console.log(`Bulk operation complete: ${updateCount}/${totalTables} tables updated`);
             location.reload();
-        }
-
-        // Arrow-based Table Movement
-        async function moveTableUp(dbId, currentIndex) {
-            const container = document.getElementById(`tables-container-${dbId}`);
-            const tables = Array.from(container.getElementsByClassName('table-item'));
-            
-            if (currentIndex > 0) {
-                const currentTable = tables[currentIndex];
-                const targetTable = tables[currentIndex - 1];
-                
-                const currentTableName = currentTable.dataset.tableName;
-                const targetTableName = targetTable.dataset.tableName;
-                
-                // Swap display orders
-                const currentOrder = parseInt(currentTable.dataset.order);
-                const targetOrder = parseInt(targetTable.dataset.order);
-                
-                await updateDisplayOrder(dbId, currentTableName, targetOrder);
-                await updateDisplayOrder(dbId, targetTableName, currentOrder);
-                
-                // Reload to show changes
-                location.reload();
-            }
-        }
-
-        async function moveTableDown(dbId, currentIndex) {
-            const container = document.getElementById(`tables-container-${dbId}`);
-            const tables = Array.from(container.getElementsByClassName('table-item'));
-            
-            if (currentIndex < tables.length - 1) {
-                const currentTable = tables[currentIndex];
-                const targetTable = tables[currentIndex + 1];
-                
-                const currentTableName = currentTable.dataset.tableName;
-                const targetTableName = targetTable.dataset.tableName;
-                
-                // Swap display orders
-                const currentOrder = parseInt(currentTable.dataset.order);
-                const targetOrder = parseInt(targetTable.dataset.order);
-                
-                await updateDisplayOrder(dbId, currentTableName, targetOrder);
-                await updateDisplayOrder(dbId, targetTableName, currentOrder);
-                
-                // Reload to show changes
-                location.reload();
-            }
-        }
-
-        async function updateDisplayOrder(dbId, tableName, newOrder) {
-            try {
-                const response = await fetch('/api/update-table-order', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
-                    },
-                    body: JSON.stringify({
-                        db_id: dbId,
-                        table_name: tableName,
-                        display_order: parseInt(newOrder)
-                    })
-                });
-                
-                if (!response.ok) {
-                    const result = await response.json();
-                    console.error('Failed to update display order:', result);
-                    return false;
-                }
-                return true;
-            } catch (error) {
-                console.error('Error updating display order:', error);
-                return false;
-            }
-        }
-
-        // Table Hide/Show toggle for homepage
-        async function toggleTableVisibility(dbId, tableName, currentlyVisible) {
-            try {
-                const response = await fetch('/api/toggle-table-visibility', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
-                    },
-                    body: JSON.stringify({
-                        db_id: dbId,
-                        table_name: tableName,
-                        show_in_homepage: !currentlyVisible
-                    })
-                });
-                
-                if (response.ok) {
-                    // Reload the page to reflect changes
-                    location.reload();
-                } else {
-                    alert('Failed to update table visibility');
-                }
-            } catch (error) {
-                console.error('Error toggling table visibility:', error);
-                alert('Error updating table visibility');
-            }
         }
 
         // Update countdowns every minute

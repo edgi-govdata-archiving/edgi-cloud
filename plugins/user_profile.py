@@ -31,6 +31,7 @@ from common_utils import (
     validate_email,
     validate_username,
     validate_password,
+    DATA_DIR,
 )
 
 # Configuration
