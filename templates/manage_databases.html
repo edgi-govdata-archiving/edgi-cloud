@@ -351,65 +351,141 @@
                                         </div>
                                     </div>
                                 {% else %}
-                                    <!-- Data Tables Section for Active Databases -->
+                                    <!-- Data Tables Section -->
                                     <div class="p-4">
-                                        <div class="flex justify-between items-center mb-4">
-                                            <h4 class="font-semibold text-text">
-                                                <i class="ri-table-line mr-2"></i>Data Tables
-                                            </h4>
-                                            <a href="/upload-table/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
-                                                <i class="ri-upload-line mr-1"></i>Upload/ Import Table
-                                            </a>
-                                        </div>
-
-                                        {% if db.tables %}
-                                            <div class="space-y-3 max-h-64 overflow-y-auto">
-                                                {% for table in db.tables %}
-                                                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
-                                                        <div class="flex-1">
-                                                            <div class="font-medium text-text">{{ table.name.replace('_', ' ').title() }}</div>
-                                                            <div class="text-sm text-textlight">
-                                                                {{ table.record_count | default(0) }} records • 
-                                                                {{ table.columns | default(0) }} columns • 
-                                                                {{ "%.2f"|format(table.size | default(0)) }}KB
-                                                            </div>
-                                                        </div>
-                                                        <div class="flex gap-2">
-                                                            <a href="/{{ db.db_name }}/{{ table.name }}" target="_blank" 
-                                                            class="text-accent hover:text-primary text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
-                                                                <i class="ri-eye-line mr-1"></i>View
-                                                            </a>
-                                                            <a href="/{{ db.db_name }}/{{ table.name }}.csv" target="_blank" 
-                                                            class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
-                                                                <i class="ri-table-line mr-1"></i>CSV
-                                                            </a>
-                                                            
-                                                            <!-- NEW: Show/Hide Toggle -->
-                                                            <button onclick="toggleTableVisibility('{{ db.db_id }}', '{{ table.name }}', {{ table.show_in_homepage|default('true')|lower }})"
-                                                                    class="text-sm flex items-center px-2 py-1 rounded hover:bg-white transition
-                                                                        {{ 'text-blue-600 hover:text-blue-800' if table.show_in_homepage|default(true) else 'text-gray-500 hover:text-gray-700' }}">
-                                                                <i class="{{ 'ri-eye-line' if table.show_in_homepage|default(true) else 'ri-eye-off-line' }} mr-1"></i>
-                                                                {{ 'Show' if table.show_in_homepage|default(true) else 'Hide' }}
-                                                            </button>
-                                                            
-                                                            <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
-                                                            class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
-                                                            onclick="return confirm('This will take you to a confirmation page. Continue?')">
-                                                                <i class="ri-delete-bin-line mr-1"></i>Delete
-                                                            </a>
-                                                        </div>
-                                                    </div>
-                                                {% endfor %}
-                                            </div>
-                                        {% else %}
-                                            <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded">
-                                                <i class="ri-table-line text-3xl text-textlight mb-2"></i>
-                                                <p class="text-textlight text-sm mb-3">No data tables yet</p>
+                                        <div class="flex flex-col gap-4">
+                                            <!-- Header with Upload Button -->
+                                            <div class="flex justify-between items-center">
+                                                <h4 class="font-semibold text-text">
+                                                    <i class="ri-table-line mr-2"></i>Data Tables ({{ db.tables|length }})
+                                                </h4>
                                                 <a href="/upload-table/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
                                                     <i class="ri-upload-line mr-1"></i>Upload/ Import Table
                                                 </a>
                                             </div>
-                                        {% endif %}
+
+                                            {% if db.tables %}
+                                                <!-- Table Controls -->
+                                                <div class="flex flex-col sm:flex-row gap-3 p-3 bg-gray-50 rounded">
+                                                    <!-- Search -->
+                                                    <div class="flex-1">
+                                                        <div class="relative">
+                                                            <input type="text" id="table-search-{{ db.db_id }}" 
+                                                                   placeholder="Search tables..." 
+                                                                   class="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
+                                                                   onkeyup="filterTables('{{ db.db_id }}')">
+                                                            <i class="ri-search-line absolute left-2.5 top-2.5 text-gray-400"></i>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <!-- Bulk Actions -->
+                                                    <div class="flex gap-2">
+                                                        <button onclick="bulkToggleVisibility('{{ db.db_id }}', true)"
+                                                                class="px-3 py-2 text-sm bg-green-100 text-green-700 hover:bg-green-200 rounded border border-green-300 transition">
+                                                            <i class="ri-eye-line mr-1"></i>Show All
+                                                        </button>
+                                                        <button onclick="bulkToggleVisibility('{{ db.db_id }}', false)"
+                                                                class="px-3 py-2 text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 rounded border border-gray-300 transition">
+                                                            <i class="ri-eye-off-line mr-1"></i>Hide All
+                                                        </button>
+                                                        
+                                                        <!-- Sort Options -->
+                                                        <select id="sort-tables-{{ db.db_id }}" onchange="sortTables('{{ db.db_id }}')" 
+                                                                class="px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
+                                                            <option value="name">Sort by Name</option>
+                                                            <option value="records">Sort by Records</option>
+                                                            <option value="visibility">Sort by Visibility</option>
+                                                            <option value="order">Sort by Display Order</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Improved Tables List with Arrow Reordering -->
+                                                <div id="tables-container-{{ db.db_id }}" class="space-y-3 max-h-80 overflow-y-auto">
+                                                    {% for table in db.tables %}
+                                                        <div class="table-item flex items-center justify-between p-3 bg-gray-50 rounded"
+                                                            data-table-name="{{ table.name }}" 
+                                                            data-records="{{ table.record_count|default(0) }}" 
+                                                            data-visible="{{ table.show_in_homepage|default(true)|lower }}"
+                                                            data-order="{{ table.display_order|default(0) }}"
+                                                            data-index="{{ loop.index0 }}">
+                                                            
+                                                            <!-- Table Info -->
+                                                            <div class="flex-1">
+                                                                <div class="font-medium text-text">{{ table.name.replace('_', ' ').title() }}</div>
+                                                                <div class="text-sm text-textlight">
+                                                                    {{ table.record_count | default(0) }} records • 
+                                                                    {{ table.columns | default(0) }} columns • 
+                                                                    {{ "%.2f"|format(table.size | default(0)) }}KB
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <!-- Controls Section -->
+                                                            <div class="flex items-center gap-3">
+                                                                <!-- Reorder Controls -->
+                                                                <div class="flex items-center gap-1">
+                                                                    <button onclick="moveTableUp('{{ db.db_id }}', {{ loop.index0 }})"
+                                                                            class="text-gray-400 hover:text-gray-600 p-1 border border-gray-300 rounded"
+                                                                            title="Move up" {{ 'disabled' if loop.first else '' }}>
+                                                                        <i class="ri-arrow-up-line text-sm"></i>
+                                                                    </button>
+                                                                    <span class="text-xs text-gray-500 w-6 text-center">{{ table.display_order|default(loop.index) }}</span>
+                                                                    <button onclick="moveTableDown('{{ db.db_id }}', {{ loop.index0 }})"
+                                                                            class="text-gray-400 hover:text-gray-600 p-1 border border-gray-300 rounded"
+                                                                            title="Move down" {{ 'disabled' if loop.last else '' }}>
+                                                                        <i class="ri-arrow-down-line text-sm"></i>
+                                                                    </button>
+                                                                </div>
+                                                                
+                                                                <!-- Visibility Status -->
+                                                                <div class="min-w-[60px]">
+                                                                    {% if table.show_in_homepage|default(true) %}
+                                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                                                                            <i class="ri-eye-line mr-1"></i>Show
+                                                                        </span>
+                                                                    {% else %}
+                                                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
+                                                                            <i class="ri-eye-off-line mr-1"></i>Hide
+                                                                        </span>
+                                                                    {% endif %}
+                                                                </div>
+                                                                
+                                                                <!-- Action Buttons -->
+                                                                <div class="flex gap-2">
+                                                                    <a href="/{{ db.db_name }}/{{ table.name }}" target="_blank" 
+                                                                    class="text-accent hover:text-primary text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
+                                                                        <i class="ri-eye-line mr-1"></i>View
+                                                                    </a>
+                                                                    <a href="/{{ db.db_name }}/{{ table.name }}.csv" target="_blank" 
+                                                                    class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
+                                                                        <i class="ri-table-line mr-1"></i>CSV
+                                                                    </a>
+                                                                    <button onclick="toggleTableVisibility('{{ db.db_id }}', '{{ table.name }}', {{ table.show_in_homepage|default('true')|lower }})"
+                                                                            class="text-sm flex items-center px-2 py-1 rounded hover:bg-white transition
+                                                                                {{ 'text-blue-600 hover:text-blue-800' if table.show_in_homepage|default(true) else 'text-gray-500 hover:text-gray-700' }}">
+                                                                        <i class="{{ 'ri-eye-line' if table.show_in_homepage|default(true) else 'ri-eye-off-line' }} mr-1"></i>
+                                                                        {{ 'Show' if table.show_in_homepage|default(true) else 'Hide' }}
+                                                                    </button>
+                                                                    <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
+                                                                    class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
+                                                                    onclick="return confirm('This will take you to a confirmation page. Continue?')">
+                                                                        <i class="ri-delete-bin-line mr-1"></i>Delete
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    {% endfor %}
+                                                </div>
+                                            {% else %}
+                                                <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded">
+                                                    <i class="ri-table-line text-3xl text-textlight mb-2"></i>
+                                                    <p class="text-textlight text-sm mb-3">No data tables yet</p>
+                                                    <a href="/upload-table/{{ db.db_name }}" class="bg-blue-500 text-white px-3 py-2 rounded-button hover:bg-blue-600 transition text-sm font-medium">
+                                                        <i class="ri-upload-line mr-1"></i>Upload/ Import Table
+                                                    </a>
+                                                </div>
+                                            {% endif %}
+                                        </div>
                                     </div>
                                 {% endif %}
 
@@ -654,6 +730,171 @@
                 }
             });
         }
+
+        // Fixed Table Management Functions
+        function filterTables(dbId) {
+            const searchInput = document.getElementById(`table-search-${dbId}`);
+            const container = document.getElementById(`tables-container-${dbId}`);
+            const tables = container.getElementsByClassName('table-item');
+            const searchTerm = searchInput.value.toLowerCase();
+            
+            Array.from(tables).forEach(table => {
+                const tableName = table.dataset.tableName.toLowerCase();
+                if (tableName.includes(searchTerm)) {
+                    table.style.display = '';
+                } else {
+                    table.style.display = 'none';
+                }
+            });
+        }
+
+        function sortTables(dbId) {
+            const sortSelect = document.getElementById(`sort-tables-${dbId}`);
+            const container = document.getElementById(`tables-container-${dbId}`);
+            const tables = Array.from(container.getElementsByClassName('table-item'));
+            const sortBy = sortSelect.value;
+            
+            tables.sort((a, b) => {
+                switch (sortBy) {
+                    case 'name':
+                        return a.dataset.tableName.localeCompare(b.dataset.tableName);
+                    case 'records':
+                        return parseInt(b.dataset.records) - parseInt(a.dataset.records);
+                    case 'visibility':
+                        return b.dataset.visible.localeCompare(a.dataset.visible);
+                    case 'order':
+                        return parseInt(a.dataset.order) - parseInt(b.dataset.order);
+                    default:
+                        return 0;
+                }
+            });
+            
+            container.innerHTML = '';
+            tables.forEach(table => container.appendChild(table));
+        }
+
+        async function bulkToggleVisibility(dbId, show) {
+            const container = document.getElementById(`tables-container-${dbId}`);
+            const tables = Array.from(container.getElementsByClassName('table-item'));
+            let updateCount = 0;
+            let totalTables = 0;
+            
+            // Show progress
+            const showText = show ? 'showing' : 'hiding';
+            console.log(`Starting bulk ${showText} for ${tables.length} tables`);
+            
+            for (const table of tables) {
+                const tableName = table.dataset.tableName;
+                const currentlyVisible = table.dataset.visible === 'true';
+                totalTables++;
+                
+                // Always update regardless of current state for bulk operations
+                try {
+                    const response = await fetch('/api/toggle-table-visibility', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
+                        },
+                        body: JSON.stringify({
+                            db_id: dbId,
+                            table_name: tableName,
+                            show_in_homepage: show
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        updateCount++;
+                        console.log(`Updated ${tableName}: ${show}`);
+                    } else {
+                        console.error(`Failed to update ${tableName}`);
+                    }
+                } catch (error) {
+                    console.error(`Error updating ${tableName}:`, error);
+                }
+                
+                // Small delay to avoid overwhelming the server
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            console.log(`Bulk operation complete: ${updateCount}/${totalTables} tables updated`);
+            location.reload();
+        }
+
+        // Arrow-based Table Movement
+        async function moveTableUp(dbId, currentIndex) {
+            const container = document.getElementById(`tables-container-${dbId}`);
+            const tables = Array.from(container.getElementsByClassName('table-item'));
+            
+            if (currentIndex > 0) {
+                const currentTable = tables[currentIndex];
+                const targetTable = tables[currentIndex - 1];
+                
+                const currentTableName = currentTable.dataset.tableName;
+                const targetTableName = targetTable.dataset.tableName;
+                
+                // Swap display orders
+                const currentOrder = parseInt(currentTable.dataset.order);
+                const targetOrder = parseInt(targetTable.dataset.order);
+                
+                await updateDisplayOrder(dbId, currentTableName, targetOrder);
+                await updateDisplayOrder(dbId, targetTableName, currentOrder);
+                
+                // Reload to show changes
+                location.reload();
+            }
+        }
+
+        async function moveTableDown(dbId, currentIndex) {
+            const container = document.getElementById(`tables-container-${dbId}`);
+            const tables = Array.from(container.getElementsByClassName('table-item'));
+            
+            if (currentIndex < tables.length - 1) {
+                const currentTable = tables[currentIndex];
+                const targetTable = tables[currentIndex + 1];
+                
+                const currentTableName = currentTable.dataset.tableName;
+                const targetTableName = targetTable.dataset.tableName;
+                
+                // Swap display orders
+                const currentOrder = parseInt(currentTable.dataset.order);
+                const targetOrder = parseInt(targetTable.dataset.order);
+                
+                await updateDisplayOrder(dbId, currentTableName, targetOrder);
+                await updateDisplayOrder(dbId, targetTableName, currentOrder);
+                
+                // Reload to show changes
+                location.reload();
+            }
+        }
+
+        async function updateDisplayOrder(dbId, tableName, newOrder) {
+            try {
+                const response = await fetch('/api/update-table-order', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
+                    },
+                    body: JSON.stringify({
+                        db_id: dbId,
+                        table_name: tableName,
+                        display_order: parseInt(newOrder)
+                    })
+                });
+                
+                if (!response.ok) {
+                    const result = await response.json();
+                    console.error('Failed to update display order:', result);
+                    return false;
+                }
+                return true;
+            } catch (error) {
+                console.error('Error updating display order:', error);
+                return false;
+            }
+        }
+
         // Table Hide/Show toggle for homepage
         async function toggleTableVisibility(dbId, tableName, currentlyVisible) {
             try {
@@ -681,6 +922,7 @@
                 alert('Error updating table visibility');
             }
         }
+
         // Update countdowns every minute
         setInterval(updateCountdowns, 60000);
         updateCountdowns(); // Initial call

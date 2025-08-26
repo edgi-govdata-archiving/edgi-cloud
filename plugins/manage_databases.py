@@ -1288,6 +1288,52 @@ async def log_startup_success_startup(datasette, registered_count, failed_count,
         logger.error(f"Error logging startup: {e}")
         # Don't fail startup just because logging failed
 
+async def update_table_display_order(datasette, request):
+    """API endpoint to update table display order."""
+    if request.method != "POST":
+        return Response.json({"error": "Method not allowed"}, status=405)
+    
+    actor = get_actor_from_request(request)
+    if not actor:
+        return Response.json({"error": "Authentication required"}, status=401)
+    
+    try:
+        body = await request.post_body()
+        data = json.loads(body.decode('utf-8'))
+        
+        db_id = data.get('db_id')
+        table_name = data.get('table_name')
+        display_order = data.get('display_order', 0)
+        
+        # Verify user owns this database
+        portal_db = datasette.get_database('portal')
+        db_result = await portal_db.execute(
+            "SELECT db_name FROM databases WHERE db_id = ? AND user_id = ? AND status != 'Deleted'", 
+            [db_id, actor['id']]
+        )
+        
+        if not db_result.first():
+            return Response.json({"error": "Database not found or access denied"}, status=404)
+        
+        # Update display order
+        table_id = f"{db_id}_{table_name}"
+        current_time = datetime.utcnow().isoformat()
+        
+        await portal_db.execute_write("""
+            INSERT OR REPLACE INTO database_tables 
+            (table_id, db_id, table_name, display_order, updated_at, 
+             show_in_homepage, created_at)
+            VALUES (?, ?, ?, ?, ?, 
+                    COALESCE((SELECT show_in_homepage FROM database_tables WHERE table_id = ?), 1),
+                    COALESCE((SELECT created_at FROM database_tables WHERE table_id = ?), ?))
+        """, [table_id, db_id, table_name, display_order, current_time, table_id, table_id, current_time])
+        
+        return Response.json({"success": True})
+        
+    except Exception as e:
+        logger.error(f"Error updating display order: {e}")
+        return Response.json({"error": str(e)}, status=500)
+
 @hookimpl
 def register_routes():
     """Register datasette admin panel routes."""
@@ -1303,6 +1349,7 @@ def register_routes():
         (r"^/delete-table-ajax$", delete_table_ajax),
         (r"^/data/[^/]+/[^/]+$", serve_database_image),
         (r"^/api/toggle-table-visibility$", toggle_table_visibility),
+        (r"^/api/update-table-order$", update_table_display_order),
     ]
 
 @hookimpl
