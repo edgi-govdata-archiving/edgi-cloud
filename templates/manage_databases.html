@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>My Databases - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>My Databases - {{ content.title.content | default("Resette Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -74,7 +74,7 @@
         <div class="flex justify-between items-center mb-6 w-[90%] mx-auto mt-1">
             <div>
                 <h1 class="text-3xl font-bold text-primary">My Databases</h1>
-                <p class="text-textlight mt-2">Manage your environmental data portals</p>
+                <p class="text-textlight mt-2">Manage your data portals</p>
             </div>
             <div class="flex gap-3">
                 <!-- Enhanced Status Filter -->
@@ -383,6 +383,15 @@
                                                             class="text-green-600 hover:text-green-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition">
                                                                 <i class="ri-table-line mr-1"></i>CSV
                                                             </a>
+                                                            
+                                                            <!-- NEW: Show/Hide Toggle -->
+                                                            <button onclick="toggleTableVisibility('{{ db.db_id }}', '{{ table.name }}', {{ table.show_in_homepage|default('true')|lower }})"
+                                                                    class="text-sm flex items-center px-2 py-1 rounded hover:bg-white transition
+                                                                        {{ 'text-blue-600 hover:text-blue-800' if table.show_in_homepage|default(true) else 'text-gray-500 hover:text-gray-700' }}">
+                                                                <i class="{{ 'ri-eye-line' if table.show_in_homepage|default(true) else 'ri-eye-off-line' }} mr-1"></i>
+                                                                {{ 'Show' if table.show_in_homepage|default(true) else 'Hide' }}
+                                                            </button>
+                                                            
                                                             <a href="/delete-table/{{ db.db_name }}/{{ table.name }}" 
                                                             class="text-red-600 hover:text-red-800 text-sm flex items-center px-2 py-1 rounded hover:bg-white transition"
                                                             onclick="return confirm('This will take you to a confirmation page. Continue?')">
@@ -460,7 +469,7 @@
                             <!-- Create Database Options -->
                             <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
                                 <a href="/create-empty-database" class="flex items-center bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
-                                    <i class="ri-database-2-line mr-2"></i>Create Empty Database
+                                    <i class="ri-database-2-line mr-2"></i>Create New Database
                                 </a>
                                 <span class="text-textlight">or</span>
                                 <a href="/create-import-database" class="flex items-center bg-blue-600 text-white px-6 py-3 rounded-button hover:bg-blue-700 transition font-medium">
@@ -645,7 +654,33 @@
                 }
             });
         }
-
+        // Table Hide/Show toggle for homepage
+        async function toggleTableVisibility(dbId, tableName, currentlyVisible) {
+            try {
+                const response = await fetch('/api/toggle-table-visibility', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
+                    },
+                    body: JSON.stringify({
+                        db_id: dbId,
+                        table_name: tableName,
+                        show_in_homepage: !currentlyVisible
+                    })
+                });
+                
+                if (response.ok) {
+                    // Reload the page to reflect changes
+                    location.reload();
+                } else {
+                    alert('Failed to update table visibility');
+                }
+            } catch (error) {
+                console.error('Error toggling table visibility:', error);
+                alert('Error updating table visibility');
+            }
+        }
         // Update countdowns every minute
         setInterval(updateCountdowns, 60000);
         updateCountdowns(); // Initial call

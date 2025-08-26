@@ -154,9 +154,6 @@
                             <span><i class="ri-file-list-line mr-1"></i>{{ statistics[1].value }} Total Records</span>
                         </div>
                     </div>
-                    <a href="/{{ db_name }}/" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium">
-                        <i class="ri-table-line mr-2"></i>Browse Data Tables
-                    </a>
                 </div>
 
                 <!-- Description with Markdown Support -->
@@ -178,7 +175,7 @@
 
                 <!-- Data Tables Grid -->
                 {% if feature_cards %}
-                    <h2 class="text-2xl font-semibold text-primary mt-8 mb-6">Available Data Tables</h2>
+                    <h2 class="text-2xl font-semibold text-primary mt-8 mb-6">Data Tables</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {% for card in feature_cards %}
                             <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group">
@@ -209,13 +206,13 @@
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {% for stat in statistics %}
-                        {% if stat.url %}
-                            <!-- Clickable Stat Card -->
+                        {% if stat.url and loop.index0 >= 2 %}
+                            <!-- Clickable Stat Card (only for 3rd card and beyond) -->
                             <a href="{{ stat.url }}" class="p-4 
                                 {% if loop.index0 == 0 %}bg-cyan-50 hover:bg-cyan-100{% endif %}
                                 {% if loop.index0 == 1 %}bg-indigo-50 hover:bg-indigo-100{% endif %}
                                 {% if loop.index0 == 2 %}bg-yellow-50 hover:bg-yellow-100{% endif %}
-                              text-center">
+                            text-center">
                                 <div class="
                                     {% if loop.index0 == 0 %}bg-cyan-500{% endif %}
                                     {% if loop.index0 == 1 %}bg-indigo-500{% endif %}
@@ -236,8 +233,8 @@
                                 </div>
                             </a>
                         {% else %}
-                            <!-- Non-clickable Stat Card -->
-                            <div class=" p-4 
+                            <!-- Non-clickable Stat Card (for 1st, 2nd cards, or cards without URLs) -->
+                            <div class="p-4 
                                 {% if loop.index0 == 0 %}bg-cyan-50{% endif %}
                                 {% if loop.index0 == 1 %}bg-indigo-50{% endif %}
                                 {% if loop.index0 == 2 %}bg-yellow-50{% endif %}
@@ -266,41 +263,63 @@
                 </div>
             </div>
         </section>
-
-        <!-- Data Sources & Usage -->
+        <!-- Database Usage Tips Section -->
         <section class="container mx-auto px-4 mt-8 w-[90%]">
-            <div class="bg-card rounded-card p-6 border border-border">
-                <h3 class="text-lg font-semibold text-primary mb-6 text-center">
-                    <i class="ri-roadmap-line mr-2"></i>How to Use This Database
+            <div class="bg-blue-50 border border-blue-200 rounded-card p-6">
+                <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                    <i class="ri-lightbulb-line mr-2"></i>Explore Your Data
                 </h3>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <i class="ri-search-line text-white ri-lg"></i>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-blue-700">
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-filter-3-line mr-2"></i>Faceted Browsing
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Search Data</h4>
-                        <p class="text-textlight text-sm">Use the search function to find specific records</p>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Apply facets to see value counts and patterns</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Click facet values to filter data instantly</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Perfect for exploring large datasets</span>
+                        </div>
                     </div>
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <i class="ri-filter-line text-white ri-lg"></i>
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-code-s-slash-line mr-2"></i>Custom SQL Queries
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Use Filter</h4>
-                        <p class="text-textlight text-sm">Apply filters to narrow down your results</p>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Write and execute custom SQL queries</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Use "View and edit SQL" to see filter queries</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Full-text search across all columns</span>
+                        </div>
                     </div>
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <i class="ri-download-line text-white ri-lg"></i>
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-share-line mr-2"></i>Share & Export
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Save Data</h4>
-                        <p class="text-textlight text-sm">Export data in CSV, JSON formats for analysis</p>
-                    </div>
-                    <div class="text-center">
-                        <div class="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <i class="ri-share-line text-white ri-lg"></i>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Every view has a shareable URL</span>
                         </div>
-                        <h4 class="font-semibold text-text mb-2">Share Data</h4>
-                        <p class="text-textlight text-sm">Share direct links to specific data views</p>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Export filtered data as CSV or JSON</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Bookmark complex queries and filters</span>
+                        </div>
                     </div>
                 </div>
             </div>

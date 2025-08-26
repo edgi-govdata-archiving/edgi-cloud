@@ -807,6 +807,7 @@ async def permanent_delete_database(datasette, request):
             )
             
             # Delete related admin content (homepage customizations)
+            await cleanup_database_tables_on_delete(datasette, db_info['db_id'])
             await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_info['db_id']])
             
             # Success logging
@@ -1006,8 +1007,9 @@ async def admin_force_delete_confirmation(datasette, request):
             )
             
             # Delete related admin content (homepage customizations)
+            await cleanup_database_tables_on_delete(datasette, db_info['db_id'])
             await query_db.execute_write("DELETE FROM admin_content WHERE db_id = ?", [db_info['db_id']])
-            
+
             # Enhanced logging for admin force delete with all audit details
             await log_database_action(
                 datasette, actor.get("id"), "admin_force_delete_database", 
@@ -1088,6 +1090,21 @@ async def admin_force_delete_confirmation(datasette, request):
         logger.error(f"Error showing admin force delete confirmation for {db_name}: {str(e)}")
         return Response.text(f"Error loading force delete confirmation: {str(e)}", status=500)
 
+async def cleanup_database_tables_on_delete(datasette, db_id):
+    """Clean up all database_tables records when database is deleted."""
+    try:
+        portal_db = datasette.get_database('portal')
+        
+        # Delete all table visibility records for this database
+        await portal_db.execute_write(
+            "DELETE FROM database_tables WHERE db_id = ?", [db_id]
+        )
+        
+        logger.debug(f"Cleaned up all database_tables records for database {db_id}")
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up database_tables for db_id {db_id}: {e}")
+        
 @hookimpl
 def register_routes():
     """Register database deletion routes with proper separation"""

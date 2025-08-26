@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Create Empty Database - {{ content.title.content | default("EDGI Datasette Cloud Portal") }}</title>
+    <title>Create New Database - {{ content.title.content | default("Resette Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
@@ -17,7 +17,7 @@
                 <div class="w-10 h-10 flex items-center justify-center mr-3">
                     <i class="ri-earth-line text-white ri-2x" aria-hidden="true"></i>
                 </div>
-                <div class="text-xl font-semibold">{{ content.title.content | default("EDGI Datasette Cloud Portal") }}</div>
+                <div class="text-xl font-semibold">{{ content.title.content | default("Resette Portal") }}</div>
             </div>
             {% if actor %}
                 <div>
@@ -39,7 +39,7 @@
                     <div class="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
                         <i class="ri-database-2-line text-accent ri-3x"></i>
                     </div>
-                    <h2 class="text-2xl font-semibold text-primary">Create Empty Database</h2>
+                    <h2 class="text-2xl font-semibold text-primary">Create New Database</h2>
                     <p class="text-textlight mt-2">Start with a blank database and add your data later</p>
                 </div>
 
@@ -102,7 +102,7 @@
                     
                     <div class="flex gap-3">
                         <button type="submit" class="flex-1 bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium" id="submit-btn">
-                            <i class="ri-add-line mr-2"></i>Create Empty Database
+                            <i class="ri-add-line mr-2"></i>Create New Database
                         </button>
                         <a href="/manage-databases" class="flex-1 bg-gray-200 text-text py-3 px-4 rounded-button hover:bg-gray-300 transition text-center font-medium">
                             <i class="ri-close-line mr-2"></i>Cancel

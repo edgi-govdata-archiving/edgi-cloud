@@ -631,6 +631,33 @@ def migrate_database(existing_db):
         print(f"   ❌ Migration failed: {e}")
         raise
 
+def migrate_add_table_visibility_tracking(portal_db):
+    """Add table visibility tracking to portal database."""
+    
+    # Create the database_tables table
+    portal_db.create_table("database_tables", {
+        "table_id": str,              # Primary key: {db_id}_{table_name}
+        "db_id": str,                 # Foreign key to databases table
+        "table_name": str,            # Name of the table
+        "show_in_homepage": bool,     # Visibility on homepage
+        "display_order": int,         # Order for display (future feature)
+        "created_at": str,            # When table was first registered
+        "updated_at": str,            # Last visibility change
+        "table_description": str      # Optional custom description
+    }, pk="table_id", if_not_exists=True)
+    
+    # Create indexes for performance
+    portal_db.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_database_tables_db_id 
+            ON database_tables(db_id);
+        CREATE INDEX IF NOT EXISTS idx_database_tables_visibility 
+            ON database_tables(db_id, show_in_homepage);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_database_tables_unique 
+            ON database_tables(db_id, table_name);
+    """)
+    
+    print("   ✅ Created database_tables table with indexes")
+    
 def main():
     """Main initialization function."""
     try:

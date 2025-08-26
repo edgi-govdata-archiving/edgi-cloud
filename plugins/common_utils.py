@@ -1330,3 +1330,78 @@ def optimize_existing_header_images(datasette):
     except Exception as e:
         logger.error(f"Error during image optimization: {e}")
         return 0, 0
+
+async def get_database_tables_with_visibility(datasette, db_id, db_name):
+    """Get database tables with visibility information."""
+    portal_db = datasette.get_database('portal')
+    
+    # Get visibility settings from database_tables
+    visibility_result = await portal_db.execute(
+        "SELECT table_name, show_in_homepage, display_order FROM database_tables WHERE db_id = ?", 
+        [db_id]
+    )
+    
+    visibility_settings = {}
+    for row in visibility_result:
+        visibility_settings[row['table_name']] = {
+            'show_in_homepage': row['show_in_homepage'],
+            'display_order': row['display_order']
+        }
+    
+    # Get actual tables from the database
+    tables = []
+    try:
+        target_db = datasette.get_database(db_name)
+        if target_db:
+            table_names = await target_db.table_names()
+            
+            for table_name in table_names:
+                try:
+                    count_result = await target_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
+                    record_count = count_result.first()['count'] if count_result.first() else 0
+                    
+                    # Get column count
+                    columns_result = await target_db.execute(f"PRAGMA table_info([{table_name}])")
+                    column_count = len(columns_result.rows)
+                    
+                    # Merge with visibility settings
+                    visibility = visibility_settings.get(table_name, {})
+                    
+                    tables.append({
+                        'name': table_name,
+                        'full_name': table_name,
+                        'record_count': record_count,
+                        'columns': column_count,
+                        'size': record_count * 0.001,  # Estimate
+                        'show_in_homepage': visibility.get('show_in_homepage', True),  # Default visible
+                        'display_order': visibility.get('display_order', 0)
+                    })
+                    
+                except Exception as table_error:
+                    logger.error(f"Error processing table {table_name}: {table_error}")
+                    continue
+                    
+    except Exception as db_error:
+        logger.error(f"Error accessing database {db_name}: {db_error}")
+    
+    return tables
+
+async def sync_database_tables_on_upload(datasette, db_id, table_name):
+    """Sync database_tables when new table is uploaded."""
+    try:
+        portal_db = datasette.get_database('portal')
+        table_id = f"{db_id}_{table_name}"
+        current_time = datetime.utcnow().isoformat()
+        
+        # Insert new table record if it doesn't exist
+        await portal_db.execute_write("""
+            INSERT OR IGNORE INTO database_tables 
+            (table_id, db_id, table_name, show_in_homepage, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, [table_id, db_id, table_name, True, current_time, current_time])
+        
+        logger.debug(f"Synced table {table_name} for database {db_id}")
+        
+    except Exception as e:
+        logger.error(f"Error syncing database_tables for {table_name}: {e}")
+
