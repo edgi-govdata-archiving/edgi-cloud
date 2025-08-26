@@ -260,21 +260,6 @@ async def log_database_action(datasette, user_id, action, details, metadata=None
     except Exception as e:
         logger.error(f"Error logging database action: {e}")
 
-async def log_database_action_with_timestamp(datasette, user_id, action, details, metadata=None, db_name=None):
-    """Enhanced logging that also updates database timestamp if db_name provided"""
-    try:
-        # First update the database timestamp if db_name is provided
-        if db_name:
-            await update_database_timestamp(datasette, db_name)
-        
-        # Then log the action
-        await log_database_action(datasette, user_id, action, details, metadata)
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced database logging: {e}")
-        # Fallback to regular logging
-        await log_database_action(datasette, user_id, action, details, metadata)
-
 async def verify_user_session(datasette, actor):
     """
     Verify user session and return user info.
@@ -857,7 +842,7 @@ def validate_password(password):
     return True, None
 
 async def update_database_timestamp(datasette, db_name):
-    """Update the updated_at timestamp for a database - add to common_utils.py"""
+    """Update the updated_at timestamp for a database """
     try:
         query_db = datasette.get_database('portal')
         current_time = datetime.utcnow().isoformat()
@@ -936,7 +921,7 @@ def create_feature_cards_from_databases(databases, limit=6):
     for db in databases[:limit]:
         feature_cards.append({
             'title': db['db_name'].replace('_', ' ').title(),
-            'description': f"{db['status']} environmental dataset",
+            'description': f"{db['status']} dataset",
             'url': db['website_url'],
             'icon': 'ri-database-line'
         })
@@ -1331,61 +1316,6 @@ def optimize_existing_header_images(datasette):
         logger.error(f"Error during image optimization: {e}")
         return 0, 0
 
-async def get_database_tables_with_visibility(datasette, db_id, db_name):
-    """Get database tables with visibility information."""
-    portal_db = datasette.get_database('portal')
-    
-    # Get visibility settings from database_tables
-    visibility_result = await portal_db.execute(
-        "SELECT table_name, show_in_homepage, display_order FROM database_tables WHERE db_id = ?", 
-        [db_id]
-    )
-    
-    visibility_settings = {}
-    for row in visibility_result:
-        visibility_settings[row['table_name']] = {
-            'show_in_homepage': row['show_in_homepage'],
-            'display_order': row['display_order']
-        }
-    
-    # Get actual tables from the database
-    tables = []
-    try:
-        target_db = datasette.get_database(db_name)
-        if target_db:
-            table_names = await target_db.table_names()
-            
-            for table_name in table_names:
-                try:
-                    count_result = await target_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
-                    record_count = count_result.first()['count'] if count_result.first() else 0
-                    
-                    # Get column count
-                    columns_result = await target_db.execute(f"PRAGMA table_info([{table_name}])")
-                    column_count = len(columns_result.rows)
-                    
-                    # Merge with visibility settings
-                    visibility = visibility_settings.get(table_name, {})
-                    
-                    tables.append({
-                        'name': table_name,
-                        'full_name': table_name,
-                        'record_count': record_count,
-                        'columns': column_count,
-                        'size': record_count * 0.001,  # Estimate
-                        'show_in_homepage': visibility.get('show_in_homepage', True),  # Default visible
-                        'display_order': visibility.get('display_order', 0)
-                    })
-                    
-                except Exception as table_error:
-                    logger.error(f"Error processing table {table_name}: {table_error}")
-                    continue
-                    
-    except Exception as db_error:
-        logger.error(f"Error accessing database {db_name}: {db_error}")
-    
-    return tables
-
 async def sync_database_tables_on_upload(datasette, db_id, table_name):
     """Sync database_tables when new table is uploaded."""
     try:
@@ -1405,3 +1335,20 @@ async def sync_database_tables_on_upload(datasette, db_id, table_name):
     except Exception as e:
         logger.error(f"Error syncing database_tables for {table_name}: {e}")
 
+def is_system_table(table_name):
+    """Check if a table is a system/internal table that should be hidden from users."""
+    # FTS (Full-Text Search) tables
+    fts_suffixes = ['_fts', '_fts_data', '_fts_idx', '_fts_docsize', '_fts_config']
+    
+    # Check if table name ends with FTS suffixes
+    for suffix in fts_suffixes:
+        if table_name.endswith(suffix):
+            return True
+    
+    # Check for other SQLite system tables
+    system_prefixes = ['sqlite_', 'fts4aux_', 'fts5vocab_']
+    for prefix in system_prefixes:
+        if table_name.startswith(prefix):
+            return True
+    
+    return False

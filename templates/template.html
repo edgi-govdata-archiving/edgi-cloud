@@ -198,14 +198,71 @@
                                 <label class="block text-text mb-2 font-medium">Footer Content (Markdown supported):</label>
                                 <textarea name="footer" rows="3" 
                                           class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
-                                          placeholder="Made with love by your organization...">{{ content.footer.content | default('Made with ❤️ by EDGI and Public Environmental Data Partners.') }}</textarea>
-                                <div class="text-xs text-textlight mt-1">
-                                    <i class="ri-information-line mr-1"></i>
-                                    Will appear alongside "Data licensed under ODbL"
-                                </div>
+                                          placeholder="Made with love by your organization...">{{ content.footer.content | default('Made with ❤️ by EDGI and Public Environmental Data Partners.') }}
+                                </textarea>
                             </div>
                             <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">
                                 <i class="ri-save-line mr-1"></i>Update Footer
+                            </button>
+                        </form>
+                    </div>
+                    <!-- Data License Configuration -->
+                    <div class="bg-card rounded-card p-6 border border-border">
+                        <h3 class="text-xl font-semibold text-primary mb-4 flex items-center">
+                            <i class="ri-copyright-line mr-2"></i>Data License
+                        </h3>
+                        <p class="text-textlight text-sm mb-4">
+                            Choose the data license for this database. This will override the portal's default license setting.
+                        </p>
+                        <form method="post" class="space-y-4">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="section" value="data_license">
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-text mb-2 font-medium">Data License:</label>
+                                    <select name="license_type" id="license-select" onchange="updateLicenseFields()" 
+                                            class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent">
+                                        <option value="odbl" {% if content.footer.odbl_text == "Data licensed under ODbL" or not content.footer.odbl_text %}selected{% endif %}>Open Database License (ODbL)</option>
+                                        <option value="cc0" {% if content.footer.odbl_text == "Data licensed under CC0" %}selected{% endif %}>Creative Commons CC0 (Public Domain)</option>
+                                        <option value="cc-by" {% if content.footer.odbl_text == "Data licensed under CC BY" %}selected{% endif %}>Creative Commons CC BY</option>
+                                        <option value="cc-by-sa" {% if content.footer.odbl_text == "Data licensed under CC BY-SA" %}selected{% endif %}>Creative Commons CC BY-SA</option>
+                                        <option value="cc-by-nc" {% if content.footer.odbl_text == "Data licensed under CC BY-NC" %}selected{% endif %}>Creative Commons CC BY-NC</option>
+                                        <option value="mit" {% if content.footer.odbl_text == "Data licensed under MIT" %}selected{% endif %}>MIT License</option>
+                                        <option value="custom" {% if content.footer.odbl_text and not (content.footer.odbl_text.startswith("Data licensed under")) %}selected{% endif %}>Custom License</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-text mb-2 font-medium">License URL:</label>
+                                    <input type="url" name="license_url" id="license-url" 
+                                        value="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" 
+                                        class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
+                                        placeholder="https://opendatacommons.org/licenses/odbl/">
+                                </div>
+                            </div>
+                            
+                            <div id="custom-license-section" class="{% if not content.footer.odbl_text or content.footer.odbl_text.startswith('Data licensed under') %}hidden{% endif %}">
+                                <label class="block text-text mb-2 font-medium">Custom License Text:</label>
+                                <input type="text" name="custom_license_text" id="custom-license-text"
+                                    value="{{ content.footer.odbl_text | default('') }}" 
+                                    class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
+                                    placeholder="Data licensed under Custom License">
+                            </div>
+                            
+                            <!-- License Preview -->
+                            <div class="bg-blue-50 border border-blue-200 rounded p-4">
+                                <h4 class="font-semibold text-blue-800 mb-2">
+                                    <i class="ri-information-line mr-2"></i>License Preview
+                                </h4>
+                                <div class="text-blue-700 text-sm">
+                                    <p><strong>Current:</strong> <span id="license-preview">{{ content.footer.odbl_text | default('Data licensed under ODbL') }}</span></p>
+                                    <p><strong>URL:</strong> <a id="license-url-preview" href="{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}" target="_blank" class="text-blue-600 hover:text-blue-800 underline">{{ content.footer.odbl_url | default('https://opendatacommons.org/licenses/odbl/') }}</a></p>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">
+                                <i class="ri-save-line mr-1"></i>Update Data License
                             </button>
                         </form>
                     </div>
@@ -298,6 +355,89 @@
         
         return true;
     }
+
+    // License configuration
+    const licenses = {
+        'odbl': {
+            text: 'Data licensed under ODbL',
+            url: 'https://opendatacommons.org/licenses/odbl/'
+        },
+        'cc0': {
+            text: 'Data licensed under CC0',
+            url: 'https://creativecommons.org/publicdomain/zero/1.0/'
+        },
+        'cc-by': {
+            text: 'Data licensed under CC BY',
+            url: 'https://creativecommons.org/licenses/by/4.0/'
+        },
+        'cc-by-sa': {
+            text: 'Data licensed under CC BY-SA',
+            url: 'https://creativecommons.org/licenses/by-sa/4.0/'
+        },
+        'cc-by-nc': {
+            text: 'Data licensed under CC BY-NC',
+            url: 'https://creativecommons.org/licenses/by-nc/4.0/'
+        },
+        'mit': {
+            text: 'Data licensed under MIT',
+            url: 'https://opensource.org/licenses/MIT'
+        }
+    };
+
+    function updateLicenseFields() {
+        const select = document.getElementById('license-select');
+        const urlField = document.getElementById('license-url');
+        const customSection = document.getElementById('custom-license-section');
+        const customText = document.getElementById('custom-license-text');
+        const preview = document.getElementById('license-preview');
+        const urlPreview = document.getElementById('license-url-preview');
+        
+        if (!select) return; // Exit if elements don't exist
+        
+        const selectedValue = select.value;
+        
+        if (selectedValue === 'custom') {
+            if (customSection) customSection.classList.remove('hidden');
+            if (preview && customText) preview.textContent = customText.value || 'Data licensed under Custom License';
+        } else {
+            if (customSection) customSection.classList.add('hidden');
+            const license = licenses[selectedValue];
+            if (license) {
+                if (urlField) urlField.value = license.url;
+                if (preview) preview.textContent = license.text;
+                if (urlPreview) {
+                    urlPreview.href = license.url;
+                    urlPreview.textContent = license.url;
+                }
+            }
+        }
+    }
+
+    // Initialize license form when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        const customText = document.getElementById('custom-license-text');
+        const urlField = document.getElementById('license-url');
+        
+        if (customText) {
+            customText.addEventListener('input', function() {
+                const preview = document.getElementById('license-preview');
+                if (preview) preview.textContent = this.value || 'Data licensed under Custom License';
+            });
+        }
+        
+        if (urlField) {
+            urlField.addEventListener('input', function() {
+                const urlPreview = document.getElementById('license-url-preview');
+                if (urlPreview) {
+                    urlPreview.href = this.value;
+                    urlPreview.textContent = this.value;
+                }
+            });
+        }
+        
+        // Initialize the license form
+        updateLicenseFields();
+    });
 
     // Add loading state to form submissions
     document.addEventListener('DOMContentLoaded', function() {

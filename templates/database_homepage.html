@@ -105,6 +105,33 @@
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
+        
+        /* Horizontal scroll styling */
+        .overflow-x-auto::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .overflow-x-auto::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        .overflow-x-auto::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Line clamp for description */
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
     </style>
 </head>
 <body class="bg-background">
@@ -173,22 +200,61 @@
                     {% endif %}
                 </div>
 
-                <!-- Data Tables Grid -->
+                <!-- Data Tables Grid with Scroll -->
                 {% if feature_cards %}
-                    <h2 class="text-2xl font-semibold text-primary mt-8 mb-6">Data Tables</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {% for card in feature_cards %}
-                            <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group">
-                                <div class="flex items-center justify-between mb-3">
-                                    <h3 class="text-lg font-semibold text-accent group-hover:text-primary">
-                                        <i class="{{ card.icon }} mr-2"></i>{{ card.title }}
-                                    </h3>
-                                    <i class="ri-arrow-right-line text-textlight group-hover:text-accent"></i>
-                                </div>
-                                <p class="text-textlight text-sm">{{ card.description }}</p>
-                            </a>
-                        {% endfor %}
-                    </div>
+                    <h2 class="text-2xl font-semibold text-primary mt-8 mb-6">
+                        Data Tables
+                        {% if feature_cards|length > 6 %}
+                            <span class="text-sm font-normal text-textlight ml-2">({{ feature_cards|length }} tables)</span>
+                        {% endif %}
+                    </h2>
+                    
+                    {% if feature_cards|length <= 6 %}
+                        <!-- Standard Grid for 6 or fewer tables -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {% for card in feature_cards %}
+                                <a href="{{ card.url }}" class="bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h3 class="text-lg font-semibold text-accent group-hover:text-primary">
+                                            <i class="{{ card.icon }} mr-2"></i>{{ card.title }}
+                                        </h3>
+                                        <i class="ri-arrow-right-line text-textlight group-hover:text-accent"></i>
+                                    </div>
+                                    <p class="text-textlight text-sm">{{ card.description }}</p>
+                                    <div class="text-xs text-accent mt-2">{{ card.count|default(0) }} records</div>
+                                </a>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <!-- Horizontal Scrolling for more than 6 tables -->
+                        <div class="overflow-x-auto pb-4">
+                            <div class="flex gap-6" style="width: max-content;">
+                                {% for card in feature_cards %}
+                                    <div class="flex-shrink-0 w-80">
+                                        <a href="{{ card.url }}" class="block bg-white p-5 rounded-card border border-gray-200 hover:bg-gray-100 transition group h-full">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <h3 class="text-lg font-semibold text-accent group-hover:text-primary truncate pr-2">
+                                                    <i class="{{ card.icon }} mr-2"></i>{{ card.title }}
+                                                </h3>
+                                                <i class="ri-arrow-right-line text-textlight group-hover:text-accent flex-shrink-0"></i>
+                                            </div>
+                                            <p class="text-textlight text-sm line-clamp-2">{{ card.description }}</p>
+                                            <div class="text-xs text-accent mt-2">{{ card.count|default(0) }} records</div>
+                                        </a>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <!-- Scroll Indicator -->
+                        <div class="flex justify-center mt-4">
+                            <div class="flex items-center text-sm text-textlight">
+                                <i class="ri-arrow-left-line mr-1"></i>
+                                <span>Scroll to see all {{ feature_cards|length }} tables</span>
+                                <i class="ri-arrow-right-line ml-1"></i>
+                            </div>
+                        </div>
+                    {% endif %}
                 {% else %}
                     <div class="text-center py-8 border-2 border-dashed border-gray-300 rounded-card">
                         <i class="ri-table-line text-4xl text-textlight mb-2"></i>

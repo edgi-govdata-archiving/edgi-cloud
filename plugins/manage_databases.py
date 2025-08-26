@@ -17,6 +17,7 @@ from datasette.database import Database
 import sqlite3
 from email.parser import BytesParser
 from email.policy import default
+import re
 
 # Add the plugins directory to Python path for imports
 import sys
@@ -33,23 +34,19 @@ from common_utils import (
     get_portal_content,
     get_database_content,
     get_database_statistics,
-    check_database_name_available,
     user_owns_database,
-    validate_database_name,
-    handle_form_errors,
     redirect_authenticated_user,
-    generate_website_url,
     ensure_data_directories,
     get_all_published_databases,
     get_success_error_from_request,
     create_feature_cards_from_databases,
     create_statistics_data,
+    update_database_timestamp,
     update_database_timestamp_by_id,
     parse_markdown_links,
     DATA_DIR,
     get_max_image_size,
-    get_max_databases_per_user,
-    handle_image_upload_robust,
+    is_system_table,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -431,7 +428,7 @@ async def unpublish_database(datasette, request):
         return Response.text(f"Error unpublishing database: {str(e)}", status=500)
     
 async def delete_table(datasette, request):
-    """Delete table from database with database_tables cleanup."""
+    """Delete table from database with database_tables cleanup - PREVENT SYSTEM TABLE DELETION."""
     actor = get_actor_from_request(request)
     
     # Check if user is authenticated
@@ -445,6 +442,10 @@ async def delete_table(datasette, request):
         table_name = path_parts[2]
     else:
         return Response.redirect("/manage-databases?error=Invalid URL format")
+    
+    # PREVENT DELETION OF SYSTEM TABLES
+    if is_system_table(table_name):
+        return Response.redirect(f"/manage-databases?error=Cannot delete system table '{table_name}'. This table is required for database functionality.")
     
     logger.debug(f"Delete table request: db_name={db_name}, table_name={table_name}")
     
@@ -552,7 +553,7 @@ async def delete_table(datasette, request):
             )
 
 async def delete_table_ajax(datasette, request):
-    """AJAX endpoint for table deletion."""
+    """AJAX endpoint for table deletion - PREVENT SYSTEM TABLE DELETION."""
     if request.method != "POST":
         return Response.json({"error": "Method not allowed"}, status=405)
     
@@ -571,6 +572,10 @@ async def delete_table_ajax(datasette, request):
         
         if not db_name or not table_name:
             return Response.json({"error": "Missing db_name or table_name"}, status=400)
+        
+        # PREVENT DELETION OF SYSTEM TABLES
+        if is_system_table(table_name):
+            return Response.json({"error": f"Cannot delete system table '{table_name}'. This table is required for database functionality."}, status=400)
               
         # Verify ownership
         if not await user_owns_database(datasette, actor["id"], db_name):
@@ -588,6 +593,23 @@ async def delete_table_ajax(datasette, request):
         
         # Delete the table
         await target_db.execute_write(f"DROP TABLE [{table_name}]")
+        
+        # Clean up database_tables record
+        portal_db = datasette.get_database("portal")
+        db_result = await portal_db.execute(
+            "SELECT db_id FROM databases WHERE db_name = ?", [db_name]
+        )
+        db_record = db_result.first()
+        
+        if db_record:
+            try:
+                table_id = f"{db_record['db_id']}_{table_name}"
+                await portal_db.execute_write(
+                    "DELETE FROM database_tables WHERE table_id = ?", [table_id]
+                )
+                logger.debug(f"Cleaned up database_tables record for {table_name}")
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up database_tables: {cleanup_error}")
         
         # Log the deletion
         await log_database_action(
@@ -708,7 +730,8 @@ async def database_homepage(datasette, request):
                 tables = []
                 total_records = 0
                 
-                for table in visible_tables[:6]:  # Show max 6 featured tables
+                # Process ALL visible tables
+                for table in visible_tables:
                     try:
                         count_result = await user_db.execute(f"SELECT COUNT(*) as count FROM [{table['name']}]")
                         record_count = count_result.first()['count'] if count_result.first() else 0
@@ -719,12 +742,14 @@ async def database_homepage(datasette, request):
                             'description': table.get('table_description') or f"Data table with {record_count:,} records",
                             'url': f"/{db_name}/{table['name']}",
                             'icon': 'ri-table-line',
-                            'count': record_count
+                            'count': record_count,
+                            'display_order': table.get('display_order', 100)
                         })
                     except Exception as table_error:
                         logger.error(f"Error processing table {table['name']}: {table_error}")
                         continue
-                
+                logger.debug(f"Final tables count for homepage: {len(tables)} tables")
+
                 # Use total tables count (including hidden ones) for statistics
                 all_tables_count = len(tables_with_visibility)
                 
@@ -753,6 +778,12 @@ async def database_homepage(datasette, request):
             tables = []
             statistics = []
         
+        # Sort tables by display_order
+        tables.sort(key=lambda x: x.get('display_order', 100), reverse=True)
+
+        # ADD DEBUG LINE to verify ordering
+        logger.debug(f"Tables sorted by display_order for homepage: {[(t['title'], t.get('display_order', 100)) for t in tables]}")
+
         # Add preview mode indicator to page title if in preview
         page_title = content.get('title', {}).get('content', db_name) + " | Resette"
         if is_preview:
@@ -966,11 +997,59 @@ async def edit_content(datasette, request):
                 
                 return Response.redirect(f"{request.path}?success=Description updated")
             
+            if 'license_type' in post_vars or 'section' in post_vars and post_vars['section'] == 'data_license':
+                license_type = post_vars.get('license_type')
+                license_url = post_vars.get('license_url', 'https://opendatacommons.org/licenses/odbl/')
+                custom_license_text = post_vars.get('custom_license_text', '')
+                
+                if license_type == 'custom':
+                    license_text = custom_license_text
+                else:
+                    # Map license types to standard text
+                    license_texts = {
+                        'odbl': 'Data licensed under ODbL',
+                        'cc0': 'Data licensed under CC0',
+                        'cc-by': 'Data licensed under CC BY',
+                        'cc-by-sa': 'Data licensed under CC BY-SA',
+                        'cc-by-nc': 'Data licensed under CC BY-NC',
+                        'mit': 'Data licensed under MIT'
+                    }
+                    license_text = license_texts.get(license_type, 'Data licensed under ODbL')
+                
+                # Get existing footer content or create new
+                existing_footer = content.get('footer', {})
+                
+                new_content = {
+                    "content": existing_footer.get('content', f"{db_name.replace('_', ' ').title()} | Powered by Resette"),
+                    "odbl_text": license_text,
+                    "odbl_url": license_url,
+                    "paragraphs": existing_footer.get('paragraphs', [existing_footer.get('content', f"{db_name.replace('_', ' ').title()} | Powered by Resette")])
+                }
+                
+                await query_db.execute_write(
+                    "INSERT OR REPLACE INTO admin_content (db_id, section, content, updated_at, updated_by) VALUES (?, ?, ?, ?, ?)",
+                    [db_id, 'footer', json.dumps(new_content), datetime.utcnow().isoformat(), actor['username']]
+                )
+                
+                # UPDATE DATABASE TIMESTAMP
+                await update_database_timestamp_by_id(datasette, db_id)
+
+                await log_database_action(
+                    datasette, actor.get("id"), "edit_content", 
+                    f"Updated data license for {db_name}",
+                    {"db_name": db_name, "section": "data_license"}
+                )
+                
+                return Response.redirect(f"{request.path}?success=Data license updated")
+            
             if 'footer' in post_vars:
+                # Get existing footer content to preserve license settings
+                existing_footer = content.get('footer', {})
+                
                 new_content = {
                     "content": post_vars['footer'],
-                    "odbl_text": "Data licensed under ODbL",
-                    "odbl_url": "https://opendatacommons.org/licenses/odbl/",
+                    "odbl_text": existing_footer.get('odbl_text', "Data licensed under ODbL"),
+                    "odbl_url": existing_footer.get('odbl_url', "https://opendatacommons.org/licenses/odbl/"),
                     "paragraphs": parse_markdown_links(post_vars['footer'])
                 }
                 await query_db.execute_write(
@@ -1333,111 +1412,11 @@ async def update_table_display_order(datasette, request):
         logger.error(f"Error updating display order: {e}")
         return Response.json({"error": str(e)}, status=500)
 
-@hookimpl
-def register_routes():
-    """Register datasette admin panel routes."""
-    return [
-        (r"^/$", index_page),
-        (r"^/all-databases$", all_databases_page),
-        (r"^/manage-databases$", manage_databases),
-        (r"^/db/([^/]+)/publish$", publish_database),
-        (r"^/db/([^/]+)/unpublish$", unpublish_database),
-        (r"^/db/([^/]+)/homepage$", database_homepage),
-        (r"^/edit-content/([^/]+)$", edit_content),
-        (r"^/delete-table/(?P<db_name>[^/]+)/(?P<table_name>[^/]+)$", delete_table),
-        (r"^/delete-table-ajax$", delete_table_ajax),
-        (r"^/data/[^/]+/[^/]+$", serve_database_image),
-        (r"^/api/toggle-table-visibility$", toggle_table_visibility),
-        (r"^/api/update-table-order$", update_table_display_order),
-    ]
-
-@hookimpl
-def permission_allowed(datasette, actor, action, resource):
-    """Block insecure upload plugin."""
-    if action == "upload-csvs":
-        return False  # Block insecure official plugin
-    return None
-
-@hookimpl
-def startup(datasette):
-    """Startup hook with comprehensive database registration and error handling"""
-    
-    async def inner():
-        try:
-            logger.info("Starting EDGI Datasette Database Management Module...")
-            
-            # Ensure directories exist
-            ensure_data_directories()
-            
-            # Get database path - SUPPORT MULTIPLE ENVIRONMENTS
-            db_path = None
-            possible_paths = [
-                os.getenv('PORTAL_DB_PATH'),  # Environment variable
-                "/data/portal.db",            # Docker/production
-                os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
-                os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
-                "portal.db"                   # Current directory fallback
-            ]
-            
-            # Find the portal database
-            for path in possible_paths:
-                if path and os.path.exists(path):
-                    db_path = path
-                    logger.info(f"Found portal database at: {db_path}")
-                    break
-            
-            if not db_path:
-                logger.warning("Portal database not found. Checked paths:")
-                for path in possible_paths:
-                    if path:
-                        logger.warning(f"  - {path} {'(exists)' if os.path.exists(path) else '(not found)'}")
-                logger.warning("Database registration will be skipped. Some features may not work.")
-                return
-            
-            # Connect to portal database
-            try:
-                query_db = datasette.get_database('portal')
-                if not query_db:
-                    logger.error("Failed to get portal database connection")
-                    return
-            except Exception as conn_error:
-                logger.error(f"Error connecting to portal database: {conn_error}")
-                return
-            
-            # Verify database structure
-            if not await verify_database_structure_startup(query_db):
-                logger.error("Portal database structure verification failed")
-                return
-            
-            # Register existing user databases with enhanced error handling
-            registered_count, failed_count, skipped_count = await register_user_databases_startup(datasette, query_db)
-            
-            # Log startup results
-            await log_startup_success_startup(datasette, registered_count, failed_count, skipped_count)
-            
-            # Optional: Fix any missing registrations
-            if failed_count > 0:
-                logger.info("Attempting to fix missing database registrations...")
-                fixed_count = await fix_missing_registrations_startup(datasette, query_db)
-                if fixed_count > 0:
-                    logger.info(f"Fixed {fixed_count} missing database registrations")
-            
-            logger.info(f"Database Management Module startup completed successfully")
-            logger.info(f"Summary: {registered_count} registered, {failed_count} failed, {skipped_count} skipped")
-            
-        except Exception as e:
-            logger.error(f"CRITICAL: Database Management Module startup failed: {str(e)}")
-            import traceback
-            logger.error(f"Startup traceback: {traceback.format_exc()}")
-            # Don't raise - allow Datasette to continue even if registration fails
-
-    return inner
-    
 async def get_database_tables_with_visibility(datasette, db_id, db_name):
-    """Get database tables with visibility information, properly ordered."""
+    """Get database tables with visibility information, properly ordered - HIDE SYSTEM TABLES."""
     portal_db = datasette.get_database('portal')
     
-    # Get visibility settings from database_tables - removed table_description
+    # Get visibility settings from database_tables
     visibility_result = await portal_db.execute(
         "SELECT table_name, show_in_homepage, display_order FROM database_tables WHERE db_id = ? ORDER BY show_in_homepage DESC, display_order DESC", 
         [db_id]
@@ -1458,6 +1437,11 @@ async def get_database_tables_with_visibility(datasette, db_id, db_name):
             table_names = await target_db.table_names()
             
             for table_name in table_names:
+                # SKIP SYSTEM TABLES
+                if is_system_table(table_name):
+                    logger.debug(f"Skipping system table: {table_name}")
+                    continue
+                    
                 try:
                     count_result = await target_db.execute(f"SELECT COUNT(*) as count FROM [{table_name}]")
                     record_count = count_result.first()['count'] if count_result.first() else 0
@@ -1475,8 +1459,8 @@ async def get_database_tables_with_visibility(datasette, db_id, db_name):
                         'record_count': record_count,
                         'columns': column_count,
                         'size': record_count * 0.001,  # Estimate
-                        'show_in_homepage': visibility.get('show_in_homepage', True),
-                        'display_order': visibility.get('display_order', 100)
+                        'show_in_homepage': visibility.get('show_in_homepage', True),  # Default visible
+                        'display_order': visibility.get('display_order', 100)  # Default high number (bottom)
                     })
                     
                 except Exception as table_error:
@@ -1562,3 +1546,204 @@ async def toggle_table_visibility(datasette, request):
     except Exception as e:
         logger.error(f"Error toggling table visibility: {e}")
         return Response.json({"error": str(e)}, status=500)
+
+async def rename_table_api(datasette, request):
+    """API endpoint to rename a table - PREVENT SYSTEM TABLE RENAMING."""
+    if request.method != "POST":
+        return Response.json({"error": "Method not allowed"}, status=405)
+    
+    actor = get_actor_from_request(request)
+    if not actor:
+        return Response.json({"error": "Authentication required"}, status=401)
+    
+    try:
+        body = await request.post_body()
+        data = json.loads(body.decode('utf-8'))
+        
+        db_name = data.get('db_name')
+        old_table_name = data.get('old_table_name')
+        new_table_name = data.get('new_table_name', '').strip()
+        
+        # PREVENT RENAMING OF SYSTEM TABLES
+        if is_system_table(old_table_name):
+            return Response.json({"error": f"Cannot rename system table '{old_table_name}'. This table is required for database functionality."}, status=400)
+        
+        # Validate new table name
+        if not new_table_name:
+            return Response.json({"error": "New table name cannot be empty"}, status=400)
+        
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', new_table_name):
+            return Response.json({"error": "Table name must start with letter/underscore and contain only letters, numbers, underscores"}, status=400)
+        
+        if len(new_table_name) > 64:
+            return Response.json({"error": "Table name too long (max 64 characters)"}, status=400)
+        
+        # PREVENT RENAMING TO SYSTEM TABLE NAMES
+        if is_system_table(new_table_name):
+            return Response.json({"error": f"Cannot use system table name '{new_table_name}'"}, status=400)
+        
+        # Verify user owns the database
+        if not await user_owns_database(datasette, actor["id"], db_name):
+            return Response.json({"error": "Access denied"}, status=403)
+        
+        # Get database and check if tables exist
+        target_db = datasette.get_database(db_name)
+        table_names = await target_db.table_names()
+        
+        if old_table_name not in table_names:
+            return Response.json({"error": f"Table '{old_table_name}' not found"}, status=404)
+        
+        if new_table_name in table_names:
+            return Response.json({"error": f"Table '{new_table_name}' already exists"}, status=400)
+        
+        # Rename the table using SQLite ALTER TABLE
+        await target_db.execute_write(f"ALTER TABLE [{old_table_name}] RENAME TO [{new_table_name}]")
+        
+        # Update database_tables record if it exists
+        portal_db = datasette.get_database('portal')
+        db_result = await portal_db.execute(
+            "SELECT db_id FROM databases WHERE db_name = ? AND user_id = ?", [db_name, actor['id']]
+        )
+        db_record = db_result.first()
+        
+        if db_record:
+            old_table_id = f"{db_record['db_id']}_{old_table_name}"
+            new_table_id = f"{db_record['db_id']}_{new_table_name}"
+            current_time = datetime.utcnow().isoformat()
+            
+            # Check if record exists and update it
+            existing_result = await portal_db.execute(
+                "SELECT * FROM database_tables WHERE table_id = ?", [old_table_id]
+            )
+            existing_record = existing_result.first()
+            
+            if existing_record:
+                await portal_db.execute_write(
+                    "DELETE FROM database_tables WHERE table_id = ?", [old_table_id]
+                )
+                await portal_db.execute_write("""
+                    INSERT INTO database_tables 
+                    (table_id, db_id, table_name, show_in_homepage, display_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, [new_table_id, db_record['db_id'], new_table_name, 
+                      existing_record['show_in_homepage'], existing_record['display_order'],
+                      existing_record['created_at'], current_time])
+        
+        # Update database timestamp
+        await update_database_timestamp(datasette, db_name)
+        
+        # Log the action
+        await log_database_action(
+            datasette, actor['id'], "rename_table",
+            f"Renamed table '{old_table_name}' to '{new_table_name}' in database '{db_name}'",
+            {"db_name": db_name, "old_name": old_table_name, "new_name": new_table_name}
+        )
+        
+        return Response.json({"success": True, "new_table_name": new_table_name})
+        
+    except Exception as e:
+        logger.error(f"Error renaming table: {e}")
+        return Response.json({"error": str(e)}, status=500)
+    
+
+@hookimpl
+def register_routes():
+    """Register datasette admin panel routes."""
+    return [
+        (r"^/$", index_page),
+        (r"^/all-databases$", all_databases_page),
+        (r"^/manage-databases$", manage_databases),
+        (r"^/db/([^/]+)/publish$", publish_database),
+        (r"^/db/([^/]+)/unpublish$", unpublish_database),
+        (r"^/db/([^/]+)/homepage$", database_homepage),
+        (r"^/edit-content/([^/]+)$", edit_content),
+        (r"^/delete-table/(?P<db_name>[^/]+)/(?P<table_name>[^/]+)$", delete_table),
+        (r"^/delete-table-ajax$", delete_table_ajax),
+        (r"^/data/[^/]+/[^/]+$", serve_database_image),
+        (r"^/api/toggle-table-visibility$", toggle_table_visibility),
+        (r"^/api/update-table-order$", update_table_display_order),
+        (r"^/api/rename-table$", rename_table_api),
+    ]
+
+@hookimpl
+def permission_allowed(datasette, actor, action, resource):
+    """Block insecure upload plugin."""
+    if action == "upload-csvs":
+        return False  # Block insecure official plugin
+    return None
+
+@hookimpl
+def startup(datasette):
+    """Startup hook with comprehensive database registration and error handling"""
+    
+    async def inner():
+        try:
+            logger.info("Starting EDGI Datasette Database Management Module...")
+            
+            # Ensure directories exist
+            ensure_data_directories()
+            
+            # Get database path - SUPPORT MULTIPLE ENVIRONMENTS
+            db_path = None
+            possible_paths = [
+                os.getenv('PORTAL_DB_PATH'),  # Environment variable
+                "/data/portal.db",            # Docker/production
+                os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
+                os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
+                "portal.db"                   # Current directory fallback
+            ]
+            
+            # Find the portal database
+            for path in possible_paths:
+                if path and os.path.exists(path):
+                    db_path = path
+                    logger.info(f"Found portal database at: {db_path}")
+                    break
+            
+            if not db_path:
+                logger.warning("Portal database not found. Checked paths:")
+                for path in possible_paths:
+                    if path:
+                        logger.warning(f"  - {path} {'(exists)' if os.path.exists(path) else '(not found)'}")
+                logger.warning("Database registration will be skipped. Some features may not work.")
+                return
+            
+            # Connect to portal database
+            try:
+                query_db = datasette.get_database('portal')
+                if not query_db:
+                    logger.error("Failed to get portal database connection")
+                    return
+            except Exception as conn_error:
+                logger.error(f"Error connecting to portal database: {conn_error}")
+                return
+            
+            # Verify database structure
+            if not await verify_database_structure_startup(query_db):
+                logger.error("Portal database structure verification failed")
+                return
+            
+            # Register existing user databases with enhanced error handling
+            registered_count, failed_count, skipped_count = await register_user_databases_startup(datasette, query_db)
+            
+            # Log startup results
+            await log_startup_success_startup(datasette, registered_count, failed_count, skipped_count)
+            
+            # Optional: Fix any missing registrations
+            if failed_count > 0:
+                logger.info("Attempting to fix missing database registrations...")
+                fixed_count = await fix_missing_registrations_startup(datasette, query_db)
+                if fixed_count > 0:
+                    logger.info(f"Fixed {fixed_count} missing database registrations")
+            
+            logger.info(f"Database Management Module startup completed successfully")
+            logger.info(f"Summary: {registered_count} registered, {failed_count} failed, {skipped_count} skipped")
+            
+        except Exception as e:
+            logger.error(f"CRITICAL: Database Management Module startup failed: {str(e)}")
+            import traceback
+            logger.error(f"Startup traceback: {traceback.format_exc()}")
+            # Don't raise - allow Datasette to continue even if registration fails
+
+    return inner
+    
