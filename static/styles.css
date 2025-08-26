@@ -33,3 +33,11 @@ tr:hover {
     padding: 0.5rem;
   }
 }
+
+.table-name-display:hover {
+    background-color: #f3f4f6;
+}
+
+.table-name-edit input {
+    min-width: 120px;
+}

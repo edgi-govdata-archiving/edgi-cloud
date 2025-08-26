@@ -9,6 +9,17 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
+    <style>
+
+    .table-name-display:hover {
+        background-color: #7699df;
+    }
+
+    .table-name-edit input {
+        min-width: 120px;
+    }
+
+    </style>
 </head>
 <body class="bg-background">
     <!-- Hidden CSRF token for AJAX requests -->
@@ -410,9 +421,26 @@
                                                             data-visible="{{ table.show_in_homepage|default(true)|lower }}"
                                                             data-order="{{ table.display_order|default(100) }}">
                                                             
-                                                            <!-- Table Info Section -->
+                                                            <!-- Table Info Section with Inline Edit -->
                                                             <div class="flex-1 min-w-0">
-                                                                <div class="font-medium text-text">{{ table.name.replace('_', ' ').title() }}</div>
+                                                                <div class="flex items-center gap-2">
+                                                                    <!-- Editable Table Name -->
+                                                                    <div class="table-name-container">
+                                                                        <div class="font-medium text-text table-name-display cursor-pointer hover:bg-indigo-100 px-2 py-1 rounded" 
+                                                                            onclick="enableTableNameEdit('{{ db.db_id }}', '{{ table.name }}', this)">
+                                                                            {{ table.name.replace('_', ' ').title() }}
+                                                                            <i class="ri-edit-2-line text-xs text-gray-400 ml-1"></i>
+                                                                        </div>
+                                                                        <div class="table-name-edit hidden">
+                                                                            <input type="text" 
+                                                                                class="font-medium text-text bg-white border border-accent rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent"
+                                                                                value="{{ table.name }}"
+                                                                                onblur="saveTableNameEdit('{{ db.db_id }}', '{{ db.db_name }}', '{{ table.name }}', this)"
+                                                                                onkeydown="handleTableNameKeydown(event, '{{ db.db_id }}', '{{ db.db_name }}', '{{ table.name }}', this)"
+                                                                                maxlength="64">
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
                                                                 <div class="text-sm text-textlight">
                                                                     {{ table.record_count | default(0) }} records • 
                                                                     {{ table.columns | default(0) }} columns • 
@@ -903,6 +931,98 @@
             location.reload();
         }
 
+        // Table rename functionality
+        function enableTableNameEdit(dbId, tableName, displayElement) {
+            const container = displayElement.parentElement;
+            const displayDiv = container.querySelector('.table-name-display');
+            const editDiv = container.querySelector('.table-name-edit');
+            const input = editDiv.querySelector('input');
+            
+            // Hide display, show edit
+            displayDiv.classList.add('hidden');
+            editDiv.classList.remove('hidden');
+            
+            // Focus and select text
+            input.focus();
+            input.select();
+            
+            // Store original value
+            input.dataset.originalValue = tableName;
+        }
+
+        function handleTableNameKeydown(event, dbId, dbName, originalTableName, input) {
+            if (event.key === 'Enter') {
+                input.blur(); // Trigger save
+            } else if (event.key === 'Escape') {
+                cancelTableNameEdit(input);
+            }
+        }
+
+        function cancelTableNameEdit(input) {
+            const container = input.closest('.table-name-container');
+            const displayDiv = container.querySelector('.table-name-display');
+            const editDiv = container.querySelector('.table-name-edit');
+            
+            // Reset to original value
+            input.value = input.dataset.originalValue;
+            
+            // Show display, hide edit
+            editDiv.classList.add('hidden');
+            displayDiv.classList.remove('hidden');
+        }
+
+        async function saveTableNameEdit(dbId, dbName, originalTableName, input) {
+            const newTableName = input.value.trim();
+            const originalValue = input.dataset.originalValue;
+            
+            // If no change, just cancel edit mode
+            if (newTableName === originalValue) {
+                cancelTableNameEdit(input);
+                return;
+            }
+            
+            // Validate new name
+            if (!newTableName) {
+                alert('Table name cannot be empty');
+                input.focus();
+                return;
+            }
+            
+            if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newTableName)) {
+                alert('Table name must start with letter/underscore and contain only letters, numbers, underscores');
+                input.focus();
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/rename-table', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
+                    },
+                    body: JSON.stringify({
+                        db_name: dbName,
+                        old_table_name: originalTableName,
+                        new_table_name: newTableName
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    // Success - reload page to reflect all changes
+                    location.reload();
+                } else {
+                    alert('Failed to rename table: ' + (result.error || 'Unknown error'));
+                    input.focus();
+                }
+            } catch (error) {
+                console.error('Error renaming table:', error);
+                alert('Error renaming table');
+                input.focus();
+            }
+        }
         // Update countdowns every minute
         setInterval(updateCountdowns, 60000);
         updateCountdowns(); // Initial call
