@@ -22,7 +22,9 @@
             <div>
                 <a href="/" class="text-white hover:text-accent mr-4">Home</a>
                 <a href="/login" class="text-white hover:text-accent mr-4">Login</a>
-                <a href="/register" class="bg-accent text-white px-4 py-2 rounded-button hover:bg-primary transition">Get Started</a>
+                <a href="mailto:contact@envirodatagov.org?subject=Resette%20Portal%20Inquiry" class="inline-flex items-center bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition">
+                    <i class="ri-mail-line mr-2"></i>Contact Us
+                </a>
             </div>
         </div>
     </header>
@@ -49,7 +51,7 @@
         </section>
 
         <!-- Breadcrumb -->
-        <section class="container mx-auto px-4 mt-6">
+        <section class="container mx-auto px-4 mt-6 w-[90%] mx-auto">
             <nav class="flex items-center space-x-2 text-sm text-textlight">
                 <a href="/" class="hover:text-accent">Home</a>
                 <i class="ri-arrow-right-s-line"></i>
@@ -59,7 +61,7 @@
 
         <!-- Main Content -->
         <section class="container mx-auto px-4 mt-4">
-            <div class="bg-card rounded-card p-6 border border-border">
+            <div class="bg-card rounded-card p-6 border border-border w-[90%] mx-auto">
                 <div class="flex items-center justify-between mb-6">
                     <div>
                         <h1 class="text-3xl font-bold text-primary mb-2">
@@ -144,14 +146,14 @@
                         <i class="ri-database-line text-6xl text-textlight mb-4"></i>
                         <h3 class="text-xl font-semibold text-text mb-2">No Published Databases</h3>
                         <p class="text-textlight mb-4">Be the first to share your dataset with the community!</p>
-                        <a href="/register" class="inline-flex items-center bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition">
-                            <i class="ri-add-line mr-2"></i>Get Started
+                        <a href="mailto:contact@envirodatagov.org?subject=Resette%20Portal%20Inquiry" class="inline-flex items-center bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition">
+                            <i class="ri-mail-line mr-2"></i>Contact Us
                         </a>
                     </div>
                 {% endif %}
 
                 <!-- Call to Action -->
-                <div class="bg-blue-50 border border-blue-200 rounded-card p-6 mt-8">
+                <div class="container mx-auto px-4 mt-8 w-[100%]">
                     <h3 class="text-xl font-semibold text-blue-800 mb-4">
                         <i class="ri-rocket-line mr-2"></i>Share Your Dataset
                     </h3>
@@ -159,8 +161,8 @@
                         Join the community of researchers and organizations making environmental data accessible to everyone.
                     </p>
                     <div class="flex flex-col md:flex-row gap-4">
-                        <a href="/register" class="bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition font-medium text-center">
-                            <i class="ri-user-add-line mr-2"></i>Create Free Account
+                        <a href="mailto:contact@envirodatagov.org?subject=Resette%20Portal%20Inquiry" class="inline-flex items-center bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition">
+                            <i class="ri-mail-line mr-2"></i>Contact Us
                         </a>
                         <a href="/login" class="bg-white text-accent border border-accent px-6 py-3 rounded-button hover:bg-accent hover:text-white transition font-medium text-center">
                             <i class="ri-login-circle-line mr-2"></i>Sign In
@@ -169,6 +171,68 @@
                 </div>
             </div>
         </section>
+        <!-- Resette Platform Features Section -->
+        <section class="container mx-auto px-4 mt-8 w-[90%]">
+            <div class="bg-blue-50 border border-blue-200 rounded-card p-6">
+                <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                    <i class="ri-lightbulb-line mr-2"></i>Discover the Power of Resette Portal
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-blue-700">
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-database-2-line mr-2"></i>Create & Import Data
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Upload CSV files or import SQLite databases</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Create multiple data tables in one database</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Automatic data type detection and indexing</span>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-palette-line mr-2"></i>Customize & Publish
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Design custom homepages with images and descriptions</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Control table visibility and display order</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Publish your database portal to the world</span>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="font-semibold text-blue-800">
+                            <i class="ri-search-line mr-2"></i>Explore & Share
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Advanced filtering and faceted browsing</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Full-text search across all columns</span>
+                        </div>
+                        <div class="flex items-start">
+                            <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                            <span>Export filtered data as CSV or JSON</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
     </main>
 
     <footer class="bg-gray-50 border-t border-gray-100 py-8">

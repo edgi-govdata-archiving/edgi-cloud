@@ -496,7 +496,7 @@ async def get_database_statistics(datasette, user_id=None):
         try:
             # Featured databases for homepage - only get essential fields, EXCLUDE 'Deleted' status
             featured_result = await db.execute(
-                "SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 6"
+                "SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 50"
             )
             stats['featured_databases'] = []
             for row in featured_result:
@@ -915,7 +915,7 @@ def get_success_error_from_request(request):
         'error': request.args.get('error')
     }
 
-def create_feature_cards_from_databases(databases, limit=6):
+def create_feature_cards_from_databases(databases, limit):
     """Convert database list to feature cards format."""
     feature_cards = []
     for db in databases[:limit]:
@@ -941,9 +941,9 @@ def create_statistics_data(stats):
             "url": "/all-databases"
         },
         {
-            "label": "Active Users",
-            "value": "Join Today",
-            "url": "/register"
+            "label": "View all available databases",
+            "value": "Browse All Databases",
+            "url": "/all-databases"
         }
     ]
 
