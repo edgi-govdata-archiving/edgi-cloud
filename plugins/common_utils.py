@@ -1,6 +1,7 @@
 """
-Common Utilities Module
+Common Utilities Module for EDGI Datasette Cloud Portal
 Shared functions across all backend modules to eliminate code duplication
+UPDATED: Enhanced error handling, URL sanitization, and upload utilities
 """
 
 import json
@@ -10,11 +11,11 @@ import logging
 import re
 import os
 import bleach
+import urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
 from email.parser import BytesParser
 from email.policy import default
-import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,8 @@ async def get_system_settings(datasette):
         defaults = {
             'trash_retention_days': 30,
             'max_databases_per_user': 10,
-            'max_file_size': 500 * 1024 * 1024,  # 50MB in bytes
-            'max_img_size': 5 * 1024 * 1024,   # 5MB in bytes
+            'max_file_size': 524288000,  # 500MB fallback only if DB has no setting
+            'max_img_size': 5242880,    # 5MB
             'allowed_extensions': '.jpg, .jpeg, .png, .csv, .xls, .xlsx, .txt'
         }
         
@@ -73,8 +74,8 @@ async def get_system_settings(datasette):
         return {
             'trash_retention_days': 30,
             'max_databases_per_user': 10,
-            'max_file_size': 500 * 1024 * 1024,
-            'max_img_size': 5 * 1024 * 1024,
+            'max_file_size': 524288000,  # 500MB
+            'max_img_size': 5242880,  # 5MB
             'allowed_extensions': '.jpg, .png, .csv, .xls, .xlsx, .txt'
         }
 
@@ -100,7 +101,7 @@ async def get_max_file_size(datasette):
     """Get max file size in bytes."""
     try:
         settings = await get_system_settings(datasette)
-        max_file_size = settings.get('max_file_size', 500 * 1024 * 1024)
+        max_file_size = settings.get('max_file_size')        # 500MB fallback
         
         if isinstance(max_file_size, str):
             max_file_size = int(max_file_size)
@@ -108,13 +109,13 @@ async def get_max_file_size(datasette):
         return max_file_size
     except Exception as e:
         logger.error(f"Error getting max image size: {e}")
-        return 500 * 1024 * 1024
+        return 524288000  # 500MB
 
 async def get_max_image_size(datasette):
     """Get max image size in bytes."""
     try:
         settings = await get_system_settings(datasette)
-        max_img_size = settings.get('max_img_size', 5 * 1024 * 1024)
+        max_img_size = settings.get('max_img_size')
         
         if isinstance(max_img_size, str):
             max_img_size = int(max_img_size)
@@ -122,7 +123,7 @@ async def get_max_image_size(datasette):
         return max_img_size
     except Exception as e:
         logger.error(f"Error getting max image size: {e}")
-        return 5 * 1024 * 1024
+        return 5242880  # 5MB
     
 async def get_allowed_extensions(datasette):
     """Get allowed file extensions."""
@@ -1354,6 +1355,7 @@ def is_system_table(table_name):
     
     return False
 
+# NEW UTILITY FUNCTIONS FOR ENHANCED ERROR HANDLING AND URL SANITIZATION
 
 def sanitize_url_parameter(text):
     """
@@ -1416,45 +1418,8 @@ def create_safe_redirect_url(base_url, param_name, message, is_error=False):
         logger.error(f"Error creating redirect URL: {e}")
         # Return fallback URL
         fallback_msg = "Upload completed" if not is_error else "Upload failed"
+        separator = '&' if '?' in base_url else '?'
         return f"{base_url}{separator}{param_name}={fallback_msg}"
-
-def parse_multipart_form_data_robust(body, content_type):
-    """
-    Enhanced multipart form parser with comprehensive error handling.
-    Returns (forms, files) tuple.
-    """
-    try:
-        # Method 1: Use email parser (most reliable)
-        return parse_multipart_with_email_parser(body, content_type)
-    except Exception as email_error:
-        logger.warning(f"Email parser failed: {email_error}, trying custom parser")
-        try:
-            # Method 2: Enhanced custom parser as fallback
-            return parse_multipart_custom_enhanced(body, content_type)
-        except Exception as custom_error:
-            logger.error(f"All multipart parsers failed: email={email_error}, custom={custom_error}")
-            # Return empty forms/files rather than raising
-            return {}, {}
-
-def validate_file_upload_size(content_length, max_size):
-    """
-    Validate file upload size before processing.
-    Returns (is_valid, error_message)
-    """
-    try:
-        if content_length is None:
-            return True, None  # Can't validate without content length
-        
-        size = int(content_length)
-        if size > max_size:
-            max_mb = max_size // (1024 * 1024)
-            current_mb = size / (1024 * 1024)
-            return False, f"File too large: {current_mb:.1f}MB (max: {max_mb}MB)"
-        
-        return True, None
-        
-    except (ValueError, TypeError):
-        return True, None  # Invalid content length, allow processing
 
 def clean_csv_error_message(error_msg):
     """
@@ -1706,3 +1671,41 @@ def extract_meaningful_error_context(error, max_length=150):
         
     except Exception:
         return "Error processing failed"
+
+def validate_file_upload_size(content_length, max_size):
+    """
+    Validate file upload size before processing.
+    Returns (is_valid, error_message)
+    """
+    try:
+        if content_length is None:
+            return True, None  # Can't validate without content length
+        
+        size = int(content_length)
+        if size > max_size:
+            max_mb = max_size // (1024 * 1024)
+            current_mb = size / (1024 * 1024)
+            return False, f"File too large: {current_mb:.1f}MB (max: {max_mb}MB)"
+        
+        return True, None
+        
+    except (ValueError, TypeError):
+        return True, None  # Invalid content length, allow processing
+
+def parse_multipart_form_data_robust(body, content_type):
+    """
+    Enhanced multipart form parser with comprehensive error handling.
+    Returns (forms, files) tuple.
+    """
+    try:
+        # Method 1: Use email parser (most reliable)
+        return parse_multipart_with_email_parser(body, content_type)
+    except Exception as email_error:
+        logger.warning(f"Email parser failed: {email_error}, trying custom parser")
+        try:
+            # Method 2: Enhanced custom parser as fallback
+            return parse_multipart_custom_enhanced(body, content_type)
+        except Exception as custom_error:
+            logger.error(f"All multipart parsers failed: email={email_error}, custom={custom_error}")
+            # Return empty forms/files rather than raising
+            return {}, {}
