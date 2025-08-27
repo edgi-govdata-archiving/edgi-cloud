@@ -26,12 +26,12 @@ ENV PORTAL_DB_PATH=/data/portal.db
 
 EXPOSE 8001
 
-# Create startup script with dynamic metadata generation
+# Create startup script with dynamic metadata generation and extended timeouts
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting EDGI Cloud Portal..."\n\
-echo "📍 Data directory: $EDGI_DATA_DIR"\n\
-echo "📍 Portal DB path: $PORTAL_DB_PATH"\n\
+echo "📁 Data directory: $EDGI_DATA_DIR"\n\
+echo "🗄 Portal DB path: $PORTAL_DB_PATH"\n\
 \n\
 # Initialize database if needed\n\
 if [ ! -f "$PORTAL_DB_PATH" ]; then\n\
@@ -60,15 +60,18 @@ else\n\
   echo "⚠️  Using fallback metadata"\n\
 fi\n\
 \n\
-# Start Datasette\n\
-echo "🚀 Starting Datasette..."\n\
+# Start Datasette with extended timeouts\n\
+echo "🚀 Starting Datasette with extended timeouts..."\n\
 exec datasette serve "$PORTAL_DB_PATH" \\\n\
   --host 0.0.0.0 \\\n\
   --port "$PORT" \\\n\
   --metadata metadata.json \\\n\
   --template-dir templates \\\n\
   --static static:static \\\n\
-  --plugins-dir plugins\n\
+  --plugins-dir plugins \\\n\
+  --setting max_returned_rows 10000 \\\n\
+  --setting sql_time_limit_ms 30000 \\\n\
+  --setting allow_download on\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 CMD ["/app/start.sh"]
