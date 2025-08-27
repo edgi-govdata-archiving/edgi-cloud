@@ -74,7 +74,7 @@
                         </div>
                         <p class="text-sm text-textlight mt-2">
                             <i class="ri-information-line mr-1"></i>
-                            Select a .db, .sqlite, or .sqlite3 file (max 50MB)
+                            Select a .db, .sqlite, or .sqlite3 file (max {{ (system_settings.max_file_size // (1024*1024)) }}MB)
                         </p>
                         <div id="file-info" class="text-xs text-green-600 mt-1 opacity-0 transition-opacity">
                             Selected: <span id="file-name" class="font-mono bg-green-50 px-1 rounded"></span>
@@ -108,7 +108,7 @@
                         </h3>
                         <div class="text-sm text-yellow-700 space-y-1">
                             <div>📁 Valid SQLite database (.db, .sqlite, .sqlite3)</div>
-                            <div>📏 Maximum file size: 50MB</div>
+                            <div>📏 Maximum file size: {{ (system_settings.max_file_size // (1024*1024)) }}MB</div>
                             <div>📊 Must contain at least one table</div>
                             <div>⚠️ Database name must be unique</div>
                         </div>
@@ -208,7 +208,7 @@
                 fileInfo.classList.remove('opacity-0');
                 
                 // Check file size (50MB limit)
-                if (file.size > 50 * 1024 * 1024) {
+                if (file.size > {{ system_settings.max_file_size }}) {
                     fileSize.textContent = `(${sizeInMB} MB - TOO LARGE!)`;
                     fileSize.classList.add('text-red-500');
                     fileInfo.classList.remove('text-green-600');
@@ -236,7 +236,7 @@
                     submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 } else {
                     fileName.classList.remove('text-red-500');
-                    if (file.size <= 50 * 1024 * 1024) {
+                    if (file.size <= {{ system_settings.max_file_size }}) {
                         fileInfo.classList.remove('text-red-600');
                         fileInfo.classList.add('text-green-600');
                         submitBtn.disabled = false;

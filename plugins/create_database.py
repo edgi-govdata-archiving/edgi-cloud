@@ -39,6 +39,7 @@ from common_utils import (
     DATA_DIR,
     get_max_file_size,
     get_max_databases_per_user,
+    get_system_settings,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -58,8 +59,9 @@ async def create_empty_database(datasette, request):
     if not is_valid:
         return redirect_response
 
-    # Get content for template
+    # Get content and system settings for template
     content = await get_portal_content(datasette)
+    system_settings = await get_system_settings(datasette)
 
     if request.method == "POST":
         try:
@@ -78,6 +80,7 @@ async def create_empty_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
+                        "system_settings": system_settings,
                     },
                     request, "Database name is required"
                 )
@@ -90,6 +93,7 @@ async def create_empty_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
+                        "system_settings": system_settings,
                     },
                     request, name_error
                 )
@@ -103,6 +107,7 @@ async def create_empty_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
+                        "system_settings": system_settings,
                     },
                     request, f"Database name '{db_name}' already exists. Please choose a different name."
                 )
@@ -121,6 +126,7 @@ async def create_empty_database(datasette, request):
                         "metadata": datasette.metadata(),
                         "content": content,
                         "actor": actor,
+                        "system_settings": system_settings,
                     },
                     request, f"Maximum {max_databases} databases per user reached"
                 )
@@ -181,6 +187,7 @@ async def create_empty_database(datasette, request):
                     "metadata": datasette.metadata(),
                     "content": content,
                     "actor": actor,
+                    "system_settings": system_settings,
                 },
                 request, f"Error creating database: {str(e)}"
             )
@@ -193,13 +200,14 @@ async def create_empty_database(datasette, request):
                 "metadata": datasette.metadata(),
                 "content": content,
                 "actor": actor,
+                "system_settings": system_settings,
             },
             request=request
         )
     )
 
 async def create_import_database(datasette, request):
-    """FIXED: Simple database import with corrected form parsing."""
+    """FIXED: Simple database import with corrected form parsing and file size validation."""
     logger.debug(f"Create Import Database request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -212,8 +220,9 @@ async def create_import_database(datasette, request):
     if not is_valid:
         return redirect_response
 
-    # Get content for template
+    # Get content and system settings for template
     content = await get_portal_content(datasette)
+    system_settings = await get_system_settings(datasette)
 
     if request.method == "POST":
         try:
@@ -221,13 +230,24 @@ async def create_import_database(datasette, request):
             body = await request.post_body()
             logger.debug(f"Received body size: {len(body)} bytes")
 
+            # Server-side file size validation - check raw body size first
+            max_file_size = await get_max_file_size(datasette)
+            if len(body) > max_file_size + 1024:  # Add 1KB buffer for form overhead
+                size_mb = max_file_size // (1024 * 1024)
+                actual_mb = len(body) // (1024 * 1024)
+                return await handle_form_errors(
+                    datasette, "create_import_database.html",
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
+                    request, f"Request too large ({actual_mb}MB). Maximum allowed: {size_mb}MB"
+                )
+
             # Simple boundary extraction
             content_type = request.headers.get('content-type', '')
             boundary_match = re.search(r'boundary=([^;,\s]+)', content_type)
             if not boundary_match:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, "Invalid form data format"
                 )
 
@@ -287,21 +307,31 @@ async def create_import_database(datasette, request):
             if not db_name:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, "Database name is required"
+                )
+
+            # Server-side file size validation on actual file content
+            if file_content and len(file_content) > max_file_size:
+                size_mb = max_file_size // (1024 * 1024)
+                actual_mb = len(file_content) // (1024 * 1024)
+                return await handle_form_errors(
+                    datasette, "create_import_database.html",
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
+                    request, f"File too large ({actual_mb}MB). Maximum allowed: {size_mb}MB"
                 )
 
             if not filename:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, "Please select a database file"
                 )
 
             if not file_content or len(file_content) == 0:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, "Uploaded file appears to be empty"
                 )
 
@@ -313,7 +343,7 @@ async def create_import_database(datasette, request):
             if ext not in allowed_extensions:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, f"Invalid file type '{ext}'. Allowed: {', '.join(allowed_extensions)}"
                 )
 
@@ -322,7 +352,7 @@ async def create_import_database(datasette, request):
             if not is_valid_name:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, name_error
                 )
 
@@ -331,7 +361,7 @@ async def create_import_database(datasette, request):
             if not is_available:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, f"Database name '{db_name}' already exists. Please choose a different name."
                 )
 
@@ -345,7 +375,7 @@ async def create_import_database(datasette, request):
             if db_count >= max_databases:
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, f"Maximum {max_databases} databases per user reached"
                 )
 
@@ -377,7 +407,7 @@ async def create_import_database(datasette, request):
                     os.remove(db_path)  # Clean up
                     return await handle_form_errors(
                         datasette, "create_import_database.html",
-                        {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                        {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                         request, "Database file contains no tables"
                     )
                 
@@ -389,7 +419,7 @@ async def create_import_database(datasette, request):
                     os.remove(db_path)  # Clean up
                 return await handle_form_errors(
                     datasette, "create_import_database.html",
-                    {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                    {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                     request, f"Invalid SQLite database: {str(sqlite_error)}"
                 )
 
@@ -436,7 +466,7 @@ async def create_import_database(datasette, request):
             logger.error(f"Error traceback: {traceback.format_exc()}")
             return await handle_form_errors(
                 datasette, "create_import_database.html",
-                {"metadata": datasette.metadata(), "content": content, "actor": actor},
+                {"metadata": datasette.metadata(), "content": content, "actor": actor, "system_settings": system_settings},
                 request, f"Error importing database: {str(e)}"
             )
 
@@ -448,6 +478,7 @@ async def create_import_database(datasette, request):
                 "metadata": datasette.metadata(),
                 "content": content,
                 "actor": actor,
+                "system_settings": system_settings,
             },
             request=request
         )
