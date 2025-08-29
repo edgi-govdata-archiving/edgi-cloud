@@ -92,25 +92,56 @@
                     </div>
                 {% endif %}
 
-                <!-- Simple Upload Progress Overlay -->
+                <!-- Upload Progress Overlay with Real Progress Bar -->
                 <div id="upload-progress-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
+                    <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                         <div class="text-center">
                             <div class="mb-4">
-                                <i id="progress-icon" class="ri-upload-cloud-line text-5xl text-blue-500 animate-pulse"></i>
+                                <i id="progress-icon" class="ri-upload-cloud-line text-5xl text-blue-500"></i>
                             </div>
                             <h3 class="text-lg font-semibold mb-2" id="progress-title">Processing Upload...</h3>
                             <p class="text-gray-600 text-sm mb-4" id="progress-message">Please wait while your data is being processed.</p>
                             
-                            <!-- Simple Progress Indicator -->
-                            <div class="flex justify-center space-x-1 mb-4">
-                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
-                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
-                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+                            <!-- Real Progress Bar -->
+                            <div class="mb-4">
+                                <div class="flex justify-between text-xs text-gray-600 mb-1">
+                                    <span id="progress-percentage">0%</span>
+                                    <span id="progress-speed"></span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-3">
+                                    <div id="progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                                </div>
+                                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span id="progress-transferred">0 MB / 0 MB</span>
+                                    <span id="progress-time">Elapsed: 0s</span>
+                                </div>
                             </div>
                             
-                            <!-- Time Counter -->
-                            <div class="text-xs text-gray-500" id="progress-time">Elapsed: 0s</div>
+                            <!-- Upload Details -->
+                            <div id="upload-details" class="text-xs text-gray-600 mb-4 hidden">
+                                <div class="flex justify-between">
+                                    <span>File:</span>
+                                    <span id="upload-filename"></span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Size:</span>
+                                    <span id="upload-filesize"></span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>ETA:</span>
+                                    <span id="upload-eta">Calculating...</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Cancel Button -->
+                            <button id="cancel-upload-btn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition text-sm">
+                                <i class="ri-close-line mr-1"></i>Cancel Upload
+                            </button>
+                            
+                            <!-- Success/Error Display -->
+                            <div id="upload-result" class="hidden mt-4 p-3 rounded">
+                                <div id="upload-result-content"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -134,10 +165,9 @@
                         </nav>
                     </div>
 
-                    <!-- File Upload Panel -->
+                    <!-- File Upload Panel - Updated for AJAX -->
                     <div id="file-panel" class="upload-panel p-6">
-                        <form action="/upload-table/{{ db_name }}?redirect=manage-databases" method="post" enctype="multipart/form-data"
-                              onsubmit="return handleFileUpload(event)" id="file-upload-form">
+                        <form id="file-upload-form" onsubmit="return handleFileUpload(event)">
                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                             <input type="hidden" name="source_type" value="file">
                             
@@ -149,8 +179,8 @@
                                     </label>
                                     <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-accent transition">
                                         <input type="file" name="file" id="file-input" 
-                                               accept=".csv,.txt,.tsv,.xlsx,.xls" 
-                                               class="hidden" onchange="handleFileSelect(this)">
+                                            accept=".csv,.txt,.tsv,.xlsx,.xls" 
+                                            class="hidden" onchange="handleFileSelect(this)">
                                         <label for="file-input" class="cursor-pointer">
                                             <i class="ri-upload-cloud-2-line text-4xl text-gray-400 mb-2 block"></i>
                                             <p class="text-gray-600">Click to select file</p>
@@ -168,11 +198,11 @@
                                         Table Name (Optional)
                                     </label>
                                     <input type="text" name="table_name" id="table-name" 
-                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
-                                           placeholder="Auto-generated from filename">
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                        placeholder="Auto-generated from filename">
                                     <p class="text-xs text-gray-500 mt-1">Leave blank to use filename. Must be unique in database.</p>
 
-                                    <!-- Excel Sheet Selection (initially hidden) -->
+                                    <!-- Excel Sheet Selection -->
                                     <div id="excel-options" class="hidden mt-4">
                                         <label class="block text-sm font-medium text-gray-700 mb-2">
                                             Excel Sheet (Optional)
@@ -193,7 +223,7 @@
 
                                     <div class="mt-6">
                                         <button type="submit" id="file-upload-btn"
-                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium disabled:bg-gray-400 disabled:cursor-not-allowed">
+                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
                                             <i class="ri-upload-line mr-2" id="file-upload-icon"></i>
                                             <span id="file-upload-text">Upload File</span>
                                         </button>
@@ -203,10 +233,9 @@
                         </form>
                     </div>
 
-                    <!-- Google Sheets Panel -->
+                    <!-- Google Sheets Panel - Updated for AJAX -->
                     <div id="sheets-panel" class="upload-panel p-6 hidden">
-                        <form action="/upload-table/{{ db_name }}?redirect=manage-databases" method="post" 
-                              onsubmit="return handleSheetsUpload(event)" id="sheets-upload-form">
+                        <form id="sheets-upload-form" onsubmit="return handleSheetsUpload(event)">
                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                             <input type="hidden" name="source_type" value="sheets">
                             
@@ -217,8 +246,8 @@
                                         Google Sheets URL
                                     </label>
                                     <input type="url" name="sheets_url" id="sheets-url" 
-                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
-                                           placeholder="https://docs.google.com/spreadsheets/d/...">
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                        placeholder="https://docs.google.com/spreadsheets/d/...">
                                     <div class="text-xs text-gray-500 mt-1">
                                         <p><strong>Important:</strong> The sheet must be publicly accessible.</p>
                                         <p class="mt-1"><strong>How to share:</strong></p>
@@ -257,8 +286,8 @@
                                             Table Name (Optional)
                                         </label>
                                         <input type="text" name="table_name" id="sheets-table-name" 
-                                               class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
-                                               placeholder="Auto-generated from sheet name">
+                                            class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                            placeholder="Auto-generated from sheet name">
                                     </div>
 
                                     <div class="mt-4">
@@ -270,7 +299,7 @@
 
                                     <div class="mt-6">
                                         <button type="submit" id="sheets-upload-btn"
-                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium disabled:bg-gray-400 disabled:cursor-not-allowed">
+                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
                                             <i class="ri-download-cloud-line mr-2" id="sheets-upload-icon"></i>
                                             <span id="sheets-upload-text">Import from Google Sheets</span>
                                         </button>
@@ -280,10 +309,9 @@
                         </form>
                     </div>
 
-                    <!-- Web CSV Panel -->
+                    <!-- Web CSV Panel - Updated for AJAX -->
                     <div id="url-panel" class="upload-panel p-6 hidden">
-                        <form action="/upload-table/{{ db_name }}?redirect=manage-databases" method="post" 
-                              onsubmit="return handleUrlUpload(event)" id="url-upload-form">
+                        <form id="url-upload-form" onsubmit="return handleUrlUpload(event)">
                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                             <input type="hidden" name="source_type" value="url">
                             
@@ -294,8 +322,8 @@
                                         CSV File URL
                                     </label>
                                     <input type="url" name="csv_url" id="csv-url" 
-                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
-                                           placeholder="https://example.com/data.csv">
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                        placeholder="https://example.com/data.csv">
                                     <div class="text-xs text-gray-500 mt-1">
                                         <p><strong>Supported:</strong> Most domains are allowed unless blocked by admin.</p>
                                         <p class="mt-1">URL must point directly to a CSV file. Raw URLs work best.</p>
@@ -320,8 +348,8 @@
                                         Table Name (Optional)
                                     </label>
                                     <input type="text" name="table_name" id="url-table-name" 
-                                           class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
-                                           placeholder="Auto-generated from URL">
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
+                                        placeholder="Auto-generated from URL">
 
                                     <div class="mt-4">
                                         <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -337,7 +365,7 @@
 
                                     <div class="mt-6">
                                         <button type="submit" id="url-upload-btn"
-                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium disabled:bg-gray-400 disabled:cursor-not-allowed">
+                                                class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
                                             <i class="ri-download-line mr-2" id="url-upload-icon"></i>
                                             <span id="url-upload-text">Import from URL</span>
                                         </button>
@@ -398,226 +426,368 @@
     </main>
 
     <script>
-        let uploadStartTime = null;
-        let uploadProgressTimer = null;
+        class UploadManager {
+            constructor() {
+                this.currentXHR = null;
+                this.startTime = null;
+                this.progressTimer = null;
+                this.isUploading = false;
+            }
 
+            showProgress(title, message, type = 'file', filename = '', filesize = '') {
+                const overlay = document.getElementById('upload-progress-overlay');
+                const progressTitle = document.getElementById('progress-title');
+                const progressMessage = document.getElementById('progress-message');
+                const progressIcon = document.getElementById('progress-icon');
+                const uploadDetails = document.getElementById('upload-details');
+                const uploadFilename = document.getElementById('upload-filename');
+                const uploadFilesize = document.getElementById('upload-filesize');
+                const uploadResult = document.getElementById('upload-result');
+
+                // Set content
+                progressTitle.textContent = title;
+                progressMessage.textContent = message;
+                
+                // Set appropriate icon
+                const iconClass = type === 'sheets' ? 'ri-table-line' : 
+                                type === 'url' ? 'ri-global-line' : 'ri-upload-cloud-line';
+                progressIcon.className = `${iconClass} text-5xl text-blue-500`;
+                
+                // Show file details for file uploads
+                if (filename && filesize) {
+                    uploadFilename.textContent = filename;
+                    uploadFilesize.textContent = filesize;
+                    uploadDetails.classList.remove('hidden');
+                } else {
+                    uploadDetails.classList.add('hidden');
+                }
+                
+                // Reset progress
+                this.resetProgress();
+                uploadResult.classList.add('hidden');
+                
+                // Show overlay
+                overlay.classList.remove('hidden');
+                this.isUploading = true;
+                this.startTime = Date.now();
+                this.startTimer();
+            }
+
+            hideProgress() {
+                const overlay = document.getElementById('upload-progress-overlay');
+                overlay.classList.add('hidden');
+                
+                if (this.progressTimer) {
+                    clearInterval(this.progressTimer);
+                    this.progressTimer = null;
+                }
+                
+                this.isUploading = false;
+                this.currentXHR = null;
+            }
+
+            resetProgress() {
+                document.getElementById('progress-bar').style.width = '0%';
+                document.getElementById('progress-percentage').textContent = '0%';
+                document.getElementById('progress-transferred').textContent = '0 MB / 0 MB';
+                document.getElementById('progress-speed').textContent = '';
+                document.getElementById('upload-eta').textContent = 'Calculating...';
+            }
+
+            updateProgress(loaded, total) {
+                if (!this.isUploading) return;
+
+                const percentage = Math.round((loaded / total) * 100);
+                const loadedMB = (loaded / 1024 / 1024).toFixed(1);
+                const totalMB = (total / 1024 / 1024).toFixed(1);
+                
+                // Update progress bar
+                document.getElementById('progress-bar').style.width = percentage + '%';
+                document.getElementById('progress-percentage').textContent = percentage + '%';
+                document.getElementById('progress-transferred').textContent = `${loadedMB} MB / ${totalMB} MB`;
+                
+                // Calculate speed and ETA
+                const elapsed = (Date.now() - this.startTime) / 1000;
+                const speed = loaded / elapsed; // bytes per second
+                const speedMBs = (speed / 1024 / 1024).toFixed(1);
+                const remaining = (total - loaded) / speed;
+                
+                document.getElementById('progress-speed').textContent = `${speedMBs} MB/s`;
+                
+                if (remaining > 0 && remaining < Infinity) {
+                    const eta = remaining < 60 ? `${Math.round(remaining)}s` : 
+                            remaining < 3600 ? `${Math.round(remaining/60)}m` : 
+                            `${Math.round(remaining/3600)}h`;
+                    document.getElementById('upload-eta').textContent = eta;
+                }
+            }
+
+            startTimer() {
+                const progressTime = document.getElementById('progress-time');
+                this.progressTimer = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                    progressTime.textContent = `Elapsed: ${elapsed}s`;
+                }, 1000);
+            }
+
+            cancelUpload() {
+                if (this.currentXHR) {
+                    this.currentXHR.abort();
+                    this.currentXHR = null;
+                }
+                this.showResult('Upload cancelled by user', 'error');
+                setTimeout(() => this.hideProgress(), 2000);
+            }
+
+            showResult(message, type) {
+                const uploadResult = document.getElementById('upload-result');
+                const resultContent = document.getElementById('upload-result-content');
+                
+                resultContent.innerHTML = message;
+                uploadResult.className = type === 'error' ? 
+                    'mt-4 p-3 rounded bg-red-100 border border-red-400 text-red-700' :
+                    'mt-4 p-3 rounded bg-green-100 border border-green-400 text-green-700';
+                uploadResult.classList.remove('hidden');
+            }
+
+            // File Upload via AJAX
+            async uploadFile(formElement, dbName) {
+                const formData = new FormData(formElement);
+                const fileInput = formElement.querySelector('input[type="file"]');
+                const file = fileInput.files[0];
+                
+                if (!file) {
+                    alert('Please select a file');
+                    return;
+                }
+
+                // Validate file
+                if (!this.validateFile(file)) {
+                    return;
+                }
+
+                // Show progress with file details
+                const fileSize = (file.size / 1024 / 1024).toFixed(1) + ' MB';
+                this.showProgress('Uploading File', `Processing ${file.name}...`, 'file', file.name, fileSize);
+
+                try {
+                    const response = await this.sendAjaxRequest(`/ajax-upload-file/${dbName}`, formData);
+                    this.handleUploadSuccess(response);
+                } catch (error) {
+                    this.handleUploadError(error);
+                }
+            }
+
+            // Google Sheets Upload via AJAX - with debugging
+            async uploadSheets(formElement, dbName) {
+                const formData = new FormData(formElement);
+                const sheetsUrl = formData.get('sheets_url');
+                
+                console.log('Form data contents:');
+                for (let [key, value] of formData.entries()) {
+                    console.log(`${key}: ${value}`);
+                }
+                
+                if (!sheetsUrl) {
+                    alert('Please enter a Google Sheets URL');
+                    return;
+                }
+
+                if (!sheetsUrl.includes('docs.google.com/spreadsheets/')) {
+                    alert('Please enter a valid Google Sheets URL');
+                    return;
+                }
+
+                this.showProgress('Importing Google Sheets', 'Fetching data from Google Sheets...', 'sheets');
+
+                try {
+                    const response = await this.sendAjaxRequest(`/ajax-upload-sheets/${dbName}`, formData);
+                    this.handleUploadSuccess(response);
+                } catch (error) {
+                    console.error('Sheets upload error:', error);
+                    this.handleUploadError(error);
+                }
+            }
+
+            // URL Upload via AJAX - with debugging  
+            async uploadUrl(formElement, dbName) {
+                const formData = new FormData(formElement);
+                const csvUrl = formData.get('csv_url');
+                
+                console.log('Form data contents:');
+                for (let [key, value] of formData.entries()) {
+                    console.log(`${key}: ${value}`);
+                }
+                
+                if (!csvUrl) {
+                    alert('Please enter a CSV URL');
+                    return;
+                }
+
+                try {
+                    new URL(csvUrl);
+                } catch {
+                    alert('Please enter a valid URL');
+                    return;
+                }
+
+                this.showProgress('Importing Web CSV', 'Downloading and processing CSV...', 'url');
+
+                try {
+                    const response = await this.sendAjaxRequest(`/ajax-upload-url/${dbName}`, formData);
+                    this.handleUploadSuccess(response);
+                } catch (error) {
+                    console.error('URL upload error:', error);
+                    this.handleUploadError(error);
+                }
+            }
+
+            validateFile(file) {
+                const maxSize = {{ system_settings.max_file_size }};
+                if (file.size > maxSize) {
+                    const maxMB = Math.floor(maxSize / (1024 * 1024));
+                    alert(`File size must be less than ${maxMB}MB`);
+                    return false;
+                }
+
+                const fileName = file.name.toLowerCase();
+                const validExtensions = ['.csv', '.txt', '.tsv', '.xlsx', '.xls'];
+                const isValidFile = validExtensions.some(ext => fileName.endsWith(ext));
+                
+                if (!isValidFile) {
+                    alert('Please select a valid file type: CSV, TSV, TXT, or Excel (.xlsx, .xls)');
+                    return false;
+                }
+
+                return true;
+            }
+
+            // AJAX request with debugging
+            sendAjaxRequest(url, formData) {
+                return new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    this.currentXHR = xhr;
+
+                    console.log(`Making AJAX request to: ${url}`);
+                    
+                    // Log form data being sent
+                    console.log('Sending form data:');
+                    for (let [key, value] of formData.entries()) {
+                        console.log(`  ${key}: ${value}`);
+                    }
+
+                    // Track upload progress
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (e.lengthComputable) {
+                            this.updateProgress(e.loaded, e.total);
+                        }
+                    });
+
+                    xhr.addEventListener('load', () => {
+                        console.log(`Response status: ${xhr.status}`);
+                        console.log(`Response text: ${xhr.responseText}`);
+                        
+                        if (xhr.status === 200) {
+                            try {
+                                const response = JSON.parse(xhr.responseText);
+                                resolve(response);
+                            } catch (e) {
+                                console.error('JSON parse error:', e);
+                                reject(new Error('Invalid response format'));
+                            }
+                        } else {
+                            reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+                        }
+                    });
+
+                    xhr.addEventListener('error', (e) => {
+                        console.error('XHR error:', e);
+                        reject(new Error('Network error occurred'));
+                    });
+
+                    xhr.addEventListener('abort', () => {
+                        reject(new Error('Upload cancelled'));
+                    });
+
+                    xhr.open('POST', url);
+                    // Don't set Content-Type header - let browser set it with boundary
+                    xhr.send(formData);
+                });
+            }
+
+            handleUploadSuccess(response) {
+                if (response.success) {
+                    const message = `
+                        <div class="flex items-center">
+                            <i class="ri-check-circle-line text-green-600 text-lg mr-2"></i>
+                            <div>
+                                <div class="font-medium">${response.message}</div>
+                                ${response.stats ? `<div class="text-xs mt-1">${response.stats}</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                    this.showResult(message, 'success');
+                    
+                    // Redirect after showing success
+                    setTimeout(() => {
+                        window.location.href = response.redirect_url || '/manage-databases';
+                    }, 2000);
+                } else {
+                    this.showResult(response.error || 'Upload failed', 'error');
+                    setTimeout(() => this.hideProgress(), 3000);
+                }
+            }
+
+            handleUploadError(error) {
+                this.showResult(`Upload failed: ${error.message}`, 'error');
+                setTimeout(() => this.hideProgress(), 3000);
+            }
+        }
+
+        // Initialize upload manager
+        const uploadManager = new UploadManager();
+
+        // Tab management
         function showUploadTab(tabName) {
-            // Hide all panels
             const panels = document.querySelectorAll('.upload-panel');
             panels.forEach(panel => panel.classList.add('hidden'));
             
-            // Remove active class from all tabs
             const tabs = document.querySelectorAll('.upload-tab');
             tabs.forEach(tab => {
                 tab.classList.remove('active', 'text-accent', 'border-accent');
                 tab.classList.add('text-textlight');
             });
             
-            // Show selected panel
             document.getElementById(tabName + '-panel').classList.remove('hidden');
             
-            // Add active class to selected tab
             const activeTab = document.getElementById(tabName + '-tab');
             activeTab.classList.add('active', 'text-accent', 'border-accent');
             activeTab.classList.remove('text-textlight');
         }
 
-        function showUploadProgress(title, message, type = 'file') {
-            const overlay = document.getElementById('upload-progress-overlay');
-            const progressTitle = document.getElementById('progress-title');
-            const progressMessage = document.getElementById('progress-message');
-            const progressIcon = document.getElementById('progress-icon');
-            
-            // Set content
-            progressTitle.textContent = title;
-            progressMessage.textContent = message;
-            
-            // Set appropriate icon based on type
-            const iconClass = type === 'sheets' ? 'ri-table-line' : 
-                            type === 'url' ? 'ri-global-line' : 'ri-upload-cloud-line';
-            progressIcon.className = `${iconClass} text-5xl text-blue-500 animate-pulse`;
-            
-            // Show overlay
-            overlay.classList.remove('hidden');
-            
-            // Start simple timer
-            uploadStartTime = Date.now();
-            startSimpleTimer();
-        }
-
-        function hideUploadProgress() {
-            const overlay = document.getElementById('upload-progress-overlay');
-            overlay.classList.add('hidden');
-            
-            if (uploadProgressTimer) {
-                clearInterval(uploadProgressTimer);
-                uploadProgressTimer = null;
-            }
-        }
-
-        function startSimpleTimer() {
-            const progressTime = document.getElementById('progress-time');
-            
-            uploadProgressTimer = setInterval(() => {
-                const elapsed = Math.floor((Date.now() - uploadStartTime) / 1000);
-                progressTime.textContent = `Elapsed: ${elapsed}s`;
-            }, 1000);
-        }
-
-        // File upload validation and submission
-        function validateFileUpload() {
-            const fileInput = document.getElementById('file-input');
-            if (!fileInput.files.length) {
-                alert('Please select a file to upload.');
-                return false;
-            }
-            
-            const file = fileInput.files[0];
-            if (file.size > {{ system_settings.max_file_size }}) {
-                alert('File size must be less than {{ (system_settings.max_file_size // (1024*1024)) }}MB.');
-                return false;
-            }
-            
-            // Check file type
-            const fileName = file.name.toLowerCase();
-            const validExtensions = ['.csv', '.txt', '.tsv', '.xlsx', '.xls'];
-            const isValidFile = validExtensions.some(ext => fileName.endsWith(ext));
-            
-            if (!isValidFile) {
-                alert('Please select a valid file type: CSV, TSV, TXT, or Excel (.xlsx, .xls)');
-                return false;
-            }
-            
-            return true;
-        }
-
+        // Form submission handlers
         function handleFileUpload(event) {
-            if (!validateFileUpload()) {
-                event.preventDefault();
-                return false;
-            }
-            
-            const fileInput = document.getElementById('file-input');
-            const file = fileInput.files[0];
-            const button = document.getElementById('file-upload-btn');
-            const icon = document.getElementById('file-upload-icon');
-            const textEl = document.getElementById('file-upload-text');
-            
-            // Show progress overlay FIRST - this is the key fix
-            const fileSize = (file.size / 1024 / 1024).toFixed(1);
-            showUploadProgress(
-                'Uploading File', 
-                `Processing ${file.name} (${fileSize} MB)...`,
-                'file'
-            );
-            
-            // Disable button and show loading state
-            button.disabled = true;
-            button.classList.add('bg-gray-400', 'cursor-not-allowed');
-            button.classList.remove('bg-accent', 'hover:bg-primary');
-            icon.className = 'ri-loader-line mr-2 animate-spin';
-            textEl.textContent = 'Uploading...';
-            
-            // Small delay to ensure overlay is visible before form submits
-            setTimeout(() => {
-                // Form submission continues naturally
-            }, 100);
-            
-            return true;
-        }
-
-        function validateSheetsUpload() {
-            const url = document.getElementById('sheets-url').value;
-            if (!url) {
-                alert('Please enter a Google Sheets URL.');
-                return false;
-            }
-            
-            if (!url.includes('docs.google.com/spreadsheets/')) {
-                alert('Please enter a valid Google Sheets URL.');
-                return false;
-            }
-            
-            return true;
+            event.preventDefault();
+            const dbName = '{{ db_name }}';
+            uploadManager.uploadFile(event.target, dbName);
+            return false;
         }
 
         function handleSheetsUpload(event) {
-            if (!validateSheetsUpload()) {
-                event.preventDefault();
-                return false;
-            }
-            
-            const button = document.getElementById('sheets-upload-btn');
-            const icon = document.getElementById('sheets-upload-icon');
-            const textEl = document.getElementById('sheets-upload-text');
-            
-            // Show progress overlay FIRST
-            showUploadProgress(
-                'Importing Google Sheets', 
-                'Fetching data from Google Sheets...',
-                'sheets'
-            );
-            
-            button.disabled = true;
-            button.classList.add('bg-gray-400', 'cursor-not-allowed');
-            button.classList.remove('bg-accent', 'hover:bg-primary');
-            icon.className = 'ri-loader-line mr-2 animate-spin';
-            textEl.textContent = 'Importing...';
-            
-            setTimeout(() => {
-                // Form submission continues naturally
-            }, 100);
-            
-            return true;
-        }
-
-        function validateUrlUpload() {
-            const url = document.getElementById('csv-url').value;
-            if (!url) {
-                alert('Please enter a CSV file URL.');
-                return false;
-            }
-            
-            try {
-                new URL(url);
-            } catch {
-                alert('Please enter a valid URL.');
-                return false;
-            }
-            
-            return true;
+            event.preventDefault();
+            const dbName = '{{ db_name }}';
+            uploadManager.uploadSheets(event.target, dbName);
+            return false;
         }
 
         function handleUrlUpload(event) {
-            if (!validateUrlUpload()) {
-                event.preventDefault();
-                return false;
-            }
-            
-            const button = document.getElementById('url-upload-btn');
-            const icon = document.getElementById('url-upload-icon');
-            const textEl = document.getElementById('url-upload-text');
-            
-            // Show progress overlay FIRST
-            showUploadProgress(
-                'Importing Web CSV', 
-                'Downloading and processing CSV file...',
-                'url'
-            );
-            
-            button.disabled = true;
-            button.classList.add('bg-gray-400', 'cursor-not-allowed');
-            button.classList.remove('bg-accent', 'hover:bg-primary');
-            icon.className = 'ri-loader-line mr-2 animate-spin';
-            textEl.textContent = 'Importing...';
-            
-            setTimeout(() => {
-                // Form submission continues naturally
-            }, 100);
-            
-            return true;
+            event.preventDefault();
+            const dbName = '{{ db_name }}';
+            uploadManager.uploadUrl(event.target, dbName);
+            return false;
         }
 
+        // File selection handler
         function handleFileSelect(input) {
             const file = input.files[0];
             if (file) {
@@ -625,11 +795,10 @@
                 const details = document.getElementById('file-details');
                 const excelOptions = document.getElementById('excel-options');
                 
-                // Calculate estimated processing time
                 const sizeInMB = file.size / 1024 / 1024;
                 let estimatedTime = '';
                 if (sizeInMB > 100) {
-                    estimatedTime = ` (Est. processing time: ${Math.ceil(sizeInMB / 20)}s with ultra-optimization)`;
+                    estimatedTime = ` (Est. processing time: ${Math.ceil(sizeInMB / 20)}s)`;
                 } else if (sizeInMB > 50) {
                     estimatedTime = ` (Est. processing time: ${Math.ceil(sizeInMB / 15)}s)`;
                 }
@@ -641,7 +810,6 @@
                 `;
                 info.classList.remove('hidden');
                 
-                // Show Excel options for Excel files
                 const fileName = file.name.toLowerCase();
                 if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
                     excelOptions.classList.remove('hidden');
@@ -649,10 +817,9 @@
                     excelOptions.classList.add('hidden');
                 }
                 
-                // Auto-suggest table name
                 const tableName = document.getElementById('table-name');
                 if (!tableName.value) {
-                    const baseName = file.name.replace(/\.[^/.]+$/, ""); // Remove extension
+                    const baseName = file.name.replace(/\.[^/.]+$/, "");
                     const cleanName = baseName.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
                     tableName.value = cleanName;
                 }
@@ -729,15 +896,14 @@
             }, 1000);
         }
 
-        // Initialize with file tab active
+        // Event listeners
         document.addEventListener('DOMContentLoaded', function() {
             showUploadTab('file');
-            hideUploadProgress();
-        });
-
-        // Handle page unload to hide progress
-        window.addEventListener('beforeunload', function() {
-            hideUploadProgress();
+            
+            // Cancel upload handler
+            document.getElementById('cancel-upload-btn').addEventListener('click', () => {
+                uploadManager.cancelUpload();
+            });
         });
     </script>
 

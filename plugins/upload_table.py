@@ -683,10 +683,10 @@ async def suggest_unique_name(base_name, datasette, db_name):
         logger.error(f"Error checking existing tables: {e}")
         return f"{base_name}_{uuid.uuid4().hex[:8]}"
 
-
 def parse_multipart_form_data(body, boundary):
-    """Parse multipart form data using reliable email parser"""
+    """Improved multipart form data parser with better error handling"""
     try:
+        # Method 1: Try email parser first
         headers = f'Content-Type: multipart/form-data; boundary={boundary}\r\n\r\n'
         msg = BytesParser(policy=default).parsebytes(headers.encode() + body)
         
@@ -696,34 +696,101 @@ def parse_multipart_form_data(body, boundary):
         for part in msg.iter_parts():
             if not part.is_multipart():
                 content_disposition = part.get('Content-Disposition', '')
+                logger.debug(f"Processing part with Content-Disposition: {content_disposition}")
+                
                 if content_disposition:
+                    # Parse Content-Disposition header more carefully
                     disposition_params = {}
-                    for param in content_disposition.split(';'):
-                        param = param.strip()
-                        if '=' in param:
-                            key, value = param.split('=', 1)
-                            disposition_params[key.strip()] = value.strip().strip('"')
+                    
+                    # Split by semicolon and process each parameter
+                    parts = content_disposition.split(';')
+                    for param_part in parts[1:]:  # Skip first part which is "form-data"
+                        param_part = param_part.strip()
+                        if '=' in param_part:
+                            key, value = param_part.split('=', 1)
+                            key = key.strip()
+                            value = value.strip().strip('"')  # Remove quotes
+                            disposition_params[key] = value
                     
                     field_name = disposition_params.get('name')
                     filename = disposition_params.get('filename')
                     
+                    logger.debug(f"Field name: {field_name}, Filename: {filename}")
+                    
                     if field_name:
                         content = part.get_payload(decode=True)
-                        if filename:
+                        if filename:  # File upload
                             files[field_name] = {
                                 'filename': filename,
-                                'content': content
+                                'content': content or b''
                             }
-                        else:
-                            forms[field_name] = content.decode('utf-8') if content else ''
+                            logger.debug(f"Found file field: {field_name} = {filename}")
+                        else:  # Form field
+                            text_content = content.decode('utf-8', errors='ignore') if content else ''
+                            forms[field_name] = text_content
+                            logger.debug(f"Found form field: {field_name} = '{text_content}'")
         
-        logger.debug(f"Parsed forms: {list(forms.keys())}")
-        logger.debug(f"Parsed files: {list(files.keys())}")
+        logger.debug(f"Final parsed forms: {forms}")
+        logger.debug(f"Final parsed files: {list(files.keys())}")
         return forms, files
-    except Exception as e:
-        logger.error(f"Error parsing multipart data: {e}")
-        return {}, {}
+        
+    except Exception as email_error:
+        logger.warning(f"Email parser failed: {email_error}, trying manual parser")
+        
+        # Method 2: Manual parsing as fallback
+        try:
+            return parse_multipart_manual(body, boundary)
+        except Exception as manual_error:
+            logger.error(f"All parsers failed: email={email_error}, manual={manual_error}")
+            return {}, {}
 
+def parse_multipart_manual(body, boundary):
+    """Manual multipart parser as fallback"""
+    forms = {}
+    files = {}
+    
+    # Split by boundary
+    boundary_bytes = f'--{boundary}'.encode()
+    parts = body.split(boundary_bytes)
+    
+    for part in parts[1:-1]:  # Skip first empty and last closing parts
+        if len(part) < 10:
+            continue
+        
+        # Find headers/content separator
+        if b'\r\n\r\n' in part:
+            headers_bytes, content = part.split(b'\r\n\r\n', 1)
+        elif b'\n\n' in part:
+            headers_bytes, content = part.split(b'\n\n', 1)
+        else:
+            continue
+        
+        # Parse headers
+        headers_text = headers_bytes.decode('utf-8', errors='ignore')
+        
+        # Extract field name and filename
+        name_match = re.search(r'name="([^"]+)"', headers_text)
+        filename_match = re.search(r'filename="([^"]*)"', headers_text)
+        
+        if name_match:
+            field_name = name_match.group(1)
+            
+            # Clean content (remove trailing boundary markers)
+            content = content.rstrip(b'\r\n--')
+            
+            if filename_match and filename_match.group(1):
+                # File field
+                files[field_name] = {
+                    'filename': filename_match.group(1),
+                    'content': content
+                }
+            else:
+                # Form field  
+                text_content = content.decode('utf-8', errors='ignore')
+                forms[field_name] = text_content
+    
+    logger.debug(f"Manual parser - forms: {forms}, files: {list(files.keys())}")
+    return forms, files
 
 async def enhanced_upload_page(datasette, request):
     """Enhanced upload page with ultra-high performance processing"""
@@ -775,7 +842,6 @@ async def enhanced_upload_page(datasette, request):
         )
     )
 
-
 async def ensure_database_registered(datasette, db_name, user_id):
     """Ensure database is registered with Datasette"""
     try:
@@ -805,7 +871,6 @@ async def ensure_database_registered(datasette, db_name, user_id):
     except Exception as e:
         logger.error(f"Error registering database {db_name}: {e}")
         raise
-
 
 async def handle_enhanced_upload(datasette, request, db_name, actor):
     """Handle enhanced upload form submission with ultra-optimized processing"""
@@ -838,8 +903,13 @@ async def handle_enhanced_upload(datasette, request, db_name, actor):
 
 @monitor_performance_detailed
 async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor, max_file_size):
-    """Handle file upload with ultra-high performance processing"""
+    """Handle file upload with ultra-high performance processing - supports both form and AJAX"""
     try:
+        # Check if this is an AJAX request
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or \
+                 'ajax-upload' in request.path or \
+                 request.headers.get('Accept', '').startswith('application/json')
+        
         logger.debug("Starting ULTRA-OPTIMIZED file upload processing")
         
         # Parse multipart form data
@@ -850,7 +920,11 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         if len(body) > max_file_size:
             size_mb = max_file_size // (1024*1024)
             error_msg = f"File too large (max {size_mb}MB)"
-            return create_redirect_response(request, db_name, error_msg, is_error=True)
+            
+            if is_ajax:
+                return Response.json({"success": False, "error": error_msg}, status=400)
+            else:
+                return create_redirect_response(request, db_name, error_msg, is_error=True)
         
         # Parse form data
         content_type = request.headers.get('content-type', '')
@@ -860,7 +934,12 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         
         if not boundary:
             logger.error("No boundary found in content type")
-            return create_redirect_response(request, db_name, "Invalid form data", is_error=True)
+            error_msg = "Invalid form data"
+            
+            if is_ajax:
+                return Response.json({"success": False, "error": error_msg}, status=400)
+            else:
+                return create_redirect_response(request, db_name, error_msg, is_error=True)
         
         logger.debug(f"Using boundary: {boundary}")
         
@@ -870,7 +949,12 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         # Process file upload
         if 'file' not in files:
             logger.error("No file found in upload")
-            return create_redirect_response(request, db_name, "No file uploaded", is_error=True)
+            error_msg = "No file uploaded"
+            
+            if is_ajax:
+                return Response.json({"success": False, "error": error_msg}, status=400)
+            else:
+                return create_redirect_response(request, db_name, error_msg, is_error=True)
         
         file_info = files['file']
         filename = file_info['filename']
@@ -888,7 +972,10 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
             table_name = custom_table_name
             is_valid, error_msg = validate_table_name(table_name)
             if not is_valid:
-                return create_redirect_response(request, db_name, f"Invalid table name: {error_msg}", is_error=True)
+                if is_ajax:
+                    return Response.json({"success": False, "error": f"Invalid table name: {error_msg}"}, status=400)
+                else:
+                    return create_redirect_response(request, db_name, f"Invalid table name: {error_msg}", is_error=True)
         else:
             base_name = sanitize_table_name(filename)
             table_name = await suggest_unique_name(base_name, datasette, db_name)
@@ -902,7 +989,11 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         db_info = result.first()
         
         if not db_info:
-            return create_redirect_response(request, db_name, "Database not found", is_error=True)
+            error_msg = "Database not found"
+            if is_ajax:
+                return Response.json({"success": False, "error": error_msg}, status=404)
+            else:
+                return create_redirect_response(request, db_name, error_msg, is_error=True)
         
         file_path = db_info['file_path']
         if not file_path:
@@ -950,6 +1041,7 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         # Retry logic for database locks
         max_retries = 2
         last_exception = None
+        result = None
 
         for attempt in range(max_retries):
             try:
@@ -987,7 +1079,7 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
                     raise
 
         # Check if we have a result (success case is handled above with break)
-        if 'result' not in locals():
+        if result is None:
             if last_exception:
                 raise last_exception
             else:
@@ -1035,30 +1127,47 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
             f"ULTRA: Uploaded {result['rows_inserted']:,} rows to table '{table_name}' from file '{filename}' in {result['time_elapsed']:.1f}s",
             metadata
         )
+        
         success_msg = format_upload_success_message(result, table_name)
-        return create_redirect_response(request, db_name, success_msg)
+        
+        # Return appropriate response based on request type
+        if is_ajax:
+            # AJAX response with JSON
+            stats = extract_upload_stats(success_msg)
+            return Response.json({
+                "success": True,
+                "message": success_msg,
+                "stats": stats,
+                "redirect_url": "/manage-databases"
+            })
+        else:
+            # Regular form response with redirect
+            return create_redirect_response(request, db_name, success_msg)
         
     except Exception as e:
         logger.error(f"Ultra file upload error: {str(e)}")
         error_msg = await handle_upload_error_gracefully(datasette, e, "ultra_file_upload")
-        return create_redirect_response(request, db_name, error_msg, is_error=True)
+        
+        if is_ajax:
+            return Response.json({"success": False, "error": error_msg}, status=500)
+        else:
+            return create_redirect_response(request, db_name, error_msg, is_error=True)
 
 def format_upload_success_message(result, table_name):
-    """Format upload success message with proper statistics display"""
+    """Format upload success message with performance indicators"""
     rows = result['rows_inserted']
     time_elapsed = result['time_elapsed']
     rows_per_sec = result['rows_per_second']
-    strategy = result.get('strategy', 'standard')
     
-    # Create formatted message with performance badge
-    if rows_per_sec > 100000:  # Ultra-fast performance
-        performance_badge = "ULTRA-FAST"
-    elif rows_per_sec > 50000:  # High performance
-        performance_badge = "HIGH-SPEED"
-    else:  # Standard performance
-        performance_badge = "SUCCESS"
+    # Performance badge based on speed
+    if rows_per_sec > 100000:
+        badge = "ULTRA-FAST"
+    elif rows_per_sec > 50000:
+        badge = "HIGH-SPEED" 
+    else:
+        badge = "SUCCESS"
     
-    return (f"{performance_badge}: Successfully uploaded {rows:,} rows to table "
+    return (f"{badge}: Successfully uploaded {rows:,} rows to table "
             f"'{table_name}' in {time_elapsed:.1f}s ({rows_per_sec:,} rows/sec)")
 
 def process_excel_fallback(file_content: bytes, table_name: str, sheet_name: str, replace_existing: bool, file_path: str):
@@ -1089,7 +1198,6 @@ def process_excel_fallback(file_content: bytes, table_name: str, sheet_name: str
         'rows_per_second': 0,
         'strategy': 'excel_fallback'
     }
-
 
 async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
     """Handle Google Sheets upload with ultra-optimized processing"""
@@ -1178,7 +1286,6 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
         logger.error(f"Google Sheets upload error: {str(e)}")
         error_msg = await handle_upload_error_gracefully(datasette, e, "sheets_upload")
         return create_redirect_response(request, db_name, error_msg, is_error=True)
-
 
 async def handle_url_upload(datasette, request, post_vars, db_name, actor):
     """Handle web CSV upload with ultra-optimized processing"""
@@ -1272,7 +1379,6 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         error_msg = await handle_upload_error_gracefully(datasette, e, "url_upload")
         return create_redirect_response(request, db_name, error_msg, is_error=True)
 
-
 async def fetch_sheet_data(sheet_url, sheet_index=0):
     """Fetch data from Google Sheets as CSV with validation"""
     try:
@@ -1335,7 +1441,6 @@ async def fetch_sheet_data(sheet_url, sheet_index=0):
     except requests.RequestException as e:
         raise ValueError(f"Network error accessing Google Sheets: connection failed")
 
-
 async def validate_csv_url(datasette, url):
     """Validate CSV URL using dynamic blocked domains list"""
     try:
@@ -1366,7 +1471,6 @@ async def validate_csv_url(datasette, url):
         
     except Exception as e:
         raise ValueError(f"Invalid URL: {str(e)}")
-
 
 async def fetch_csv_from_url(datasette, url, encoding='auto'):
     """Fetch CSV data from web URL with validation"""
@@ -1401,7 +1505,6 @@ async def fetch_csv_from_url(datasette, url, encoding='auto'):
     except requests.RequestException as e:
         raise ValueError(f"Failed to fetch CSV from URL: connection error")
 
-
 def create_redirect_response(request, db_name, message, is_error=False):
     """Create redirect response with properly encoded message"""
     try:
@@ -1424,10 +1527,326 @@ def create_redirect_response(request, db_name, message, is_error=False):
         fallback_msg = "Upload failed" if is_error else "Upload completed"
         return Response.redirect(f"/upload-table/{db_name}?{param}={fallback_msg}")
 
+async def ajax_file_upload_handler(datasette, request):
+    """AJAX File Upload Handler - Returns JSON response"""
+    try:
+        actor = get_actor_from_request(request)
+        if not actor:
+            return Response.json({"success": False, "error": "Authentication required"}, status=401)
+
+        # Extract database name from path
+        path_parts = request.path.strip('/').split('/')
+        if len(path_parts) < 2:
+            return Response.json({"success": False, "error": "Invalid URL format"}, status=400)
+        
+        db_name = path_parts[1]
+        
+        # Verify user owns the database
+        if not await user_owns_database(datasette, actor["id"], db_name):
+            return Response.json({"success": False, "error": "Access denied"}, status=403)
+
+        # Use existing file upload logic which properly handles multipart data
+        max_file_size = await get_max_file_size(datasette)
+        
+        # The existing function already handles AJAX detection and JSON responses
+        result = await handle_file_upload_ultra_optimized(datasette, request, db_name, actor, max_file_size)
+        return result
+
+    except Exception as e:
+        logger.error(f"AJAX file upload error: {str(e)}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_file_upload")
+        return Response.json({"success": False, "error": error_msg}, status=500)
+
+async def ajax_sheets_upload_handler(datasette, request):
+    """AJAX Google Sheets Upload Handler - Returns JSON response with proper form parsing"""
+    try:
+        actor = get_actor_from_request(request)
+        if not actor:
+            return Response.json({"success": False, "error": "Authentication required"}, status=401)
+
+        path_parts = request.path.strip('/').split('/')
+        db_name = path_parts[1]
+        
+        if not await user_owns_database(datasette, actor["id"], db_name):
+            return Response.json({"success": False, "error": "Access denied"}, status=403)
+
+        # Parse multipart form data properly
+        content_type = request.headers.get('content-type', '')
+        body = await request.post_body()
+        
+        forms, files = parse_multipart_form_data_from_ajax(body, content_type)
+        
+        # Extract form data
+        sheets_url = forms.get('sheets_url', '').strip()
+        sheet_index = int(forms.get('sheet_index', '0') or '0')
+        custom_table_name = forms.get('table_name', '').strip()
+        first_row_headers = 'first_row_headers' in forms
+        
+        logger.debug(f"Google Sheets params: url='{sheets_url}', sheet_index={sheet_index}, table_name='{custom_table_name}', headers={first_row_headers}")
+        
+        if not sheets_url:
+            return Response.json({"success": False, "error": "Google Sheets URL is required"}, status=400)
+        
+        # Process sheets upload
+        try:
+            # Fetch data from Google Sheets
+            csv_content = await fetch_sheet_data(sheets_url, sheet_index)
+            
+            # Generate table name
+            if custom_table_name:
+                table_name = custom_table_name
+                is_valid, error_msg = validate_table_name(table_name)
+                if not is_valid:
+                    return Response.json({"success": False, "error": f"Invalid table name: {error_msg}"}, status=400)
+            else:
+                base_name = sanitize_table_name("google_sheet")
+                table_name = await suggest_unique_name(base_name, datasette, db_name)
+            
+            # Get database file path
+            portal_db = datasette.get_database('portal')
+            result = await portal_db.execute(
+                "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
+                [db_name, actor["id"]]
+            )
+            db_info = result.first()
+            
+            if not db_info:
+                return Response.json({"success": False, "error": "Database not found"}, status=404)
+            
+            file_path = db_info['file_path'] if db_info else os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
+            
+            # Process with ultra-optimized uploader
+            file_size = len(csv_content.encode('utf-8'))
+            use_ultra_mode = file_size > 50 * 1024 * 1024
+            uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
+            
+            if isinstance(uploader, UltraOptimizedUploader):
+                upload_result = uploader.stream_csv_ultra_fast(csv_content, table_name)
+            else:
+                upload_result = uploader.process_csv_robust_fast(csv_content, table_name)
+            
+            # Update database timestamp
+            await update_database_timestamp(datasette, db_name)
+            
+            # Sync with database_tables
+            try:
+                db_result = await portal_db.execute(
+                    "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
+                )
+                db_record = db_result.first()
+                if db_record:
+                    await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
+            except Exception as sync_error:
+                logger.error(f"Error syncing table visibility: {sync_error}")
+
+            # Log activity
+            await log_upload_activity_enhanced(
+                datasette, actor.get("id"), "ajax_sheets_upload", 
+                f"Imported {upload_result['rows_inserted']:,} rows to table '{table_name}' from Google Sheets",
+                {
+                    "source_type": "google_sheets",
+                    "table_name": table_name,
+                    "sheets_url": sheets_url,
+                    "record_count": upload_result['rows_inserted'],
+                    "column_count": upload_result['columns']
+                }
+            )
+            
+            success_msg = format_upload_success_message(upload_result, table_name)
+            stats = extract_upload_stats(success_msg)
+            
+            return Response.json({
+                "success": True,
+                "message": success_msg,
+                "stats": stats,
+                "redirect_url": "/manage-databases"
+            })
+            
+        except Exception as e:
+            logger.error(f"Sheets processing error: {str(e)}")
+            error_msg = await handle_upload_error_gracefully(datasette, e, "sheets_upload")
+            return Response.json({"success": False, "error": error_msg}, status=500)
+
+    except Exception as e:
+        logger.error(f"AJAX sheets upload error: {str(e)}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_sheets_upload")
+        return Response.json({"success": False, "error": error_msg}, status=500)
+
+async def ajax_url_upload_handler(datasette, request):
+    """AJAX URL Upload Handler - Returns JSON response with proper form parsing"""
+    try:
+        actor = get_actor_from_request(request)
+        if not actor:
+            return Response.json({"success": False, "error": "Authentication required"}, status=401)
+
+        path_parts = request.path.strip('/').split('/')
+        db_name = path_parts[1]
+        
+        if not await user_owns_database(datasette, actor["id"], db_name):
+            return Response.json({"success": False, "error": "Access denied"}, status=403)
+
+        # Parse multipart form data properly
+        content_type = request.headers.get('content-type', '')
+        body = await request.post_body()
+        
+        forms, files = parse_multipart_form_data_from_ajax(body, content_type)
+        
+        # Extract form data
+        csv_url = forms.get('csv_url', '').strip()
+        custom_table_name = forms.get('table_name', '').strip()
+        encoding = forms.get('encoding', 'auto')
+        
+        logger.debug(f"Web CSV params: url='{csv_url}', table_name='{custom_table_name}', encoding='{encoding}'")
+        
+        if not csv_url:
+            return Response.json({"success": False, "error": "CSV URL is required"}, status=400)
+        
+        try:
+            # Validate URL domain
+            await validate_csv_url(datasette, csv_url)
+            
+            # Fetch CSV from URL
+            csv_content = await fetch_csv_from_url(datasette, csv_url, encoding)
+            
+            # Generate table name
+            if custom_table_name:
+                table_name = custom_table_name
+                is_valid, error_msg = validate_table_name(table_name)
+                if not is_valid:
+                    return Response.json({"success": False, "error": f"Invalid table name: {error_msg}"}, status=400)
+            else:
+                url_path = urlparse(csv_url).path
+                filename = os.path.basename(url_path) or "web_csv"
+                base_name = sanitize_table_name(filename)
+                table_name = await suggest_unique_name(base_name, datasette, db_name)
+            
+            # Get database file path
+            portal_db = datasette.get_database('portal')
+            result = await portal_db.execute(
+                "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
+                [db_name, actor["id"]]
+            )
+            db_info = result.first()
+            
+            if not db_info:
+                return Response.json({"success": False, "error": "Database not found"}, status=404)
+            
+            file_path = db_info['file_path'] if db_info else os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
+            
+            # Process with ultra-optimized uploader
+            file_size = len(csv_content.encode('utf-8'))
+            use_ultra_mode = file_size > 50 * 1024 * 1024
+            uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
+            
+            if isinstance(uploader, UltraOptimizedUploader):
+                upload_result = uploader.stream_csv_ultra_fast(csv_content, table_name)
+            else:
+                upload_result = uploader.process_csv_robust_fast(csv_content, table_name)
+            
+            # Update database timestamp
+            await update_database_timestamp(datasette, db_name)
+            
+            # Sync with database_tables
+            try:
+                db_result = await portal_db.execute(
+                    "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
+                )
+                db_record = db_result.first()
+                if db_record:
+                    await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
+            except Exception as sync_error:
+                logger.error(f"Error syncing table visibility: {sync_error}")
+            
+            # Log activity
+            await log_upload_activity_enhanced(
+                datasette, actor.get("id"), "ajax_url_upload", 
+                f"Imported {upload_result['rows_inserted']:,} rows to table '{table_name}' from web CSV",
+                {
+                    "source_type": "web_csv",
+                    "table_name": table_name,
+                    "csv_url": csv_url,
+                    "record_count": upload_result['rows_inserted'],
+                    "column_count": upload_result['columns']
+                }
+            )
+            
+            success_msg = format_upload_success_message(upload_result, table_name)
+            stats = extract_upload_stats(success_msg)
+            
+            return Response.json({
+                "success": True,
+                "message": success_msg,
+                "stats": stats,
+                "redirect_url": "/manage-databases"
+            })
+            
+        except Exception as e:
+            logger.error(f"URL processing error: {str(e)}")
+            error_msg = await handle_upload_error_gracefully(datasette, e, "url_upload")
+            return Response.json({"success": False, "error": error_msg}, status=500)
+        
+    except Exception as e:
+        logger.error(f"AJAX URL upload error: {str(e)}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_url_upload")
+        return Response.json({"success": False, "error": error_msg}, status=500)
+    
+def parse_multipart_form_data_from_ajax(body, content_type):
+    """Parse multipart form data from AJAX requests properly"""
+    try:
+        # Extract boundary
+        boundary = None
+        if 'boundary=' in content_type:
+            boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
+        
+        if not boundary:
+            logger.error("No boundary found in content type")
+            return {}, {}
+        
+        # Use existing parser but ensure we get the correct format
+        forms, files = parse_multipart_form_data(body, boundary)
+        
+        # Convert forms to proper format (handle list values)
+        processed_forms = {}
+        for key, value in forms.items():
+            if isinstance(value, list) and len(value) > 0:
+                processed_forms[key] = value[0]  # Take first value
+            else:
+                processed_forms[key] = value if isinstance(value, str) else str(value)
+        
+        logger.debug(f"Processed forms: {processed_forms}")
+        return processed_forms, files
+        
+    except Exception as e:
+        logger.error(f"Error parsing multipart data from AJAX: {e}")
+        return {}, {}
+
+def extract_upload_stats(success_msg):
+    """Extract upload statistics from success message for display"""
+    import re
+    
+    # Pattern to match statistics
+    rows_pattern = r'(\d{1,3}(?:,\d{3})*)\s+rows'
+    time_pattern = r'in\s+([\d.]+)s'
+    speed_pattern = r'\((\d{1,3}(?:,\d{3})*)\s+rows/sec\)'
+    
+    rows_match = re.search(rows_pattern, success_msg)
+    time_match = re.search(time_pattern, success_msg)
+    speed_match = re.search(speed_pattern, success_msg)
+    
+    if rows_match and time_match and speed_match:
+        return f"{rows_match.group(1)} rows • {speed_match.group(1)} rows/sec • {time_match.group(1)}s"
+    
+    return None
 
 @hookimpl
 def register_routes():
-    """Register enhanced upload routes"""
+    """Register both regular and AJAX upload routes"""
     return [
+        # Regular upload route
         (r"^/upload-table/([^/]+)$", enhanced_upload_page),
+        
+        # AJAX upload routes
+        (r"^/ajax-upload-file/([^/]+)$", ajax_file_upload_handler),
+        (r"^/ajax-upload-sheets/([^/]+)$", ajax_sheets_upload_handler),
+        (r"^/ajax-upload-url/([^/]+)$", ajax_url_upload_handler),
     ]
