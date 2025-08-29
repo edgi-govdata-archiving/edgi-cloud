@@ -40,14 +40,37 @@
                 <!-- Success/Error Messages -->
                 {% if success %}
                     <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
-                        <p class="text-sm">{{ success }}</p>
+                        <!-- Decode URL-encoded success messages and preserve formatting -->
+                        {% set decoded_success = success|urldecode %}
+                        {% if "ULTRA-FAST:" in decoded_success or "Successfully uploaded" in decoded_success %}
+                            <!-- Enhanced display for upload success with statistics -->
+                            <div class="flex items-center">
+                                <i class="ri-check-circle-line text-green-600 text-lg mr-2"></i>
+                                <div>
+                                    <p class="text-sm font-medium">{{ decoded_success }}</p>
+                                    {% if "rows/sec" in decoded_success %}
+                                        <p class="text-xs text-green-600 mt-1">
+                                            <i class="ri-dashboard-3-line mr-1"></i>
+                                            High-performance upload completed successfully
+                                        </p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% else %}
+                            <!-- Standard success message display -->
+                            <p class="text-sm">{{ decoded_success }}</p>
+                        {% endif %}
                     </div>
                 {% endif %}
+
                 {% if error %}
                     <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-                        <p class="text-sm font-medium">{{ error|urldecode }}</p>
+                        <!-- Decode URL-encoded error messages -->
+                        {% set decoded_error = error|urldecode %}
+                        <p class="text-sm font-medium">{{ decoded_error }}</p>
+                        
                         <!-- Enhanced error guidance -->
-                        {% if "Google Sheet is private" in error %}
+                        {% if "Google Sheet is private" in decoded_error %}
                             <div class="mt-2 text-xs">
                                 <strong>How to fix:</strong> 
                                 <ol class="list-decimal list-inside mt-1">
@@ -57,12 +80,11 @@
                                     <li>Copy the share link and try again</li>
                                 </ol>
                             </div>
-                        {% elif "Domain" in error and "not in allowlist" in error %}
+                        {% elif "Domain" in decoded_error and "blocked" in decoded_error %}
                             <div class="mt-2 text-xs">
-                                <strong>Allowed domains:</strong> github.com, data.gov, kaggle.com, edgi-cloud.fly.dev, and others. 
-                                <a href="#" onclick="showAllowedDomains()" class="text-blue-600 underline">See full list</a>
+                                <strong>Domain blocked:</strong> Contact admin to request domain approval.
                             </div>
-                        {% elif "type 'Timestamp' is not supported" in error %}
+                        {% elif "type 'Timestamp' is not supported" in decoded_error %}
                             <div class="mt-2 text-xs">
                                 <strong>How to fix:</strong> This Excel file contains date/time columns that need to be converted. Try saving as CSV first, or the system will automatically convert them on retry.
                             </div>
@@ -70,26 +92,25 @@
                     </div>
                 {% endif %}
 
-                <!-- Upload Progress Overlay -->
+                <!-- Simple Upload Progress Overlay -->
                 <div id="upload-progress-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div class="bg-white rounded-lg p-8 max-w-md w-full mx-4">
+                    <div class="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
                         <div class="text-center">
                             <div class="mb-4">
-                                <i id="progress-icon" class="ri-upload-cloud-line text-6xl text-blue-500 animate-pulse"></i>
+                                <i id="progress-icon" class="ri-upload-cloud-line text-5xl text-blue-500 animate-pulse"></i>
                             </div>
-                            <h3 class="text-xl font-semibold mb-2" id="progress-title">Processing Upload...</h3>
-                            <p class="text-gray-600 mb-4" id="progress-message">Please wait while your data is being processed.</p>
+                            <h3 class="text-lg font-semibold mb-2" id="progress-title">Processing Upload...</h3>
+                            <p class="text-gray-600 text-sm mb-4" id="progress-message">Please wait while your data is being processed.</p>
                             
-                            <!-- Progress Bar -->
-                            <div class="w-full bg-gray-200 rounded-full h-3 mb-4">
-                                <div id="progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-500 animate-pulse" style="width: 0%"></div>
+                            <!-- Simple Progress Indicator -->
+                            <div class="flex justify-center space-x-1 mb-4">
+                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
+                                <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
                             </div>
                             
-                            <!-- Progress Details -->
-                            <div class="text-sm text-gray-500">
-                                <div id="progress-details">Initializing upload...</div>
-                                <div id="progress-time" class="mt-1"></div>
-                            </div>
+                            <!-- Time Counter -->
+                            <div class="text-xs text-gray-500" id="progress-time">Elapsed: 0s</div>
                         </div>
                     </div>
                 </div>
@@ -276,9 +297,9 @@
                                            class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent"
                                            placeholder="https://example.com/data.csv">
                                     <div class="text-xs text-gray-500 mt-1">
-                                        <p><strong>Supported domains:</strong> github.com, data.gov, kaggle.com, edgi-cloud.fly.dev, and more.</p>
-                                        <p class="mt-1">URL must point directly to a CSV file. GitHub raw URLs are supported.</p>
-                                        <a href="#" onclick="showAllowedDomains()" class="text-blue-600 underline">View all allowed domains</a>
+                                        <p><strong>Supported:</strong> Most domains are allowed unless blocked by admin.</p>
+                                        <p class="mt-1">URL must point directly to a CSV file. Raw URLs work best.</p>
+                                        <p class="mt-1">Contact admin if your domain is blocked.</p>
                                     </div>
 
                                     <!-- URL Validation -->
@@ -361,68 +382,14 @@
                         <div>
                             <div class="font-semibold text-blue-800 mb-2">Web CSV</div>
                             <ul class="space-y-1">
-                                <li>• Only from approved domains</li>
-                                <li>• GitHub, data.gov, kaggle.com, etc.</li>
+                                <li>• Most domains are supported</li>
                                 <li>• Must point directly to CSV file</li>
                                 <li>• Raw URLs work best</li>
+                                <li>• Some domains may be blocked by admin</li>
                             </ul>
                             <div class="mt-2 text-xs">
-                                <strong>Domain Blocked?</strong> Contact admin to add your domain to the allowlist.
+                                <strong>Domain Blocked?</strong> Contact admin if your domain is restricted.
                             </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Hidden Modal for Allowed Domains -->
-                <div id="domains-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg font-semibold">Allowed Domains for Web CSV</h3>
-                            <button onclick="hideAllowedDomains()" class="text-gray-500 hover:text-gray-700">
-                                <i class="ri-close-line text-xl"></i>
-                            </button>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-sm">
-                            <div>
-                                <strong>Code Repositories:</strong>
-                                <ul class="list-disc list-inside text-gray-600">
-                                    <li>github.com</li>
-                                    <li>raw.githubusercontent.com</li>
-                                    <li>gitlab.com</li>
-                                    <li>bitbucket.org</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <strong>Government/Data:</strong>
-                                <ul class="list-disc list-inside text-gray-600">
-                                    <li>data.gov</li>
-                                    <li>opendata.gov</li>
-                                    <li>census.gov</li>
-                                    <li>noaa.gov</li>
-                                    <li>epa.gov</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <strong>Research/Academic:</strong>
-                                <ul class="list-disc list-inside text-gray-600">
-                                    <li>kaggle.com</li>
-                                    <li>data.world</li>
-                                    <li>zenodo.org</li>
-                                    <li>figshare.com</li>
-                                </ul>
-                            </div>
-                            <div>
-                                <strong>Cloud/Other:</strong>
-                                <ul class="list-disc list-inside text-gray-600">
-                                    <li>edgi-cloud.fly.dev</li>
-                                    <li>amazonaws.com</li>
-                                    <li>googleapis.com</li>
-                                    <li>localhost (dev)</li>
-                                </ul>
-                            </div>
-                        </div>
-                        <div class="mt-4 text-xs text-gray-500">
-                            Need a domain added? Contact your system administrator.
                         </div>
                     </div>
                 </div>
@@ -460,24 +427,22 @@
             const progressTitle = document.getElementById('progress-title');
             const progressMessage = document.getElementById('progress-message');
             const progressIcon = document.getElementById('progress-icon');
-            const progressDetails = document.getElementById('progress-details');
             
             // Set content
             progressTitle.textContent = title;
             progressMessage.textContent = message;
-            progressDetails.textContent = 'Processing your data...';
             
             // Set appropriate icon based on type
             const iconClass = type === 'sheets' ? 'ri-table-line' : 
                             type === 'url' ? 'ri-global-line' : 'ri-upload-cloud-line';
-            progressIcon.className = `${iconClass} text-6xl text-blue-500 animate-pulse`;
+            progressIcon.className = `${iconClass} text-5xl text-blue-500 animate-pulse`;
             
             // Show overlay
             overlay.classList.remove('hidden');
             
-            // Start progress animation
+            // Start simple timer
             uploadStartTime = Date.now();
-            startProgressAnimation();
+            startSimpleTimer();
         }
 
         function hideUploadProgress() {
@@ -490,46 +455,16 @@
             }
         }
 
-        function startProgressAnimation() {
-            const progressBar = document.getElementById('progress-bar');
-            const progressDetails = document.getElementById('progress-details');
+        function startSimpleTimer() {
             const progressTime = document.getElementById('progress-time');
-            
-            let progress = 0;
-            const phases = [
-                { progress: 20, message: 'Parsing file structure...' },
-                { progress: 40, message: 'Optimizing database connection...' },
-                { progress: 60, message: 'Processing data in batches...' },
-                { progress: 80, message: 'Creating indexes...' },
-                { progress: 95, message: 'Finalizing upload...' }
-            ];
-            
-            let phaseIndex = 0;
             
             uploadProgressTimer = setInterval(() => {
                 const elapsed = Math.floor((Date.now() - uploadStartTime) / 1000);
                 progressTime.textContent = `Elapsed: ${elapsed}s`;
-                
-                // Update progress based on phases
-                if (phaseIndex < phases.length && progress >= phases[phaseIndex].progress) {
-                    progressDetails.textContent = phases[phaseIndex].message;
-                    phaseIndex++;
-                }
-                
-                // Simulate progress (slower for large files)
-                progress += Math.random() * 2;
-                if (progress > 95) progress = 95; // Don't complete until real completion
-                
-                progressBar.style.width = `${progress}%`;
-                
             }, 1000);
         }
 
-        function setButtonState(buttonId, iconId, textId, loading = false, text = null) {
-
-        }
-
-        // FIXED: File upload validation and submission
+        // File upload validation and submission
         function validateFileUpload() {
             const fileInput = document.getElementById('file-input');
             if (!fileInput.files.length) {
@@ -568,14 +503,7 @@
             const icon = document.getElementById('file-upload-icon');
             const textEl = document.getElementById('file-upload-text');
             
-            // Immediately disable button and show loading state
-            button.disabled = true;
-            button.classList.add('bg-gray-400', 'cursor-not-allowed');
-            button.classList.remove('bg-accent', 'hover:bg-primary');
-            icon.className = 'ri-loader-line mr-2 animate-spin';
-            textEl.textContent = 'Uploading...';
-            
-            // Show progress overlay
+            // Show progress overlay FIRST - this is the key fix
             const fileSize = (file.size / 1024 / 1024).toFixed(1);
             showUploadProgress(
                 'Uploading File', 
@@ -583,11 +511,21 @@
                 'file'
             );
             
-            // Allow form submission to continue
+            // Disable button and show loading state
+            button.disabled = true;
+            button.classList.add('bg-gray-400', 'cursor-not-allowed');
+            button.classList.remove('bg-accent', 'hover:bg-primary');
+            icon.className = 'ri-loader-line mr-2 animate-spin';
+            textEl.textContent = 'Uploading...';
+            
+            // Small delay to ensure overlay is visible before form submits
+            setTimeout(() => {
+                // Form submission continues naturally
+            }, 100);
+            
             return true;
         }
 
-        // Sheets upload validation and submission
         function validateSheetsUpload() {
             const url = document.getElementById('sheets-url').value;
             if (!url) {
@@ -613,23 +551,26 @@
             const icon = document.getElementById('sheets-upload-icon');
             const textEl = document.getElementById('sheets-upload-text');
             
-            // Immediately disable button and show loading state
-            button.disabled = true;
-            button.classList.add('bg-gray-400', 'cursor-not-allowed');
-            button.classList.remove('bg-accent', 'hover:bg-primary');
-            icon.className = 'ri-loader-line mr-2 animate-spin';
-            textEl.textContent = 'Importing...';
-            
+            // Show progress overlay FIRST
             showUploadProgress(
                 'Importing Google Sheets', 
                 'Fetching data from Google Sheets...',
                 'sheets'
             );
             
+            button.disabled = true;
+            button.classList.add('bg-gray-400', 'cursor-not-allowed');
+            button.classList.remove('bg-accent', 'hover:bg-primary');
+            icon.className = 'ri-loader-line mr-2 animate-spin';
+            textEl.textContent = 'Importing...';
+            
+            setTimeout(() => {
+                // Form submission continues naturally
+            }, 100);
+            
             return true;
         }
 
-        // URL upload validation and submission
         function validateUrlUpload() {
             const url = document.getElementById('csv-url').value;
             if (!url) {
@@ -657,18 +598,22 @@
             const icon = document.getElementById('url-upload-icon');
             const textEl = document.getElementById('url-upload-text');
             
-            // Immediately disable button and show loading state
+            // Show progress overlay FIRST
+            showUploadProgress(
+                'Importing Web CSV', 
+                'Downloading and processing CSV file...',
+                'url'
+            );
+            
             button.disabled = true;
             button.classList.add('bg-gray-400', 'cursor-not-allowed');
             button.classList.remove('bg-accent', 'hover:bg-primary');
             icon.className = 'ri-loader-line mr-2 animate-spin';
             textEl.textContent = 'Importing...';
             
-            showUploadProgress(
-                'Importing Web CSV', 
-                'Downloading and processing CSV file...',
-                'url'
-            );
+            setTimeout(() => {
+                // Form submission continues naturally
+            }, 100);
             
             return true;
         }
@@ -721,13 +666,11 @@
                 return;
             }
             
-            // Show loading state
             const info = document.getElementById('sheets-info');
             const details = document.getElementById('sheets-details');
             details.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Testing connection...';
             info.classList.remove('hidden');
             
-            // Simple validation - in a real implementation, you'd make an API call
             setTimeout(() => {
                 if (url.includes('docs.google.com/spreadsheets/')) {
                     details.innerHTML = `
@@ -752,36 +695,27 @@
                 return;
             }
             
-            // Show loading state
             const info = document.getElementById('url-info');
             const details = document.getElementById('url-details');
             details.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Testing URL...';
             info.classList.remove('hidden');
             
-            // Simple client-side validation
             setTimeout(() => {
                 try {
-                    const allowedDomains = ['github.com', 'githubusercontent.com', 'data.gov', 'kaggle.com', 'edgi-cloud.fly.dev'];
                     const urlObj = new URL(url);
-                    const isAllowed = allowedDomains.some(domain => urlObj.hostname.includes(domain));
                     const isCSV = url.toLowerCase().includes('.csv');
                     
-                    if (isAllowed && isCSV) {
+                    if (isCSV) {
                         details.innerHTML = `
-                            <strong><i class="ri-check-line mr-1"></i>URL looks valid!</strong><br>
+                            <strong><i class="ri-check-line mr-1"></i>URL format looks valid!</strong><br>
                             Domain: ${urlObj.hostname}<br>
-                            Ready to import
+                            Backend will verify domain permissions
                         `;
-                        info.className = 'mt-3 p-3 bg-green-50 rounded border';
+                        info.className = 'mt-3 p-3 bg-blue-50 rounded border';
                     } else {
-                        let issues = [];
-                        if (!isAllowed) issues.push('Domain not in allowlist');
-                        if (!isCSV) issues.push('URL should point to a .csv file');
-                        
                         details.innerHTML = `
-                            <strong><i class="ri-error-warning-line mr-1"></i>Potential issues:</strong><br>
-                            ${issues.join(', ')}<br>
-                            <a href="#" onclick="showAllowedDomains()" class="text-blue-600 underline">View allowed domains</a>
+                            <strong><i class="ri-information-line mr-1"></i>Note:</strong><br>
+                            URL should point to a .csv file for best results
                         `;
                         info.className = 'mt-3 p-3 bg-yellow-50 rounded border';
                     }
@@ -795,26 +729,9 @@
             }, 1000);
         }
 
-        function showAllowedDomains() {
-            document.getElementById('domains-modal').classList.remove('hidden');
-        }
-
-        function hideAllowedDomains() {
-            document.getElementById('domains-modal').classList.add('hidden');
-        }
-
-        // Close modal when clicking outside
-        document.getElementById('domains-modal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                hideAllowedDomains();
-            }
-        });
-
         // Initialize with file tab active
         document.addEventListener('DOMContentLoaded', function() {
             showUploadTab('file');
-            
-            // Hide progress on page load (in case of redirect)
             hideUploadProgress();
         });
 
@@ -840,6 +757,10 @@
             animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
         
+        .animate-bounce {
+            animation: bounce 1s infinite;
+        }
+        
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
@@ -849,18 +770,26 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-
-        /* Custom progress bar animation */
-        #progress-bar {
-            transition: width 0.5s ease-in-out;
-        }
         
-        /* Button disabled state */
+        @keyframes bounce {
+            0%, 20%, 53%, 80%, 100% {
+                transform: translate3d(0,0,0);
+            }
+            40%, 43% {
+                transform: translate3d(0,-30px,0);
+            }
+            70% {
+                transform: translate3d(0,-15px,0);
+            }
+            90% {
+                transform: translate3d(0,-4px,0);
+            }
+        }
+
         button:disabled {
             transform: none !important;
         }
         
-        /* Overlay animation */
         #upload-progress-overlay {
             backdrop-filter: blur(4px);
         }

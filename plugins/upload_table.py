@@ -1035,8 +1035,7 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
             f"ULTRA: Uploaded {result['rows_inserted']:,} rows to table '{table_name}' from file '{filename}' in {result['time_elapsed']:.1f}s",
             metadata
         )
-        
-        success_msg = f"ULTRA-FAST: Successfully uploaded {result['rows_inserted']:,} rows to table '{table_name}' in {result['time_elapsed']:.1f}s ({result['rows_per_second']:,} rows/sec)"
+        success_msg = format_upload_success_message(result, table_name)
         return create_redirect_response(request, db_name, success_msg)
         
     except Exception as e:
@@ -1044,6 +1043,23 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         error_msg = await handle_upload_error_gracefully(datasette, e, "ultra_file_upload")
         return create_redirect_response(request, db_name, error_msg, is_error=True)
 
+def format_upload_success_message(result, table_name):
+    """Format upload success message with proper statistics display"""
+    rows = result['rows_inserted']
+    time_elapsed = result['time_elapsed']
+    rows_per_sec = result['rows_per_second']
+    strategy = result.get('strategy', 'standard')
+    
+    # Create formatted message with performance badge
+    if rows_per_sec > 100000:  # Ultra-fast performance
+        performance_badge = "ULTRA-FAST"
+    elif rows_per_sec > 50000:  # High performance
+        performance_badge = "HIGH-SPEED"
+    else:  # Standard performance
+        performance_badge = "SUCCESS"
+    
+    return (f"{performance_badge}: Successfully uploaded {rows:,} rows to table "
+            f"'{table_name}' in {time_elapsed:.1f}s ({rows_per_sec:,} rows/sec)")
 
 def process_excel_fallback(file_content: bytes, table_name: str, sheet_name: str, replace_existing: bool, file_path: str):
     """Fallback Excel processing for robust processor"""
