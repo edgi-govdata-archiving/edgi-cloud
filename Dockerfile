@@ -69,8 +69,8 @@ exec datasette serve "$PORTAL_DB_PATH" \\\n\
   --template-dir templates \\\n\
   --static static:static \\\n\
   --plugins-dir plugins \\\n\
-  --setting max_returned_rows 10000 \\\n\
-  --setting sql_time_limit_ms 30000 \\\n\
+  --setting max_returned_rows 3000000 \\\n\
+  --setting sql_time_limit_ms 120000 \\\n\
   --setting allow_download on\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
