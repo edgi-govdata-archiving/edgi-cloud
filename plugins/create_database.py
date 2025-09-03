@@ -207,7 +207,7 @@ async def create_empty_database(datasette, request):
     )
 
 async def create_import_database(datasette, request):
-    """FIXED: Simple database import with corrected form parsing and file size validation."""
+    """Simple database import with corrected form parsing and file size validation."""
     logger.debug(f"Create Import Database request: method={request.method}")
 
     actor = get_actor_from_request(request)
@@ -272,7 +272,7 @@ async def create_import_database(datasette, request):
                 part_str = part.decode('utf-8', errors='ignore')
                 logger.debug(f"Part {i}: {part_str[:200]}...")
 
-                # FIXED: Look for db_name field with proper parsing
+                # Look for db_name field with proper parsing
                 if 'name="db_name"' in part_str:
                     # Find content after headers (after double newline)
                     content_start = part_str.find('\r\n\r\n')
@@ -527,10 +527,232 @@ async def create_simple_homepage(datasette, db_id, db_name, actor, current_time,
     except Exception as e:
         logger.error(f"Error creating homepage for {db_name}: {e}")
 
+async def ajax_import_database_handler(datasette, request):
+    """AJAX Database Import Handler - Returns JSON response"""
+    try:
+        actor = get_actor_from_request(request)
+        if not actor:
+            return Response.json({"success": False, "error": "Authentication required"}, status=401)
+
+        # Verify user session
+        is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+        if not is_valid:
+            return Response.json({"success": False, "error": "Session invalid"}, status=401)
+
+        # Parse multipart form data using the same parser as upload_table.py
+        content_type = request.headers.get('content-type', '')
+        body = await request.post_body()
+        
+        # Validate file size early
+        max_file_size = await get_max_file_size(datasette)
+        if len(body) > max_file_size + 1024:  # Add buffer for form overhead
+            size_mb = max_file_size // (1024 * 1024)
+            actual_mb = len(body) // (1024 * 1024)
+            return Response.json({
+                "success": False, 
+                "error": f"Request too large ({actual_mb}MB). Maximum allowed: {size_mb}MB"
+            }, status=400)
+
+        # Extract boundary and parse form data
+        import re
+        boundary_match = re.search(r'boundary=([^;,\s]+)', content_type)
+        if not boundary_match:
+            return Response.json({"success": False, "error": "Invalid form data format"}, status=400)
+
+        boundary = boundary_match.group(1).strip('"')
+        boundary_bytes = f'--{boundary}'.encode()
+        
+        # Parse form parts
+        parts = body.split(boundary_bytes)
+        
+        db_name = ""
+        file_content = None
+        filename = ""
+
+        for part in parts:
+            if len(part) < 20:
+                continue
+
+            part_str = part.decode('utf-8', errors='ignore')
+            
+            # Extract db_name field
+            if 'name="db_name"' in part_str:
+                content_start = part_str.find('\r\n\r\n')
+                if content_start == -1:
+                    content_start = part_str.find('\n\n')
+                
+                if content_start != -1:
+                    content_part = part_str[content_start:].strip()
+                    db_name = content_part.replace('\r\n\r\n', '').replace('\n\n', '').strip()
+                    db_name = db_name.rstrip('-\r\n ')
+
+            # Extract file field
+            elif 'name="database_file"' in part_str and 'filename=' in part_str:
+                filename_match = re.search(r'filename="([^"]*)"', part_str)
+                if filename_match:
+                    filename = filename_match.group(1)
+
+                binary_start = part.find(b'\r\n\r\n')
+                if binary_start != -1:
+                    file_content = part[binary_start + 4:].rstrip(b'\r\n')
+
+        # Validate extracted data
+        if not db_name:
+            return Response.json({"success": False, "error": "Database name is required"}, status=400)
+
+        if not filename or not file_content:
+            return Response.json({"success": False, "error": "Please select a database file"}, status=400)
+
+        if len(file_content) > max_file_size:
+            size_mb = max_file_size // (1024 * 1024)
+            actual_mb = len(file_content) // (1024 * 1024)
+            return Response.json({
+                "success": False, 
+                "error": f"File too large ({actual_mb}MB). Maximum allowed: {size_mb}MB"
+            }, status=400)
+
+        # Validate file extension
+        allowed_extensions = ['.db', '.sqlite', '.sqlite3']
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in allowed_extensions:
+            return Response.json({
+                "success": False, 
+                "error": f"Invalid file type '{ext}'. Allowed: {', '.join(allowed_extensions)}"
+            }, status=400)
+
+        # Validate database name
+        is_valid_name, name_error = validate_database_name(db_name)
+        if not is_valid_name:
+            return Response.json({"success": False, "error": name_error}, status=400)
+
+        # Check if name is available
+        is_available = await check_database_name_available(datasette, db_name)
+        if not is_available:
+            return Response.json({
+                "success": False, 
+                "error": f"Database name '{db_name}' already exists. Please choose a different name."
+            }, status=400)
+
+        user_id = actor.get("id")
+        
+        # Check database limit
+        query_db = datasette.get_database('portal')
+        result = await query_db.execute(
+            "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status != 'Deleted'", 
+            [user_id]
+        )
+        db_count = result.first()[0]
+        max_databases = await get_max_databases_per_user(datasette)
+        if db_count >= max_databases:
+            return Response.json({
+                "success": False, 
+                "error": f"Maximum {max_databases} databases per user reached"
+            }, status=400)
+
+        # Process database import
+        logger.info(f"Starting AJAX database import for: {db_name}")
+        
+        # Create user directory
+        user_dir = os.path.join(DATA_DIR, user_id)
+        os.makedirs(user_dir, exist_ok=True)
+        
+        # Create file path
+        db_path = os.path.join(user_dir, f"{db_name}.db")
+        
+        # Write file
+        with open(db_path, 'wb') as f:
+            f.write(file_content)
+        
+        # Validate SQLite file
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            conn.close()
+            
+            if not tables:
+                os.remove(db_path)
+                return Response.json({
+                    "success": False, 
+                    "error": "Database file contains no tables"
+                }, status=400)
+            
+            table_count = len(tables)
+            
+        except Exception as sqlite_error:
+            if os.path.exists(db_path):
+                os.remove(db_path)
+            return Response.json({
+                "success": False, 
+                "error": f"Invalid SQLite database: {str(sqlite_error)}"
+            }, status=400)
+
+        # Register in database
+        db_id = uuid.uuid4().hex[:20]
+        website_url = generate_website_url(request, db_name)
+        current_time = datetime.utcnow().isoformat()
+        
+        await query_db.execute_write(
+            "INSERT INTO databases (db_id, user_id, db_name, website_url, status, created_at, updated_at, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [db_id, user_id, db_name, website_url, "Draft", current_time, current_time, db_path]
+        )
+        
+        # Create homepage
+        await create_simple_homepage(datasette, db_id, db_name, actor, current_time, table_count, "import")
+        
+        # Register with Datasette
+        try:
+            from datasette.database import Database
+            db_instance = Database(datasette, path=db_path, is_mutable=True)
+            datasette.add_database(db_instance, name=db_name)
+            logger.info(f"Successfully registered imported database: {db_name}")
+        except Exception as reg_error:
+            logger.error(f"Error registering imported database {db_name}: {reg_error}")
+
+        # Log activity
+        await log_database_action(
+            datasette, user_id, "ajax_import_database", 
+            f"Imported database {db_name} from file {filename} with {table_count} tables",
+            {
+                "db_name": db_name,
+                "db_id": db_id,
+                "filename": filename,
+                "file_size": len(file_content),
+                "table_count": table_count
+            }
+        )
+        
+        file_size_mb = len(file_content) / (1024 * 1024)
+        success_message = f"SUCCESS: Database '{db_name}' imported successfully from {filename}! Contains {table_count} tables ({file_size_mb:.1f}MB processed)."
+        
+        return Response.json({
+            "success": True,
+            "message": success_message,
+            "stats": f"{table_count} tables • {file_size_mb:.1f}MB • Import complete",
+            "redirect_url": "/manage-databases"
+        })
+
+    except Exception as e:
+        logger.error(f"AJAX database import error: {str(e)}")
+        import traceback
+        logger.error(f"Error traceback: {traceback.format_exc()}")
+        
+        # Clean up file if it was created
+        if 'db_path' in locals() and os.path.exists(db_path):
+            try:
+                os.remove(db_path)
+            except:
+                pass
+                
+        return Response.json({"success": False, "error": f"Import failed: {str(e)}"}, status=500)
+
 @hookimpl
 def register_routes():
     """Register database creation routes."""
     return [
         (r"^/create-empty-database$", create_empty_database),
         (r"^/create-import-database$", create_import_database),
+        (r"^/ajax-import-database$", ajax_import_database_handler),
     ]

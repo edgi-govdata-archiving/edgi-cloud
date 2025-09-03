@@ -59,9 +59,6 @@
       "longitude": "longitude",
       "geojson": true
     },
-    "datasette-render-markdown": {
-      "columns": ["report", "popup", "description", "notes", "comments", "summary", "details", "id", "file_key", "datasette_link"]
-    },
     "datasette-auth-tokens": {
       "secret_key": "fd93c677e08304855095d266835d86c9a2eadda209d6c2c9fe0bea65fe0941d4"
     },

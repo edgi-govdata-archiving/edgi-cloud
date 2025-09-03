@@ -530,14 +530,35 @@
                 }, 1000);
             }
 
-            cancelUpload() {
-                if (this.currentXHR) {
-                    this.currentXHR.abort();
-                    this.currentXHR = null;
+                cancelUpload() {
+                    console.log('Cancelling upload...');
+                    
+                    // Cancel any ongoing fetch requests
+                    if (this.abortController) {
+                        this.abortController.abort();
+                        this.abortController = null;
+                    }
+                    
+                    // Cancel XHR requests
+                    if (this.currentXHR) {
+                        this.currentXHR.abort();
+                        this.currentXHR = null;
+                    }
+                    
+                    // Clear timers
+                    if (this.progressTimer) {
+                        clearInterval(this.progressTimer);
+                        this.progressTimer = null;
+                    }
+                    
+                    this.isUploading = false;
+                    this.showResult('Upload cancelled', 'error');
+                    
+                    // Hide progress after 2 seconds
+                    setTimeout(() => {
+                        this.hideProgress();
+                    }, 2000);
                 }
-                this.showResult('Upload cancelled by user', 'error');
-                setTimeout(() => this.hideProgress(), 2000);
-            }
 
             showResult(message, type) {
                 const uploadResult = document.getElementById('upload-result');
@@ -614,11 +635,6 @@
                 const formData = new FormData(formElement);
                 const csvUrl = formData.get('csv_url');
                 
-                console.log('Form data contents:');
-                for (let [key, value] of formData.entries()) {
-                    console.log(`${key}: ${value}`);
-                }
-                
                 if (!csvUrl) {
                     alert('Please enter a CSV URL');
                     return;
@@ -631,14 +647,32 @@
                     return;
                 }
 
-                this.showProgress('Importing Web CSV', 'Downloading and processing CSV...', 'url');
+                // FIXED: Show progress immediately for URL downloads
+                this.showProgress('Downloading CSV', 'Fetching data from URL...', 'url');
 
                 try {
-                    const response = await this.sendAjaxRequest(`/ajax-upload-url/${dbName}`, formData);
-                    this.handleUploadSuccess(response);
+                    // FIXED: Add abort controller for cancellation
+                    this.abortController = new AbortController();
+                    
+                    const response = await fetch(`/ajax-upload-url/${dbName}`, {
+                        method: 'POST',
+                        body: formData,
+                        signal: this.abortController.signal  // Enable cancellation
+                    });
+
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        this.handleUploadSuccess(result);
+                    } else {
+                        this.handleUploadError(new Error(result.error));
+                    }
                 } catch (error) {
-                    console.error('URL upload error:', error);
-                    this.handleUploadError(error);
+                    if (error.name === 'AbortError') {
+                        this.showResult('Download cancelled by user', 'error');
+                    } else {
+                        this.handleUploadError(error);
+                    }
                 }
             }
 
@@ -739,7 +773,20 @@
             }
 
             handleUploadError(error) {
-                this.showResult(`Upload failed: ${error.message}`, 'error');
+                console.error('Upload error details:', error);
+                
+                let errorMessage = 'Upload failed';
+                if (error.message.includes('timeout') || error.message.includes('Timeout')) {
+                    errorMessage = 'Upload timed out - file may be too large or server too slow';
+                } else if (error.message.includes('Network error')) {
+                    errorMessage = 'Network connection failed - check your internet connection';
+                } else if (error.message.includes('cancelled')) {
+                    errorMessage = 'Upload was cancelled';
+                } else {
+                    errorMessage = `Upload failed: ${error.message}`;
+                }
+                
+                this.showResult(errorMessage, 'error');
                 setTimeout(() => this.hideProgress(), 3000);
             }
         }
