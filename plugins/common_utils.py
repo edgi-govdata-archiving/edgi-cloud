@@ -1,7 +1,7 @@
 """
 Common Utilities Module for EDGI Datasette Cloud Portal
-Shared functions across all backend modules to eliminate code duplication
-UPDATED: Enhanced error handling, URL sanitization, and upload utilities
+Provides shared functionality for database management, user authentication,
+content management, and utility functions used across all modules.
 """
 
 import json
@@ -30,34 +30,37 @@ if PLUGINS_DIR not in sys.path:
     sys.path.insert(0, PLUGINS_DIR)
 
 async def get_system_settings(datasette):
-    """Get system settings with proper error handling and defaults."""
+    """
+    Retrieve system settings from the database with fallback defaults.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        dict: System settings with keys like trash_retention_days, max_databases_per_user, etc.
+    """
     try:
         query_db = datasette.get_database('portal')
         
-        # Get all settings from the system_settings table
         result = await query_db.execute("SELECT setting_key, setting_value FROM system_settings")
         
-        # Convert to dictionary with defaults
         settings = {}
         for row in result:
-            row_dict = dict(row)  # Convert Row to dict
+            row_dict = dict(row)
             settings[row_dict['setting_key']] = row_dict['setting_value']
         
-        # Apply defaults for any missing settings
         defaults = {
             'trash_retention_days': 30,
             'max_databases_per_user': 10,
-            'max_file_size': 524288000,  # 500MB fallback only if DB has no setting
+            'max_file_size': 524288000,  # 500MB
             'max_img_size': 5242880,    # 5MB
             'allowed_extensions': '.jpg, .jpeg, .png, .csv, .xls, .xlsx, .txt'
         }
         
-        # FIXED: Ensure all required settings exist with proper type conversion
         for key, default_value in defaults.items():
             if key not in settings:
                 settings[key] = default_value
             else:
-                # Type conversion for numeric settings
                 if key in ['trash_retention_days', 'max_databases_per_user', 'max_file_size', 'max_img_size']:
                     try:
                         settings[key] = int(settings[key])
@@ -70,7 +73,6 @@ async def get_system_settings(datasette):
         
     except Exception as e:
         logger.error(f"Error getting system settings: {e}")
-        # Return all defaults if there's an error
         return {
             'trash_retention_days': 30,
             'max_databases_per_user': 10,
@@ -80,7 +82,15 @@ async def get_system_settings(datasette):
         }
 
 async def get_trash_retention_days(datasette):
-    """Get trash retention days specifically."""
+    """
+    Get the number of days databases are retained in trash before auto-deletion.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        int: Number of retention days (default: 30)
+    """
     try:
         settings = await get_system_settings(datasette)
         return settings.get('trash_retention_days', 30)
@@ -89,7 +99,15 @@ async def get_trash_retention_days(datasette):
         return 30
 
 async def get_max_databases_per_user(datasette):
-    """Get max databases per user."""
+    """
+    Get the maximum number of databases allowed per user.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        int: Maximum databases per user (default: 10)
+    """
     try:
         settings = await get_system_settings(datasette)
         return settings.get('max_databases_per_user', 10)
@@ -98,21 +116,37 @@ async def get_max_databases_per_user(datasette):
         return 10
 
 async def get_max_file_size(datasette):
-    """Get max file size in bytes."""
+    """
+    Get the maximum allowed file upload size in bytes.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        int: Maximum file size in bytes (default: 500MB)
+    """
     try:
         settings = await get_system_settings(datasette)
-        max_file_size = settings.get('max_file_size')        # 500MB fallback
+        max_file_size = settings.get('max_file_size')
         
         if isinstance(max_file_size, str):
             max_file_size = int(max_file_size)
         
         return max_file_size
     except Exception as e:
-        logger.error(f"Error getting max image size: {e}")
+        logger.error(f"Error getting max file size: {e}")
         return 524288000  # 500MB
 
 async def get_max_image_size(datasette):
-    """Get max image size in bytes."""
+    """
+    Get the maximum allowed image upload size in bytes.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        int: Maximum image size in bytes (default: 5MB)
+    """
     try:
         settings = await get_system_settings(datasette)
         max_img_size = settings.get('max_img_size')
@@ -126,7 +160,15 @@ async def get_max_image_size(datasette):
         return 5242880  # 5MB
     
 async def get_allowed_extensions(datasette):
-    """Get allowed file extensions."""
+    """
+    Get the list of allowed file extensions for uploads.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        str: Comma-separated list of allowed extensions
+    """
     try:
         settings = await get_system_settings(datasette)
         return settings.get('allowed_extensions', '.jpg,.png,.csv,.xls,.xlsx,.txt')
@@ -135,14 +177,22 @@ async def get_allowed_extensions(datasette):
         return '.jpg,.png,.csv,.xls,.xlsx,.txt'
 
 async def get_blocked_domains(datasette):
-    """Get blocked domains list."""
+    """
+    Get list of blocked domains for URL uploads.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        list: List of blocked domain dictionaries with domain, created_at, created_by
+    """
     try:
         query_db = datasette.get_database('portal')
         result = await query_db.execute("SELECT domain, created_at, created_by FROM blocked_domains ORDER BY created_at DESC")
         
         blocked_domains = []
         for row in result:
-            row_dict = dict(row)  # Convert Row to dict
+            row_dict = dict(row)
             blocked_domains.append(row_dict)
         
         return blocked_domains
@@ -152,7 +202,16 @@ async def get_blocked_domains(datasette):
         return []
 
 async def is_domain_blocked(datasette, domain):
-    """Check if a domain is in the blocked list."""
+    """
+    Check if a domain is blocked for URL uploads.
+    
+    Args:
+        datasette: Datasette instance
+        domain (str): Domain name to check
+        
+    Returns:
+        bool: True if domain is blocked, False otherwise
+    """
     try:
         query_db = datasette.get_database('portal')
         result = await query_db.execute("SELECT COUNT(*) FROM blocked_domains WHERE domain = ?", [domain])
@@ -163,8 +222,13 @@ async def is_domain_blocked(datasette, domain):
 
 def get_actor_from_request(request):
     """
-    Extract actor from ds_actor cookie - centralized implementation.
-    Used across all modules for authentication.
+    Extract user authentication data from request cookies.
+    
+    Args:
+        request: ASGI request object
+        
+    Returns:
+        dict or None: Actor data with id, username, role, or None if not authenticated
     """
     actor = request.scope.get("actor")
     if actor:
@@ -210,7 +274,14 @@ def get_actor_from_request(request):
     return None
 
 def set_actor_cookie(response, datasette, actor_data):
-    """Set actor cookie on response - centralized implementation."""
+    """
+    Set authentication cookie on response with user data.
+    
+    Args:
+        response: HTTP response object
+        datasette: Datasette instance
+        actor_data (dict): User data to encode in cookie
+    """
     try:
         encoded = base64.b64encode(json.dumps(actor_data).encode('utf-8')).decode('utf-8')
         response.set_cookie("ds_actor", encoded, httponly=True, max_age=3600, samesite="lax")
@@ -219,7 +290,16 @@ def set_actor_cookie(response, datasette, actor_data):
         response.set_cookie("ds_actor", f"user_{actor_data.get('id', '')}", httponly=True, max_age=3600, samesite="lax")
 
 async def log_user_activity(datasette, user_id, action, details, metadata=None):
-    """Enhanced logging with metadata support for user actions."""
+    """
+    Log user activity to the activity_logs table.
+    
+    Args:
+        datasette: Datasette instance
+        user_id (str): User identifier
+        action (str): Action type
+        details (str): Action description
+        metadata (dict, optional): Additional metadata to log as JSON
+    """
     try:
         query_db = datasette.get_database("portal")
         log_data = {
@@ -241,7 +321,16 @@ async def log_user_activity(datasette, user_id, action, details, metadata=None):
         logger.error(f"Error logging user action: {e}")
 
 async def log_database_action(datasette, user_id, action, details, metadata=None):
-    """Enhanced logging with metadata support for database actions."""
+    """
+    Log database-related actions to the activity_logs table.
+    
+    Args:
+        datasette: Datasette instance
+        user_id (str): User identifier performing the action
+        action (str): Database action type (e.g., 'create_database', 'delete_database')
+        details (str): Action description
+        metadata (dict, optional): Additional metadata to log as JSON
+    """
     try:
         query_db = datasette.get_database("portal")
         log_data = {
@@ -264,8 +353,14 @@ async def log_database_action(datasette, user_id, action, details, metadata=None
 
 async def verify_user_session(datasette, actor):
     """
-    Verify user session and return user info.
-    Returns tuple: (is_valid, user_data, redirect_response)
+    Verify that a user session is valid by checking against the database.
+    
+    Args:
+        datasette: Datasette instance
+        actor (dict): Actor data from cookie
+        
+    Returns:
+        tuple: (is_valid: bool, user_data: dict or None, redirect_response or None)
     """
     if not actor:
         return False, None, None
@@ -285,7 +380,6 @@ async def verify_user_session(datasette, actor):
             response.set_cookie("ds_actor", "", httponly=True, expires=0, samesite="lax")
             return False, None, response
         
-        # Verify role matches
         if user["role"] != actor.get("role"):
             logger.warning(f"Role mismatch for user_id={actor.get('id')}: db_role={user['role']}, cookie_role={actor.get('role')}")
             from datasette.utils.asgi import Response
@@ -304,8 +398,13 @@ async def verify_user_session(datasette, actor):
 
 async def get_portal_content(datasette):
     """
-    Get portal content for templates - handles both portal and database-specific content.
-    Returns a dictionary with all content sections.
+    Get portal-wide content sections (title, header_image, info, footer).
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        dict: Content sections with keys: title, header_image, info, footer
     """
     query_db = datasette.get_database('portal')
     
@@ -333,7 +432,6 @@ async def get_portal_content(datasette):
                 return {}
         return {}
 
-    # Default content structure
     content = {
         'title': await get_section("title") or {'content': 'Resette Cloud Portal'},
         'header_image': await get_section("header_image") or {
@@ -357,7 +455,16 @@ async def get_portal_content(datasette):
     return content
 
 async def get_database_content(datasette, db_name):
-    """Get homepage content for a specific database with proper header image handling."""
+    """
+    Get database-specific content sections (title, description, header_image, footer).
+    
+    Args:
+        datasette: Datasette instance
+        db_name (str): Database name
+        
+    Returns:
+        dict: Database content sections
+    """
     query_db = datasette.get_database('portal')
     content = {}
     
@@ -379,24 +486,21 @@ async def get_database_content(datasette, db_name):
     except Exception as e:
         logger.error(f"Error loading admin content for {db_name}: {e}")
     
-    # Set defaults
     if 'title' not in content:
         content['title'] = {'content': db_name.replace('_', ' ').replace('-', ' ').title()}
     
     if 'description' not in content:
         content['description'] = {'content': 'Environmental data dashboard powered by Datasette.'}
     
-    # FIXED: Proper header image handling with correct paths
     if 'header_image' not in content:
         db_result = await query_db.execute("SELECT db_id FROM databases WHERE db_name = ?", [db_name])
         db_row = db_result.first()
         if db_row:
             db_id = db_row['db_id']
-            # Check if custom header exists in the correct location
             custom_header_path = os.path.join(DATA_DIR, db_id, 'header.jpg')
             if os.path.exists(custom_header_path):
                 content['header_image'] = {
-                    'image_url': f'/data/{db_id}/header.jpg',  # Use our custom route
+                    'image_url': f'/data/{db_id}/header.jpg',
                     'alt_text': 'Environmental Data',
                     'credit_text': 'Environmental Data Portal',
                     'credit_url': ''
@@ -417,7 +521,6 @@ async def get_database_content(datasette, db_name):
             'paragraphs': parse_markdown_links('Made with \u2764\ufe0f by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/).')
         }
     
-    # Parse markdown for description and footer
     if 'content' in content.get('description', {}):
         content['description']['paragraphs'] = parse_markdown_links(content['description']['content'])
         content['info'] = {
@@ -431,11 +534,19 @@ async def get_database_content(datasette, db_name):
     return content
 
 async def get_database_statistics(datasette, user_id=None):
-    """Get enhanced database statistics for homepage with encoding safety - excludes deleted databases."""
+    """
+    Get database statistics for the portal or a specific user.
+    
+    Args:
+        datasette: Datasette instance
+        user_id (str, optional): User ID to get user-specific stats
+        
+    Returns:
+        dict: Statistics including total_databases, published_databases, featured_databases, etc.
+    """
     try:
         db = datasette.get_database("portal")
         
-        # Initialize default values
         stats = {
             'total_databases': 0,
             'published_databases': 0,
@@ -446,7 +557,6 @@ async def get_database_statistics(datasette, user_id=None):
         }
         
         try:
-            # Total active databases (not deleted or trashed) - EXCLUDE 'Deleted' status
             total_result = await db.execute(
                 "SELECT COUNT(*) FROM databases WHERE status IN ('Draft', 'Published', 'Unpublished')"
             )
@@ -455,7 +565,6 @@ async def get_database_statistics(datasette, user_id=None):
             logger.error(f"Error getting total databases: {e}")
         
         try:
-            # Published databases - EXCLUDE 'Deleted' status
             published_result = await db.execute(
                 "SELECT COUNT(*) FROM databases WHERE status = 'Published'"
             )
@@ -463,10 +572,8 @@ async def get_database_statistics(datasette, user_id=None):
         except Exception as e:
             logger.error(f"Error getting published databases: {e}")
         
-        # User-specific statistics if user_id provided
         if user_id:
             try:
-                # User active databases - EXCLUDE 'Deleted' status
                 user_result = await db.execute(
                     "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status IN ('Draft', 'Published', 'Unpublished')", 
                     [user_id]
@@ -476,7 +583,6 @@ async def get_database_statistics(datasette, user_id=None):
                 logger.error(f"Error getting user databases for {user_id}: {e}")
             
             try:
-                # User published databases - EXCLUDE 'Deleted' status
                 user_published_result = await db.execute(
                     "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Published'", 
                     [user_id]
@@ -486,7 +592,6 @@ async def get_database_statistics(datasette, user_id=None):
                 logger.error(f"Error getting user published databases for {user_id}: {e}")
             
             try:
-                # User trashed databases - EXCLUDE 'Deleted' status
                 user_trashed_result = await db.execute(
                     "SELECT COUNT(*) FROM databases WHERE user_id = ? AND status = 'Trashed'", 
                     [user_id]
@@ -496,14 +601,12 @@ async def get_database_statistics(datasette, user_id=None):
                 logger.error(f"Error getting user trashed databases for {user_id}: {e}")
         
         try:
-            # Featured databases for homepage - only get essential fields, EXCLUDE 'Deleted' status
             featured_result = await db.execute(
                 "SELECT db_id, db_name, website_url, status FROM databases WHERE status = 'Published' ORDER BY created_at DESC LIMIT 50"
             )
             stats['featured_databases'] = []
             for row in featured_result:
                 try:
-                    # Safely convert each row
                     db_dict = {
                         'db_id': str(row['db_id']) if row['db_id'] else '',
                         'db_name': str(row['db_name']) if row['db_name'] else '',
@@ -522,7 +625,6 @@ async def get_database_statistics(datasette, user_id=None):
         
     except Exception as e:
         logger.error(f"Error fetching database statistics: {str(e)}")
-        # Return safe defaults
         return {
             'total_databases': 0,
             'published_databases': 0,
@@ -533,9 +635,18 @@ async def get_database_statistics(datasette, user_id=None):
         }
 
 async def get_detailed_database_stats(datasette, db_name, user_id):
-    """Get detailed statistics for a specific database."""
+    """
+    Get detailed statistics for a specific database.
+    
+    Args:
+        datasette: Datasette instance
+        db_name (str): Database name
+        user_id (str): User ID (for file path construction)
+        
+    Returns:
+        dict: Detailed stats including table_count, total_records, file_size_kb, tables list
+    """
     try:
-        # Get database file path
         file_path = os.path.join(DATA_DIR, user_id, f"{db_name}.db")
         
         stats = {
@@ -547,10 +658,9 @@ async def get_detailed_database_stats(datasette, db_name, user_id):
         
         if os.path.exists(file_path):
             try:
-                # Get file size
                 stats['file_size_kb'] = round(os.path.getsize(file_path) / 1024, 2)
                 
-                # Open database and get table information
+                import sqlite_utils
                 user_db = sqlite_utils.Database(file_path)
                 table_names = user_db.table_names()
                 stats['table_count'] = len(table_names)
@@ -584,11 +694,18 @@ async def get_detailed_database_stats(datasette, db_name, user_id):
         }
 
 async def get_all_published_databases(datasette):
-    """Get all published databases with metadata for public listing - excludes deleted databases."""
+    """
+    Get all published databases with their content and statistics.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        list: List of published database dictionaries with title, description, url, etc.
+    """
     try:
         db = datasette.get_database("portal")
         
-        # Get all published databases with user info - EXCLUDE 'Deleted' status
         all_dbs_result = await db.execute(
             """SELECT d.db_id, d.db_name, d.website_url, d.created_at, u.username, d.user_id, d.file_path
                FROM databases d 
@@ -599,23 +716,21 @@ async def get_all_published_databases(datasette):
         
         all_databases = []
         for row in all_dbs_result:
-            # Get database content for custom titles/descriptions
             try:
                 db_content = await get_database_content(datasette, row['db_name'])
             except Exception as content_error:
                 logger.error(f"Error getting content for {row['db_name']}: {content_error}")
                 db_content = {}
             
-            # Get table count and record count for each database
             table_count = 0
             total_records = 0
             try:
-                # Build file path if not available
                 file_path = row.get('file_path')
                 if not file_path:
                     file_path = os.path.join(DATA_DIR, row['user_id'], f"{row['db_name']}.db")
                 
                 if file_path and os.path.exists(file_path):
+                    import sqlite_utils
                     user_db = sqlite_utils.Database(file_path)
                     table_names = user_db.table_names()
                     table_count = len(table_names)
@@ -649,14 +764,29 @@ async def get_all_published_databases(datasette):
     except Exception as e:
         logger.error(f"Error getting all published databases: {e}")
         return []
-    
+
 def sanitize_text(text):
-    """Sanitize text by stripping HTML tags while preserving safe characters."""
+    """
+    Remove HTML tags and potentially dangerous content from text.
+    
+    Args:
+        text (str): Text to sanitize
+        
+    Returns:
+        str: Sanitized text with HTML tags removed
+    """
     return bleach.clean(text, tags=[], strip=True)
 
 def parse_markdown_links(text):
-    """Enhanced markdown parser that handles links, bold, italic, and lists."""
-    # Split text into blocks (separated by double newlines OR single newlines for lists)
+    """
+    Parse markdown-style text into HTML paragraphs with support for links, lists, and formatting.
+    
+    Args:
+        text (str): Markdown-style text to parse
+        
+    Returns:
+        list: List of HTML strings (paragraphs, lists, etc.)
+    """
     blocks = []
     current_block = []
     lines = text.split('\n')
@@ -665,7 +795,7 @@ def parse_markdown_links(text):
     while i < len(lines):
         line = lines[i].strip()
         
-        if not line:  # Empty line
+        if not line:
             if current_block:
                 blocks.append('\n'.join(current_block))
                 current_block = []
@@ -673,7 +803,6 @@ def parse_markdown_links(text):
             current_block.append(line)
         i += 1
     
-    # Don't forget the last block
     if current_block:
         blocks.append('\n'.join(current_block))
     
@@ -685,17 +814,14 @@ def parse_markdown_links(text):
             
         lines = [line.strip() for line in block.split('\n') if line.strip()]
         
-        # Check if this block is a list
         bullet_lines = [line for line in lines if line.startswith(('- ', '* '))]
         numbered_lines = [line for line in lines if re.match(r'^\d+\.\s', line)]
         
-        # More flexible list detection - if majority are list items, treat as list
         if len(bullet_lines) >= 2:
-            # Handle as bullet list
             list_items = []
             for line in lines:
                 if line.startswith(('- ', '* ')):
-                    item_text = line[2:].strip()  # Remove "- " or "* "
+                    item_text = line[2:].strip()
                     item_text = apply_inline_formatting(item_text)
                     list_items.append(f'<li>{item_text}</li>')
             
@@ -703,11 +829,10 @@ def parse_markdown_links(text):
                 parsed_blocks.append(f'<ul>{"".join(list_items)}</ul>')
             
         elif len(numbered_lines) >= 2:
-            # Handle as numbered list
             list_items = []
             for line in lines:
                 if re.match(r'^\d+\.\s', line):
-                    item_text = re.sub(r'^\d+\.\s', '', line).strip()  # Remove "1. "
+                    item_text = re.sub(r'^\d+\.\s', '', line).strip()
                     item_text = apply_inline_formatting(item_text)
                     list_items.append(f'<li>{item_text}</li>')
             
@@ -715,7 +840,6 @@ def parse_markdown_links(text):
                 parsed_blocks.append(f'<ol>{"".join(list_items)}</ol>')
             
         else:
-            # Handle as regular paragraph
             paragraph_text = ' '.join(lines)
             formatted_text = apply_inline_formatting(paragraph_text)
             parsed_blocks.append(formatted_text)
@@ -723,23 +847,38 @@ def parse_markdown_links(text):
     return parsed_blocks
 
 def apply_inline_formatting(text):
-    """Apply inline formatting (links, bold, italic) to text."""
-    # Handle links: [text](url)
+    """
+    Apply inline markdown formatting (links, bold, italic) to text.
+    
+    Args:
+        text (str): Text with markdown formatting
+        
+    Returns:
+        str: HTML-formatted text
+    """
     link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
     text = link_pattern.sub(lambda m: f'<a href="{sanitize_text(m.group(2))}">{sanitize_text(m.group(1))}</a>', text)
     
-    # Handle bold: **text**
     bold_pattern = re.compile(r'\*\*([^*]+)\*\*')
     text = bold_pattern.sub(r'<strong>\1</strong>', text)
     
-    # Handle italic: *text* (but not if it's part of **text**)
     italic_pattern = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
     text = italic_pattern.sub(r'<em>\1</em>', text)
     
     return text
 
 async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
-    """Check if database name is globally unique, excluding deleted databases."""
+    """
+    Check if a database name is unique in the system.
+    
+    Args:
+        datasette: Datasette instance
+        db_name (str): Database name to check
+        exclude_db_id (str, optional): Database ID to exclude from check (for updates)
+        
+    Returns:
+        bool: True if name is unique, False if already exists
+    """
     db = datasette.get_database("portal")
     if exclude_db_id:
         result = await db.execute(
@@ -754,7 +893,16 @@ async def check_database_name_unique(datasette, db_name, exclude_db_id=None):
     return result.first()[0] == 0
 
 async def check_database_name_available(datasette, db_name):
-    """Check if database name is available for new creation (not reserved by active/trash databases)."""
+    """
+    Check if a database name is available for new databases.
+    
+    Args:
+        datasette: Datasette instance
+        db_name (str): Database name to check
+        
+    Returns:
+        bool: True if available, False if taken
+    """
     db = datasette.get_database("portal")
     result = await db.execute(
         "SELECT COUNT(*) FROM databases WHERE db_name = ? AND status IN ('Draft', 'Published', 'Unpublished', 'Trashed')", 
@@ -763,7 +911,17 @@ async def check_database_name_available(datasette, db_name):
     return result.first()[0] == 0
 
 async def user_owns_database(datasette, user_id, db_name):
-    """Verify user owns the database"""
+    """
+    Check if a user owns a specific database.
+    
+    Args:
+        datasette: Datasette instance
+        user_id (str): User identifier
+        db_name (str): Database name
+        
+    Returns:
+        bool: True if user owns the database, False otherwise
+    """
     try:     
         portal_db = datasette.get_database("portal")
         result = await portal_db.execute(
@@ -777,21 +935,23 @@ async def user_owns_database(datasette, user_id, db_name):
 
 def validate_database_name(db_name):
     """
-    UPDATED: Validate database name format - now allows hyphens.
-    Returns (is_valid, error_message)
+    Validate database name format and constraints.
+    
+    Args:
+        db_name (str): Database name to validate
+        
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
     """
     if not db_name:
         return False, "Database name is required"
     
-    # Allow lowercase letters, numbers, underscores, and hyphens
     if not re.match(r'^[a-z0-9_-]+$', db_name):
         return False, "Database name must contain only lowercase letters, numbers, underscores, and hyphens"
     
-    # Cannot start or end with hyphen or underscore
     if db_name.startswith(('-', '_')) or db_name.endswith(('-', '_')):
         return False, "Database name cannot start or end with hyphen or underscore"
     
-    # Cannot have consecutive hyphens or underscores
     if '--' in db_name or '__' in db_name or '-_' in db_name or '_-' in db_name:
         return False, "Database name cannot have consecutive hyphens or underscores"
     
@@ -805,8 +965,13 @@ def validate_database_name(db_name):
 
 def validate_email(email):
     """
-    Validate email format.
-    Returns (is_valid, error_message)
+    Validate email address format.
+    
+    Args:
+        email (str): Email address to validate
+        
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
     """
     if not email:
         return False, "Email address is required"
@@ -819,8 +984,13 @@ def validate_email(email):
 
 def validate_username(username):
     """
-    Validate username format.
-    Returns (is_valid, error_message)
+    Validate username format and constraints.
+    
+    Args:
+        username (str): Username to validate
+        
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
     """
     if not username:
         return False, "Username is required"
@@ -832,8 +1002,13 @@ def validate_username(username):
 
 def validate_password(password):
     """
-    Validate password strength.
-    Returns (is_valid, error_message)
+    Validate password strength requirements.
+    
+    Args:
+        password (str): Password to validate
+        
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
     """
     if not password:
         return False, "Password is required"
@@ -844,7 +1019,13 @@ def validate_password(password):
     return True, None
 
 async def update_database_timestamp(datasette, db_name):
-    """Update the updated_at timestamp for a database """
+    """
+    Update the last modified timestamp for a database by name.
+    
+    Args:
+        datasette: Datasette instance
+        db_name (str): Database name to update
+    """
     try:
         query_db = datasette.get_database('portal')
         current_time = datetime.utcnow().isoformat()
@@ -857,7 +1038,13 @@ async def update_database_timestamp(datasette, db_name):
         logger.error(f"Error updating timestamp for database {db_name}: {e}")
 
 async def update_database_timestamp_by_id(datasette, db_id):
-    """Update database timestamp by db_id"""
+    """
+    Update the last modified timestamp for a database by ID.
+    
+    Args:
+        datasette: Datasette instance
+        db_id (str): Database ID to update
+    """
     try:
         query_db = datasette.get_database('portal')
         current_time = datetime.utcnow().isoformat()
@@ -871,8 +1058,17 @@ async def update_database_timestamp_by_id(datasette, db_id):
 
 async def handle_form_errors(datasette, template_name, template_data, request, error_message):
     """
-    Standard error handling for forms.
-    Returns a Response with the error message.
+    Helper function to render templates with error messages.
+    
+    Args:
+        datasette: Datasette instance
+        template_name (str): Template file name
+        template_data (dict): Data to pass to template
+        request: HTTP request object
+        error_message (str): Error message to display
+        
+    Returns:
+        Response: HTTP response with error template
     """
     from datasette.utils.asgi import Response
     
@@ -888,8 +1084,13 @@ async def handle_form_errors(datasette, template_name, template_data, request, e
 
 async def redirect_authenticated_user(actor):
     """
-    Redirect authenticated users to appropriate dashboard.
-    Returns Response object.
+    Redirect user to appropriate page based on their role.
+    
+    Args:
+        actor (dict): User actor data
+        
+    Returns:
+        Response: Redirect response to admin panel or user dashboard
     """
     from datasette.utils.asgi import Response
     
@@ -899,26 +1100,54 @@ async def redirect_authenticated_user(actor):
         return Response.redirect("/manage-databases")
 
 def generate_website_url(request, db_name):
-    """Generate website URL for database."""
+    """
+    Generate a full website URL for a database homepage.
+    
+    Args:
+        request: HTTP request object
+        db_name (str): Database name
+        
+    Returns:
+        str: Full URL to database homepage
+    """
     scheme = request.scheme
     host = request.headers.get('host', 'localhost:8001')
     return f"{scheme}://{host}/db/{db_name}/homepage"
 
 def ensure_data_directories():
-    """Ensure required directories exist."""
+    """
+    Ensure that required data directories exist, creating them if necessary.
+    """
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(STATIC_DIR, exist_ok=True)
     logger.debug(f"Ensured data directories exist: {DATA_DIR}, {STATIC_DIR}")
 
 def get_success_error_from_request(request):
-    """Extract success and error messages from request args."""
+    """
+    Extract success and error messages from request query parameters.
+    
+    Args:
+        request: HTTP request object
+        
+    Returns:
+        dict: Dictionary with 'success' and 'error' keys from query params
+    """
     return {
         'success': request.args.get('success'),
         'error': request.args.get('error')
     }
 
 def create_feature_cards_from_databases(databases, limit):
-    """Convert database list to feature cards format."""
+    """
+    Create feature card data from database records for display.
+    
+    Args:
+        databases (list): List of database records
+        limit (int): Maximum number of cards to create
+        
+    Returns:
+        list: List of feature card dictionaries
+    """
     feature_cards = []
     for db in databases[:limit]:
         feature_cards.append({
@@ -930,7 +1159,15 @@ def create_feature_cards_from_databases(databases, limit):
     return feature_cards
 
 def create_statistics_data(stats):
-    """Create statistics array for templates."""
+    """
+    Create statistics display data from statistics dictionary.
+    
+    Args:
+        stats (dict): Statistics dictionary
+        
+    Returns:
+        list: List of statistic display items
+    """
     return [
         {
             "label": "Total Databases",
@@ -949,133 +1186,314 @@ def create_statistics_data(stats):
         }
     ]
 
-def parse_multipart_form_data(request_body, content_type):
+def is_system_table(table_name):
     """
-    FIXED: Robust multipart form parser using email parser (proven reliable).
-    Falls back to custom parser if email parser fails.
+    Check if a table name is a system table that should be hidden from users.
+    
+    Args:
+        table_name (str): Table name to check
+        
+    Returns:
+        bool: True if table is a system table, False otherwise
+    """
+    fts_suffixes = ['_fts', '_fts_data', '_fts_idx', '_fts_docsize', '_fts_config']
+    
+    for suffix in fts_suffixes:
+        if table_name.endswith(suffix):
+            return True
+    
+    system_prefixes = ['sqlite_', 'fts4aux_', 'fts5vocab_']
+    for prefix in system_prefixes:
+        if table_name.startswith(prefix):
+            return True
+    
+    return False
+
+def sanitize_url_parameter(text):
+    """
+    Sanitize text for use in URL parameters, removing dangerous characters.
+    
+    Args:
+        text (str): Text to sanitize
+        
+    Returns:
+        str: Sanitized text safe for URL parameters
+    """
+    if not text:
+        return ""
+    
+    sanitized = str(text)
+    sanitized = sanitized.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+    sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', sanitized)
+    sanitized = ' '.join(sanitized.split())
+    
+    if len(sanitized) > 200:
+        sanitized = sanitized[:197] + "..."
+    
+    sanitized = re.sub(r'[<>"\'&]', '', sanitized)
+    
+    return sanitized
+
+def create_safe_redirect_url(base_url, param_name, message, is_error=False):
+    """
+    Create a safe redirect URL with message parameters.
+    
+    Args:
+        base_url (str): Base URL to redirect to
+        param_name (str): Parameter name for the message
+        message (str): Message to include in URL
+        is_error (bool): Whether this is an error message
+        
+    Returns:
+        str: Safe redirect URL with encoded message
     """
     try:
-        # Method 1: Use email parser (most reliable)
-        return parse_multipart_with_email_parser(request_body, content_type)
-    except Exception as email_error:
-        logger.warning(f"Email parser failed: {email_error}, trying custom parser")
-        try:
-            # Method 2: Enhanced custom parser as fallback
-            return parse_multipart_custom_enhanced(request_body, content_type)
-        except Exception as custom_error:
-            logger.error(f"All multipart parsers failed: email={email_error}, custom={custom_error}")
-            raise ValueError("Failed to parse multipart form data")
+        clean_message = sanitize_url_parameter(message)
+        encoded_message = urllib.parse.quote(clean_message)
         
-def parse_multipart_with_email_parser(request_body, content_type):
-    """Use email parser for multipart data (most reliable method)."""
-    # Construct proper headers for email parser
-    headers = f"Content-Type: {content_type}\r\n\r\n".encode()
-    full_body = headers + request_body
-    
-    # Parse with email parser
-    parser = BytesParser(policy=default)
-    message = parser.parsebytes(full_body)
-    
-    forms = {}
-    files = {}
-    
-    if message.is_multipart():
-        for part in message.get_payload():
-            content_disposition = part.get('Content-Disposition', '')
-            
-            # Parse Content-Disposition header
-            name_match = re.search(r'name="([^"]+)"', content_disposition)
-            filename_match = re.search(r'filename="([^"]*)"', content_disposition)
-            
-            if name_match:
-                field_name = name_match.group(1)
-                content = part.get_payload(decode=True)
-                
-                if filename_match and filename_match.group(1):
-                    # File upload
-                    files[field_name] = {
-                        'filename': filename_match.group(1),
-                        'content': content or b''
-                    }
-                else:
-                    # Form field
-                    forms[field_name] = [content.decode('utf-8', errors='ignore') if content else '']
-    
-    return forms, files
+        separator = '&' if '?' in base_url else '?'
+        safe_url = f"{base_url}{separator}{param_name}={encoded_message}"
+        
+        if len(safe_url) > 2000:
+            max_msg_len = 2000 - len(base_url) - len(param_name) - 20
+            truncated = clean_message[:max_msg_len] + "..." if max_msg_len > 0 else "Error message too long"
+            encoded_message = urllib.parse.quote(truncated)
+            safe_url = f"{base_url}{separator}{param_name}={encoded_message}"
+        
+        return safe_url
+        
+    except Exception as e:
+        logger.error(f"Error creating redirect URL: {e}")
+        fallback_msg = "Upload completed" if not is_error else "Upload failed"
+        separator = '&' if '?' in base_url else '?'
+        return f"{base_url}{separator}{param_name}={fallback_msg}"
 
-def parse_multipart_custom_enhanced(request_body, content_type):
-    """Enhanced custom multipart parser with better boundary handling."""
-    # Extract boundary with multiple patterns
-    boundary = None
+async def handle_upload_error_gracefully(datasette, error, context=None):
+    """
+    Handle upload errors gracefully by providing user-friendly error messages.
     
-    # Try different boundary patterns
-    patterns = [
-        r'boundary=([^;,\s]+)',
-        r'boundary="([^"]+)"',
-        r'boundary=([a-zA-Z0-9\-_]+)'
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, content_type, re.IGNORECASE)
-        if match:
-            boundary = match.group(1).strip('"')
-            break
-    
-    if not boundary:
-        raise ValueError("No boundary found in Content-Type header")
-    
-    # Split by boundary
-    boundary_bytes = f'--{boundary}'.encode()
-    parts = request_body.split(boundary_bytes)
-    
-    forms = {}
-    files = {}
-    
-    for part in parts[1:-1]:  # Skip first empty and last closing parts
-        if len(part) < 10:  # Skip very small parts
-            continue
+    Args:
+        datasette: Datasette instance
+        error (Exception): The error that occurred
+        context (str, optional): Context where error occurred
         
-        # Find the double CRLF that separates headers from content
-        header_end_patterns = [b'\r\n\r\n', b'\n\n', b'\r\r']
-        headers_bytes = None
-        content = None
+    Returns:
+        str: User-friendly error message
+    """
+    try:
+        error_type = type(error).__name__
+        error_msg = str(error)
         
-        for pattern in header_end_patterns:
-            if pattern in part:
-                headers_bytes, content = part.split(pattern, 1)
-                break
+        logger.error(f"Upload error in {context or 'unknown'}: {error_type}: {error_msg}")
         
-        if headers_bytes is None or content is None:
-            continue
-        
-        headers_text = headers_bytes.decode('utf-8', errors='ignore')
-        
-        # Parse Content-Disposition
-        name_match = re.search(r'name="([^"]+)"', headers_text, re.IGNORECASE)
-        filename_match = re.search(r'filename="([^"]*)"', headers_text, re.IGNORECASE)
-        
-        if name_match:
-            field_name = name_match.group(1)
+        if "UnicodeDecodeError" in error_type:
+            return "File encoding error. Please save your file as UTF-8 and try again."
+        elif "ParserError" in error_type or "tokenizing" in error_msg.lower():
+            return "CSV format error. Please check that all rows have the same number of columns."
+        elif "PermissionError" in error_type:
+            return "File access error. Please ensure the file is not open in another program."
+        elif "MemoryError" in error_type:
+            return "File too large to process in memory. Please try a smaller file."
+        elif "ConnectionError" in error_type or "timeout" in error_msg.lower():
+            return "Network error. Please check your connection and try again."
+        elif "EmptyDataError" in error_type:
+            return "The uploaded file appears to be empty."
+        elif any(keyword in error_msg.lower() for keyword in ["private", "unauthorized", "403", "401"]):
+            return "Access denied. Please ensure the file/URL is publicly accessible."
+        elif "domain" in error_msg.lower() and "blocked" in error_msg.lower():
+            return "Domain not allowed. Please contact administrator or use an approved domain."
+        else:
+            return f"Upload failed: {error_msg[:100]}"
             
-            # Clean up content (remove trailing CRLF)
-            content = content.rstrip(b'\r\n')
-            
-            if filename_match and filename_match.group(1):
-                # File upload
-                files[field_name] = {
-                    'filename': filename_match.group(1),
-                    'content': content
-                }
-            else:
-                # Form field
-                forms[field_name] = [content.decode('utf-8', errors='ignore')]
+    except Exception as e:
+        logger.error(f"Error in error handler: {e}")
+        return "Upload failed due to an unexpected error"
+
+async def log_upload_activity_enhanced(datasette, user_id, upload_type, details, metadata=None, error=None):
+    """
+    Log upload activity with enhanced metadata and error handling.
     
-    return forms, files
+    Args:
+        datasette: Datasette instance
+        user_id (str): User performing the upload
+        upload_type (str): Type of upload (csv, url, etc.)
+        details (str): Description of the upload
+        metadata (dict, optional): Additional metadata
+        error (Exception, optional): Error that occurred during upload
+    """
+    try:
+        query_db = datasette.get_database("portal")
+        
+        log_data = {
+            'log_id': uuid.uuid4().hex[:20],
+            'user_id': user_id,
+            'action': f'upload_{upload_type}',
+            'details': details,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        enhanced_metadata = metadata or {}
+        if error:
+            enhanced_metadata['error'] = {
+                'type': type(error).__name__,
+                'message': str(error)[:500],
+                'occurred_at': datetime.utcnow().isoformat()
+            }
+        
+        if enhanced_metadata:
+            log_data['action_metadata'] = json.dumps(enhanced_metadata)
+        
+        await query_db.execute_write(
+            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
+            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], 
+             log_data['timestamp'], log_data.get('action_metadata')]
+        )
+        
+        logger.debug(f"Logged upload activity for user {user_id}: {upload_type}")
+        
+    except Exception as e:
+        logger.error(f"Error logging upload activity: {e}")
+
+async def sync_database_tables_on_upload(datasette, db_id, table_name):
+    """
+    Sync database table metadata when a new table is uploaded.
+    
+    Args:
+        datasette: Datasette instance
+        db_id (str): Database ID
+        table_name (str): Name of the uploaded table
+    """
+    try:
+        portal_db = datasette.get_database('portal')
+        table_id = f"{db_id}_{table_name}"
+        current_time = datetime.utcnow().isoformat()
+        
+        existing_result = await portal_db.execute(
+            "SELECT table_id FROM database_tables WHERE table_id = ?", [table_id]
+        )
+        
+        if not existing_result.first():
+            count_result = await portal_db.execute(
+                "SELECT COALESCE(MAX(display_order), 99) + 1 as next_order FROM database_tables WHERE db_id = ?", [db_id]
+            )
+            next_order = count_result.first()['next_order']
+            
+            await portal_db.execute_write("""
+                INSERT INTO database_tables 
+                (table_id, db_id, table_name, show_in_homepage, display_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, [table_id, db_id, table_name, True, next_order, current_time, current_time])
+            
+            logger.info(f"Synced table {table_name} (order: {next_order}) for database {db_id}")
+        
+    except Exception as e:
+        logger.error(f"Error syncing database_tables for {table_name}: {e}")
+
+def sanitize_filename_for_table(filename):
+    """
+    Create a safe table name from a filename.
+    
+    Args:
+        filename (str): Original filename
+        
+    Returns:
+        str: Sanitized table name safe for SQLite
+    """
+    if not filename:
+        return f'table_{uuid.uuid4().hex[:8]}'
+    
+    base_name = os.path.splitext(filename)[0]
+    clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', base_name)
+    
+    if clean_name and not clean_name[0].isalpha():
+        clean_name = 'table_' + clean_name
+    
+    clean_name = re.sub(r'_{2,}', '_', clean_name)
+    
+    if len(clean_name) > 60:
+        clean_name = clean_name[:60].rstrip('_')
+    
+    return clean_name[:64] or f'table_{uuid.uuid4().hex[:8]}'
+
+def validate_table_name_enhanced(name):
+    """
+    Validate table name for SQLite compatibility and safety.
+    
+    Args:
+        name (str): Table name to validate
+        
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
+    """
+    if not name:
+        return False, "Table name cannot be empty"
+    
+    name = str(name).strip()
+    
+    if len(name) > 64:
+        return False, "Table name too long (max 64 characters)"
+    
+    if not re.match(r'^[a-zA-Z]', name):
+        return False, "Table name must start with a letter"
+    
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
+        return False, "Table name can only contain letters, numbers, and underscores"
+    
+    sql_keywords = {
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
+        'TABLE', 'INDEX', 'VIEW', 'DATABASE', 'FROM', 'WHERE', 'ORDER', 
+        'GROUP', 'HAVING', 'UNION', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
+        'FULL', 'CROSS', 'ON', 'AS', 'AND', 'OR', 'NOT', 'NULL'
+    }
+    
+    if name.upper() in sql_keywords:
+        return False, f"'{name}' is a reserved SQL keyword"
+    
+    return True, None
+
+def auto_fix_table_name(name):
+    """
+    Automatically fix common table name issues.
+    
+    Args:
+        name (str): Table name to fix
+        
+    Returns:
+        str: Fixed table name
+    """
+    if not name:
+        return name
+    
+    name = str(name).strip()
+    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    
+    if name and not re.match(r'^[a-zA-Z]', name):
+        name = 'table_' + name
+    
+    name = re.sub(r'_{2,}', '_', name)
+    name = name.strip('_')
+    
+    if len(name) > 64:
+        name = name[:60]
+    
+    if not name:
+        name = f'table_{uuid.uuid4().hex[:8]}'
+    
+    return name
 
 async def handle_image_upload_robust(datasette, request, db_id, actor, max_img_size):
     """
-    ROBUST: Image upload handler with comprehensive error handling.
-    db_id: None for portal images, database ID for database-specific images
+    Handle image upload with robust error handling and processing.
+    
+    Args:
+        datasette: Datasette instance
+        request: HTTP request with multipart form data
+        db_id (str): Database ID (None for portal-wide images)
+        actor (dict): User performing the upload
+        max_img_size (int): Maximum allowed image size in bytes
+        
+    Returns:
+        tuple: (result_dict or None, error_message or None)
     """
     try:
         content_type = request.headers.get('content-type', '')
@@ -1084,14 +1502,12 @@ async def handle_image_upload_robust(datasette, request, db_id, actor, max_img_s
         
         body = await request.post_body()
         
-        # Size check before parsing
         if len(body) > max_img_size:
             size_mb = max_img_size / (1024 * 1024)
             return None, f"File too large. Maximum size: {size_mb:.0f}MB"
         
-        # Parse multipart data with fixed parser
         try:
-            forms, files = parse_multipart_form_data(body, content_type)
+            forms, files = parse_multipart_form_data_robust(body, content_type)
         except Exception as parse_error:
             logger.error(f"Multipart parsing failed: {parse_error}")
             return None, f"Failed to parse upload data: {str(parse_error)}"
@@ -1103,62 +1519,63 @@ async def handle_image_upload_robust(datasette, request, db_id, actor, max_img_s
         filename = file_info['filename']
         file_content = file_info['content']
         
-        # Validate file extension
         allowed_extensions = ['.jpg', '.jpeg', '.png']
         ext = os.path.splitext(filename)[1].lower()
         if ext not in allowed_extensions:
             return None, f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
         
-        # Final size check on actual file content
         if len(file_content) > max_img_size:
             size_mb = max_img_size / (1024 * 1024)
             return None, f"Image file too large. Maximum size: {size_mb:.0f}MB"
         
-        # Process image upload
         return await process_image_upload_robust(datasette, db_id, file_content, filename, forms, actor)
         
     except Exception as e:
         logger.error(f"Image upload handler error: {e}")
         return None, f"Upload failed: {str(e)}"
-    
+
 async def process_image_upload_robust(datasette, db_id, file_content, filename, forms, actor):
-    """Process the actual image upload and optimization."""
-    try:
-        from common_utils import DATA_DIR, STATIC_DIR
+    """
+    Process uploaded image with optimization and storage.
+    
+    Args:
+        datasette: Datasette instance
+        db_id (str): Database ID (None for portal images)
+        file_content (bytes): Image file content
+        filename (str): Original filename
+        forms (dict): Form data from upload
+        actor (dict): User performing upload
         
-        # Determine save location
+    Returns:
+        tuple: (result_dict or None, error_message or None)
+    """
+    try:
         if db_id:
-            # Database-specific image
             save_dir = os.path.join(DATA_DIR, db_id)
             image_filename = 'header.jpg'
             url_path = f"/data/{db_id}/header.jpg"
-            max_size = (1680, 450)  # Smaller for database headers
+            max_size = (1680, 450)
         else:
-            # Portal-wide image  
             save_dir = STATIC_DIR
             image_filename = 'portal_header.jpg'
             url_path = f"/static/portal_header.jpg"
-            max_size = (1680, 450)  # Larger for portal header
+            max_size = (1680, 450)
         
         os.makedirs(save_dir, exist_ok=True)
         
-        # Save temporary file
         temp_path = os.path.join(save_dir, f'temp_{image_filename}')
         final_path = os.path.join(save_dir, image_filename)
         
         with open(temp_path, 'wb') as f:
             f.write(file_content)
         
-        # Optimize image with correct arguments
         success, optimized_size, reduction = await optimize_uploaded_image_robust(
             temp_path, final_path, max_size=max_size, quality=100
         )
         
-        # Clean up temp file
         if os.path.exists(temp_path) and temp_path != final_path:
             os.remove(temp_path)
         
-        # Build result
         import time
         timestamp = int(time.time())
         result = {
@@ -1173,35 +1590,40 @@ async def process_image_upload_robust(datasette, db_id, file_content, filename, 
     except Exception as e:
         logger.error(f"Image processing error: {e}")
         return None, f"Failed to process image: {str(e)}"
-        
+
 async def optimize_uploaded_image_robust(temp_path, final_path, max_size=(1680, 450), quality=100):
-    """ROBUST: Image optimization with comprehensive error handling."""
+    """
+    Optimize uploaded image by resizing and compressing.
+    
+    Args:
+        temp_path (str): Temporary file path
+        final_path (str): Final file path
+        max_size (tuple): Maximum dimensions (width, height)
+        quality (int): JPEG quality (1-100)
+        
+    Returns:
+        tuple: (success: bool, final_size: int, reduction_percent: float)
+    """
     try:
         from PIL import Image
         
         original_size = os.path.getsize(temp_path)
         
-        # Skip optimization if file is already small
-        if original_size < 1024 * 1024:  # 1MB
+        if original_size < 1024 * 1024:
             if temp_path != final_path:
                 import shutil
                 shutil.move(temp_path, final_path)
             return True, original_size, 0
         
-        # Optimize the image
         with Image.open(temp_path) as img:
-            # Convert to RGB if needed
             if img.mode in ('RGBA', 'P'):
                 img = img.convert('RGB')
             
-            # Resize if too large
             if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
                 img.thumbnail(max_size, Image.Resampling.LANCZOS)
             
-            # Save optimized version
             img.save(final_path, 'JPEG', quality=quality, optimize=True)
         
-        # Calculate savings
         new_size = os.path.getsize(final_path)
         space_saved = max(0, original_size - new_size)
         reduction_percent = (space_saved / original_size) * 100 if original_size > 0 else 0
@@ -1218,64 +1640,36 @@ async def optimize_uploaded_image_robust(temp_path, final_path, max_size=(1680, 
         
     except Exception as e:
         logger.error(f"Image optimization failed: {e}")
-        # Use original image as fallback
         if temp_path != final_path and os.path.exists(temp_path):
             import shutil
             shutil.move(temp_path, final_path)
         return False, os.path.getsize(final_path) if os.path.exists(final_path) else 0, 0
 
-def create_image_thumbnail(image_path, thumbnail_path, max_size=(1680, 450), quality=100):
-    """Create thumbnail from image with size optimization."""
-    try:
-        from PIL import Image
-        
-        with Image.open(image_path) as img:
-            # Convert to RGB if necessary (handles RGBA, P, etc.)
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            # Calculate new size maintaining aspect ratio
-            img.thumbnail(max_size, Image.Resampling.LANCZOS)
-            
-            # Save as JPEG with specified quality
-            img.save(thumbnail_path, 'JPEG', quality=quality, optimize=True)
-            
-            # Get size reduction info
-            original_size = os.path.getsize(image_path)
-            thumbnail_size = os.path.getsize(thumbnail_path)
-            reduction_percent = ((original_size - thumbnail_size) / original_size) * 100
-            
-            logger.info(f"Created thumbnail: {original_size} bytes → {thumbnail_size} bytes ({reduction_percent:.1f}% reduction)")
-            return True, thumbnail_size, reduction_percent
-            
-    except ImportError:
-        logger.warning("PIL/Pillow not available, cannot create thumbnails")
-        return False, 0, 0
-    except Exception as e:
-        logger.error(f"Error creating thumbnail: {e}")
-        return False, 0, 0
-
 def optimize_existing_header_images(datasette):
-    """Optimize all existing header images by creating thumbnails."""
+    """
+    Optimize existing header images to reduce file sizes.
+    
+    Args:
+        datasette: Datasette instance
+        
+    Returns:
+        tuple: (optimized_count: int, total_savings: int)
+    """
     try:
         optimized_count = 0
         total_savings = 0
         
-        # 1. Optimize portal header image
         portal_header = os.path.join(DATA_DIR, "../static/portal_header.jpg")
         if os.path.exists(portal_header):
             backup_path = portal_header + ".backup"
             thumbnail_path = portal_header + ".tmp"
             
             try:
-                # Create backup
                 import shutil
                 shutil.copy2(portal_header, backup_path)
                 
-                # Create thumbnail
                 success, new_size, reduction = create_image_thumbnail(portal_header, thumbnail_path)
                 if success:
-                    # Replace original with thumbnail
                     shutil.move(thumbnail_path, portal_header)
                     optimized_count += 1
                     
@@ -1286,7 +1680,6 @@ def optimize_existing_header_images(datasette):
             except Exception as e:
                 logger.error(f"Error optimizing portal header: {e}")
         
-        # 2. Optimize database header images
         for db_dir in os.listdir(DATA_DIR):
             db_path = os.path.join(DATA_DIR, db_dir)
             if os.path.isdir(db_path):
@@ -1318,394 +1711,87 @@ def optimize_existing_header_images(datasette):
         logger.error(f"Error during image optimization: {e}")
         return 0, 0
 
-async def sync_database_tables_on_upload(datasette, db_id, table_name):
-    """Sync database_tables when new table is uploaded."""
-    try:
-        portal_db = datasette.get_database('portal')
-        table_id = f"{db_id}_{table_name}"
-        current_time = datetime.utcnow().isoformat()
-        
-        # Insert new table record if it doesn't exist
-        await portal_db.execute_write("""
-            INSERT OR IGNORE INTO database_tables 
-            (table_id, db_id, table_name, show_in_homepage, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, [table_id, db_id, table_name, True, current_time, current_time])
-        
-        logger.debug(f"Synced table {table_name} for database {db_id}")
-        
-    except Exception as e:
-        logger.error(f"Error syncing database_tables for {table_name}: {e}")
-
-def is_system_table(table_name):
-    """Check if a table is a system/internal table that should be hidden from users."""
-    # FTS (Full-Text Search) tables
-    fts_suffixes = ['_fts', '_fts_data', '_fts_idx', '_fts_docsize', '_fts_config']
-    
-    # Check if table name ends with FTS suffixes
-    for suffix in fts_suffixes:
-        if table_name.endswith(suffix):
-            return True
-    
-    # Check for other SQLite system tables
-    system_prefixes = ['sqlite_', 'fts4aux_', 'fts5vocab_']
-    for prefix in system_prefixes:
-        if table_name.startswith(prefix):
-            return True
-    
-    return False
-
-# NEW UTILITY FUNCTIONS FOR ENHANCED ERROR HANDLING AND URL SANITIZATION
-
-def sanitize_url_parameter(text):
+def create_image_thumbnail(image_path, thumbnail_path, max_size=(1680, 450), quality=100):
     """
-    Sanitize text for use in URL parameters.
-    Removes problematic characters that can break HTTP headers or URLs.
-    """
-    if not text:
-        return ""
+    Create an optimized thumbnail of an image.
     
-    # Convert to string and handle newlines/control characters
-    sanitized = str(text)
-    
-    # Remove or replace problematic characters
-    sanitized = sanitized.replace('\n', ' ')
-    sanitized = sanitized.replace('\r', ' ')
-    sanitized = sanitized.replace('\t', ' ')
-    
-    # Remove other control characters
-    sanitized = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', sanitized)
-    
-    # Normalize whitespace
-    sanitized = ' '.join(sanitized.split())
-    
-    # Limit length to prevent URL length issues
-    if len(sanitized) > 200:
-        sanitized = sanitized[:197] + "..."
-    
-    # Remove potentially dangerous characters for URLs
-    sanitized = re.sub(r'[<>"\'&]', '', sanitized)
-    
-    return sanitized
-
-def create_safe_redirect_url(base_url, param_name, message, is_error=False):
-    """
-    Create a safe redirect URL with properly encoded parameters.
-    Returns a URL string that won't cause HTTP header errors.
+    Args:
+        image_path (str): Path to source image
+        thumbnail_path (str): Path for optimized image
+        max_size (tuple): Maximum dimensions (width, height)
+        quality (int): JPEG quality (1-100)
+        
+    Returns:
+        tuple: (success: bool, thumbnail_size: int, reduction_percent: float)
     """
     try:
-        # Sanitize the message
-        clean_message = sanitize_url_parameter(message)
+        from PIL import Image
         
-        # URL encode the message
-        encoded_message = urllib.parse.quote(clean_message)
-        
-        # Build URL with proper separator
-        separator = '&' if '?' in base_url else '?'
-        safe_url = f"{base_url}{separator}{param_name}={encoded_message}"
-        
-        # Validate final URL length
-        if len(safe_url) > 2000:  # Most browsers support 2000+ char URLs
-            # Truncate message if URL is too long
-            max_msg_len = 2000 - len(base_url) - len(param_name) - 20  # Buffer for encoding
-            truncated = clean_message[:max_msg_len] + "..." if max_msg_len > 0 else "Error message too long"
-            encoded_message = urllib.parse.quote(truncated)
-            safe_url = f"{base_url}{separator}{param_name}={encoded_message}"
-        
-        return safe_url
-        
-    except Exception as e:
-        logger.error(f"Error creating redirect URL: {e}")
-        # Return fallback URL
-        fallback_msg = "Upload completed" if not is_error else "Upload failed"
-        separator = '&' if '?' in base_url else '?'
-        return f"{base_url}{separator}{param_name}={fallback_msg}"
-
-def clean_csv_error_message(error_msg):
-    """
-    Clean up pandas/CSV error messages for user display.
-    Removes technical details and makes messages more user-friendly.
-    """
-    if not error_msg:
-        return "Unknown CSV processing error"
-    
-    error_str = str(error_msg)
-    
-    # Common pandas error patterns and their user-friendly replacements
-    error_patterns = [
-        (r"Error tokenizing data\. C error:.*", "CSV format error - inconsistent number of columns detected"),
-        (r"Expected \d+ fields.*saw \d+.*", "CSV format error - rows have different numbers of columns"),
-        (r"ParserError:.*", "CSV format error - file may have formatting issues"),
-        (r"UnicodeDecodeError:.*", "File encoding error - try saving as UTF-8"),
-        (r"EmptyDataError.*", "CSV file appears to be empty"),
-        (r"PermissionError.*", "File access error - file may be open in another program"),
-        (r"FileNotFoundError.*", "File not found or was deleted during processing"),
-    ]
-    
-    # Apply patterns to clean up the message
-    for pattern, replacement in error_patterns:
-        if re.search(pattern, error_str, re.IGNORECASE):
-            return replacement
-    
-    # Fallback: extract the core error type if available
-    if "Error:" in error_str:
-        core_error = error_str.split("Error:")[-1].strip()
-        if len(core_error) < 100:
-            return f"Processing error: {core_error}"
-    
-    # Final fallback
-    return "File processing error - please check file format and try again"
-
-async def handle_upload_error_gracefully(datasette, error, context=None):
-    """
-    Handle upload errors gracefully with proper logging and user feedback.
-    Returns a user-friendly error message.
-    """
-    try:
-        error_type = type(error).__name__
-        error_msg = str(error)
-        
-        # Log the full error for debugging
-        logger.error(f"Upload error in {context or 'unknown'}: {error_type}: {error_msg}")
-        
-        # Categorize and provide user-friendly messages
-        if "UnicodeDecodeError" in error_type:
-            return "File encoding error. Please save your file as UTF-8 and try again."
-        
-        elif "ParserError" in error_type or "tokenizing" in error_msg.lower():
-            return "CSV format error. Please check that all rows have the same number of columns."
-        
-        elif "PermissionError" in error_type:
-            return "File access error. Please ensure the file is not open in another program."
-        
-        elif "MemoryError" in error_type:
-            return "File too large to process in memory. Please try a smaller file."
-        
-        elif "ConnectionError" in error_type or "timeout" in error_msg.lower():
-            return "Network error. Please check your connection and try again."
-        
-        elif "EmptyDataError" in error_type:
-            return "The uploaded file appears to be empty."
-        
-        elif any(keyword in error_msg.lower() for keyword in ["private", "unauthorized", "403", "401"]):
-            return "Access denied. Please ensure the file/URL is publicly accessible."
-        
-        elif "domain" in error_msg.lower() and "blocked" in error_msg.lower():
-            return "Domain not allowed. Please contact administrator or use an approved domain."
-        
-        else:
-            # Generic fallback with error type
-            return f"Upload failed: {clean_csv_error_message(error_msg)}"
+        with Image.open(image_path) as img:
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
             
-    except Exception as e:
-        logger.error(f"Error in error handler: {e}")
-        return "Upload failed due to an unexpected error"
-
-def validate_and_sanitize_table_name(raw_name):
-    """
-    Enhanced table name validation and sanitization.
-    Returns (sanitized_name, is_valid, error_message)
-    """
-    if not raw_name:
-        return None, False, "Table name cannot be empty"
-    
-    # Basic sanitization
-    name = str(raw_name).strip()
-    
-    # Remove file extensions
-    name = re.sub(r'\.[^.]*$', '', name)
-    
-    # Replace problematic characters
-    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    
-    # Ensure it starts with letter or underscore
-    if name and not re.match(r'^[a-zA-Z_]', name):
-        name = 'table_' + name
-    
-    # Remove consecutive underscores
-    name = re.sub(r'_{2,}', '_', name)
-    
-    # Truncate if too long
-    if len(name) > 60:
-        name = name[:60].rstrip('_')
-    
-    # Fallback for empty names
-    if not name:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = f'table_{timestamp}'
-    
-    # Final validation
-    if len(name) > 64:
-        return None, False, "Table name too long"
-    
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
-        return None, False, "Invalid table name format"
-    
-    # Check for SQL keywords (basic set)
-    sql_keywords = {
-        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
-        'TABLE', 'INDEX', 'VIEW', 'DATABASE', 'FROM', 'WHERE', 'ORDER', 'GROUP'
-    }
-    
-    if name.upper() in sql_keywords:
-        name = name + '_table'
-    
-    return name, True, None
-
-def get_file_encoding_info(file_content, filename=None):
-    """
-    Detect file encoding and provide encoding information.
-    Returns (encoding, confidence, suggested_encoding)
-    """
-    try:
-        # Try to detect encoding
-        import chardet
-        detection = chardet.detect(file_content)
-        detected_encoding = detection.get('encoding', 'unknown')
-        confidence = detection.get('confidence', 0.0)
-        
-        # Suggest best encoding based on detection and filename
-        if confidence > 0.8 and detected_encoding:
-            suggested = detected_encoding
-        elif filename and any(ext in filename.lower() for ext in ['.csv', '.txt']):
-            suggested = 'utf-8'
-        else:
-            suggested = 'utf-8'
-        
-        return detected_encoding, confidence, suggested
-        
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            img.save(thumbnail_path, 'JPEG', quality=quality, optimize=True)
+            
+            original_size = os.path.getsize(image_path)
+            thumbnail_size = os.path.getsize(thumbnail_path)
+            reduction_percent = ((original_size - thumbnail_size) / original_size) * 100
+            
+            logger.info(f"Created thumbnail: {original_size} bytes → {thumbnail_size} bytes ({reduction_percent:.1f}% reduction)")
+            return True, thumbnail_size, reduction_percent
+            
     except ImportError:
-        # chardet not available, use defaults
-        return 'unknown', 0.0, 'utf-8'
+        logger.warning("PIL/Pillow not available, cannot create thumbnails")
+        return False, 0, 0
     except Exception as e:
-        logger.error(f"Error detecting encoding: {e}")
-        return 'unknown', 0.0, 'utf-8'
-
-def create_upload_progress_info(current_step, total_steps, message):
-    """
-    Create structured progress information for uploads.
-    Returns dictionary with progress info.
-    """
-    return {
-        'step': current_step,
-        'total_steps': total_steps,
-        'percentage': int((current_step / total_steps) * 100) if total_steps > 0 else 0,
-        'message': message,
-        'timestamp': datetime.utcnow().isoformat()
-    }
-
-async def log_upload_activity_enhanced(datasette, user_id, upload_type, details, metadata=None, error=None):
-    """
-    Enhanced logging for upload activities with error tracking.
-    """
-    try:
-        query_db = datasette.get_database("portal")
-        
-        log_data = {
-            'log_id': uuid.uuid4().hex[:20],
-            'user_id': user_id,
-            'action': f'upload_{upload_type}',
-            'details': details,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        # Enhanced metadata with error info
-        enhanced_metadata = metadata or {}
-        if error:
-            enhanced_metadata['error'] = {
-                'type': type(error).__name__,
-                'message': str(error)[:500],  # Limit error message length
-                'occurred_at': datetime.utcnow().isoformat()
-            }
-        
-        if enhanced_metadata:
-            log_data['action_metadata'] = json.dumps(enhanced_metadata)
-        
-        await query_db.execute_write(
-            "INSERT INTO activity_logs (log_id, user_id, action, details, timestamp, action_metadata) VALUES (?, ?, ?, ?, ?, ?)",
-            [log_data['log_id'], log_data['user_id'], log_data['action'], log_data['details'], 
-             log_data['timestamp'], log_data.get('action_metadata')]
-        )
-        
-        logger.debug(f"Logged upload activity for user {user_id}: {upload_type}")
-        
-    except Exception as e:
-        logger.error(f"Error logging upload activity: {e}")
-
-def extract_meaningful_error_context(error, max_length=150):
-    """
-    Extract meaningful context from error messages for user display.
-    Removes stack traces and technical details.
-    """
-    try:
-        error_str = str(error)
-        
-        # Remove common technical prefixes
-        prefixes_to_remove = [
-            r'Traceback \(most recent call last\):.*?\n',
-            r'File ".*?", line \d+, in .*?\n',
-            r'^\s*at\s+.*?\n',  # Stack trace lines
-        ]
-        
-        for prefix in prefixes_to_remove:
-            error_str = re.sub(prefix, '', error_str, flags=re.MULTILINE)
-        
-        # Extract the core error message (usually the last line)
-        lines = error_str.strip().split('\n')
-        if lines:
-            core_message = lines[-1].strip()
-            
-            # Remove error class names if present
-            if ':' in core_message and len(core_message.split(':', 1)) == 2:
-                error_class, message = core_message.split(':', 1)
-                if any(keyword in error_class for keyword in ['Error', 'Exception', 'Warning']):
-                    core_message = message.strip()
-            
-            # Truncate if too long
-            if len(core_message) > max_length:
-                core_message = core_message[:max_length-3] + "..."
-            
-            return core_message if core_message else "Unknown error occurred"
-        
-        return "Unknown error occurred"
-        
-    except Exception:
-        return "Error processing failed"
-
-def validate_file_upload_size(content_length, max_size):
-    """
-    Validate file upload size before processing.
-    Returns (is_valid, error_message)
-    """
-    try:
-        if content_length is None:
-            return True, None  # Can't validate without content length
-        
-        size = int(content_length)
-        if size > max_size:
-            max_mb = max_size // (1024 * 1024)
-            current_mb = size / (1024 * 1024)
-            return False, f"File too large: {current_mb:.1f}MB (max: {max_mb}MB)"
-        
-        return True, None
-        
-    except (ValueError, TypeError):
-        return True, None  # Invalid content length, allow processing
+        logger.error(f"Error creating thumbnail: {e}")
+        return False, 0, 0
 
 def parse_multipart_form_data_robust(body, content_type):
     """
-    Enhanced multipart form parser with comprehensive error handling.
-    Returns (forms, files) tuple.
+    Parse multipart form data from request body with robust error handling.
+    
+    Args:
+        body (bytes): Request body containing multipart data
+        content_type (str): Content-Type header value
+        
+    Returns:
+        tuple: (forms: dict, files: dict) parsed from multipart data
     """
     try:
-        # Method 1: Use email parser (most reliable)
-        return parse_multipart_with_email_parser(body, content_type)
-    except Exception as email_error:
-        logger.warning(f"Email parser failed: {email_error}, trying custom parser")
-        try:
-            # Method 2: Enhanced custom parser as fallback
-            return parse_multipart_custom_enhanced(body, content_type)
-        except Exception as custom_error:
-            logger.error(f"All multipart parsers failed: email={email_error}, custom={custom_error}")
-            # Return empty forms/files rather than raising
+        boundary = content_type.split('boundary=')[-1].split(';')[0].strip() if 'boundary=' in content_type else None
+        if not boundary:
             return {}, {}
+            
+        headers = f'Content-Type: multipart/form-data; boundary={boundary}\r\n\r\n'
+        msg = BytesParser(policy=default).parsebytes(headers.encode() + body)
+        
+        forms = {}
+        files = {}
+        
+        for part in msg.iter_parts():
+            if not part.is_multipart():
+                content_disposition = part.get('Content-Disposition', '')
+                
+                name_match = re.search(r'name="([^"]+)"', content_disposition)
+                filename_match = re.search(r'filename="([^"]*)"', content_disposition)
+                
+                if name_match:
+                    field_name = name_match.group(1)
+                    content = part.get_payload(decode=True)
+                    
+                    if filename_match and filename_match.group(1):
+                        files[field_name] = {
+                            'filename': filename_match.group(1),
+                            'content': content or b''
+                        }
+                    else:
+                        forms[field_name] = content.decode('utf-8', errors='ignore') if content else ''
+        
+        return forms, files
+        
+    except Exception as e:
+        logger.error(f"Multipart parsing failed: {e}")
+        return {}, {}

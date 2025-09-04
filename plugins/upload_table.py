@@ -1,7 +1,7 @@
 """
-Ultra-High Performance Upload Module - Optimized for 500MB files
-Integrates ultra-optimized SQLite performance improvements
-Target: 150,000+ rows/sec (2.5x faster than previous version)
+Complete Ultra-High Performance Upload Module - ALL FEATURES INCLUDED + OPTIMIZATIONS
+Supports: CSV files, Excel files, Google Sheets, and Web CSV
+Memory-efficient streaming, connection pooling, robust CSV parsing
 """
 
 import json
@@ -16,34 +16,28 @@ import sqlite3
 import time
 import pandas as pd
 import numpy as np
-import psutil
-from pathlib import Path
+import threading
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 from email.parser import BytesParser
 from email.policy import default
+from queue import Queue, Empty
 from contextlib import contextmanager
-from typing import Iterator, Tuple, List, Dict, Any, Optional
-from urllib.parse import urlparse, parse_qs, quote, unquote
-import uuid
 import certifi
-
 
 from datasette import hookimpl
 from datasette.utils.asgi import Response
 from datasette.database import Database
 
+# SSL configuration
 os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
-os.environ['SSL_CERT_FILE'] = certifi.where()
-os.environ['CURL_CA_BUNDLE'] = certifi.where()
 
-# Add the plugins directory to Python path for imports
+# Import common utilities
 import sys
 PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
 if PLUGINS_DIR not in sys.path:
     sys.path.insert(0, PLUGINS_DIR)
 
-# Import from common_utils
 from common_utils import (
     get_actor_from_request,
     get_portal_content,
@@ -54,159 +48,493 @@ from common_utils import (
     DATA_DIR,
     is_domain_blocked,
     sync_database_tables_on_upload,
-    get_system_settings,
-    create_safe_redirect_url,
     handle_upload_error_gracefully,
     log_upload_activity_enhanced,
+    create_safe_redirect_url,
+    sanitize_filename_for_table,
+    validate_table_name_enhanced,
+    auto_fix_table_name,
+    get_system_settings,
 )
 
 logger = logging.getLogger(__name__)
 
+# Optional encoding detection
+try:
+    import chardet
+    CHARDET_AVAILABLE = True
+except ImportError:
+    CHARDET_AVAILABLE = False
+    logger.warning("chardet not available - using basic encoding detection")
 
-class UltraOptimizedUploader:
-    """
-    Ultra-high performance SQLite uploader targeting 150,000+ rows/sec
-    Implements aggressive optimizations based on SQLite performance research
-    """
+class SQLiteConnectionPool:
+    """Thread-safe SQLite connection pool for concurrent operations"""
     
-    # AGGRESSIVE SQLite optimization settings for maximum speed with improved safety
-    ULTRA_PRAGMAS = [
-        "PRAGMA synchronous = NORMAL",        # Safer than OFF, still very fast
-        "PRAGMA journal_mode = WAL",          # WAL mode instead of OFF - crash protection
-        "PRAGMA cache_size = -2000000",       # 2GB cache (negative = KB)
-        "PRAGMA temp_store = MEMORY",         # Memory for temp storage
-        "PRAGMA mmap_size = 536870912",       # 512MB memory-mapped I/O
-        "PRAGMA page_size = 65536",           # Larger page size for bulk ops
-        "PRAGMA locking_mode = EXCLUSIVE",    # Exclusive lock mode
-        "PRAGMA count_changes = OFF",         # Disable row counting
-        "PRAGMA auto_vacuum = NONE",          # Disable auto vacuum during inserts
-    ]
-    
-    # Conservative SQLite settings (safer but still very fast)
-    SAFE_PRAGMAS = [
-        "PRAGMA synchronous = NORMAL",        # Safer sync mode
-        "PRAGMA journal_mode = WAL",          # WAL mode for concurrency
-        "PRAGMA cache_size = -1000000",       # 1GB cache
-        "PRAGMA temp_store = MEMORY",
-        "PRAGMA mmap_size = 268435456",       # 256MB memory-mapped I/O
-        "PRAGMA optimize",                    # Enable query optimization
-    ]
-    
-    # Ultra-optimized batch sizes
-    ULTRA_BATCH_SIZE = 50000              # Larger batches for fewer transactions
-    MEGA_BATCH_SIZE = 100000              # For very large files
-    
-    def __init__(self, db_path: str, ultra_mode: bool = False):
-        """
-        Initialize with ultra or safe mode
-        ultra_mode: True for maximum speed (risky), False for safe optimization
-        """
+    def __init__(self, db_path, max_connections=3, ultra_pragmas=None):
         self.db_path = db_path
-        self.ultra_mode = ultra_mode
-        self.pragmas = self.ULTRA_PRAGMAS if ultra_mode else self.SAFE_PRAGMAS
+        self.max_connections = max_connections
+        self.ultra_pragmas = ultra_pragmas or []
+        self.pool = Queue(maxsize=max_connections)
+        self.created_connections = 0
+        self.lock = threading.Lock()
         
+        # Pre-create connections
+        self._initialize_pool()
+    
+    def _initialize_pool(self):
+        """Pre-create connections with optimized settings"""
+        for _ in range(self.max_connections):
+            conn = self._create_connection()
+            self.pool.put(conn)
+    
+    def _create_connection(self):
+        """Create a new optimized SQLite connection"""
+        conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
+        conn.isolation_level = None  # Manual transaction control
+        
+        # Apply performance pragmas
+        for pragma in self.ultra_pragmas:
+            try:
+                conn.execute(pragma)
+            except sqlite3.OperationalError as e:
+                logger.warning(f"Failed to apply pragma {pragma}: {e}")
+        
+        self.created_connections += 1
+        logger.debug(f"Created connection #{self.created_connections} for {self.db_path}")
+        return conn
+    
     @contextmanager
-    def ultra_optimized_connection(self):
-        """Create ultra-optimized connection with aggressive settings"""
-        conn = sqlite3.connect(self.db_path, timeout=30.0)  # Add timeout
+    def get_connection(self, timeout=10.0):
+        """Context manager for getting/returning connections safely"""
+        conn = None
+        try:
+            # Try to get existing connection
+            try:
+                conn = self.pool.get(timeout=timeout)
+            except Empty:
+                # Pool exhausted, create temporary connection
+                logger.warning("Connection pool exhausted, creating temporary connection")
+                conn = self._create_connection()
+            
+            # Test connection
+            try:
+                conn.execute("SELECT 1").fetchone()
+            except sqlite3.Error:
+                # Connection is bad, create new one
+                logger.warning("Bad connection detected, creating replacement")
+                conn.close()
+                conn = self._create_connection()
+            
+            yield conn
+            
+        except Exception as e:
+            # Connection error occurred
+            if conn:
+                try:
+                    conn.rollback()
+                except sqlite3.Error:
+                    pass  # Connection might be broken
+            raise e
+            
+        finally:
+            # Return connection to pool or close if temporary
+            if conn:
+                try:
+                    # Ensure no active transaction
+                    conn.rollback()
+                    
+                    # Try to return to pool
+                    try:
+                        self.pool.put_nowait(conn)
+                    except:
+                        # Pool is full, close this connection
+                        conn.close()
+                        logger.debug("Closed temporary connection (pool full)")
+                except sqlite3.Error:
+                    # Connection is broken, don't return to pool
+                    try:
+                        conn.close()
+                    except:
+                        pass
+                    logger.warning("Discarded broken connection")
+    
+    def close_all(self):
+        """Close all connections in pool"""
+        closed_count = 0
+        while not self.pool.empty():
+            try:
+                conn = self.pool.get_nowait()
+                conn.close()
+                closed_count += 1
+            except (Empty, sqlite3.Error):
+                break
         
-        # Disable automatic transactions for manual control
+        logger.info(f"Closed {closed_count} connections from pool")
+    
+    def get_pool_stats(self):
+        """Get current pool statistics"""
+        return {
+            'max_connections': self.max_connections,
+            'available_connections': self.pool.qsize(),
+            'created_connections': self.created_connections
+        }
+
+class StreamCSVProcessor:
+    """Memory-efficient CSV processor that streams data without loading entire file"""
+    
+    def __init__(self, db_path, ultra_pragmas):
+        self.db_path = db_path
+        self.ultra_pragmas = ultra_pragmas
+        
+    def stream_process_from_response(self, response, table_name, max_file_size, replace_existing=False):
+        """Process CSV directly from HTTP response stream"""
+        start_time = time.time()
+        downloaded_size = 0
+        max_mb = max_file_size / (1024 * 1024)
+        
+        # Create a text stream from response
+        lines_buffer = []
+        current_line = ""
+        headers = None
+        total_rows = 0
+        
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.isolation_level = None
         
         try:
             # Apply performance pragmas
-            for pragma in self.pragmas:
+            for pragma in self.ultra_pragmas:
                 try:
                     conn.execute(pragma)
-                except sqlite3.OperationalError as e:
-                    if "database is locked" in str(e):
-                        logger.warning(f"Skipping pragma due to lock: {pragma}")
+                except sqlite3.OperationalError:
+                    continue
+            
+            # Stream processing
+            for chunk in response.iter_content(chunk_size=8192, decode_unicode=True):
+                if not chunk:
+                    continue
+                
+                downloaded_size += len(chunk.encode('utf-8'))
+                
+                # Check size limit
+                if downloaded_size > max_file_size:
+                    current_mb = downloaded_size / (1024 * 1024)
+                    raise ValueError(f"File exceeds size limit during processing ({current_mb:.1f}MB). Maximum: {max_mb:.0f}MB")
+                
+                # Process chunk line by line
+                current_line += chunk
+                
+                while '\n' in current_line:
+                    line, current_line = current_line.split('\n', 1)
+                    line = line.rstrip('\r')
+                    
+                    if not line.strip():
                         continue
-                    raise
+                    
+                    # Parse headers on first data line
+                    if headers is None:
+                        headers = self._parse_csv_line(line)
+                        headers = [self._clean_column_name(h) for h in headers]
+                        
+                        # Setup database table
+                        if replace_existing:
+                            conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
+                        
+                        columns = ', '.join([f'[{header}] TEXT' for header in headers])
+                        conn.execute(f"CREATE TABLE IF NOT EXISTS [{table_name}] ({columns})")
+                        
+                        # Start transaction
+                        conn.execute("BEGIN IMMEDIATE")
+                        
+                        # Prepare insert statement
+                        placeholders = ','.join(['?' for _ in headers])
+                        insert_sql = f"INSERT INTO [{table_name}] VALUES ({placeholders})"
+                        
+                        continue
+                    
+                    # Process data line
+                    if headers:
+                        row_data = self._parse_csv_line(line)
+                        
+                        # Normalize row length
+                        if len(row_data) < len(headers):
+                            row_data.extend([''] * (len(headers) - len(row_data)))
+                        elif len(row_data) > len(headers):
+                            row_data = row_data[:len(headers)]
+                        
+                        lines_buffer.append(tuple(row_data))
+                        
+                        # Batch insert every 10,000 rows
+                        if len(lines_buffer) >= 10000:
+                            conn.executemany(insert_sql, lines_buffer)
+                            total_rows += len(lines_buffer)
+                            lines_buffer.clear()
+                            
+                            if total_rows % 50000 == 0:
+                                logger.info(f"STREAM: Processed {total_rows:,} rows")
             
-            yield conn
+            # Process remaining line
+            if current_line.strip() and headers:
+                row_data = self._parse_csv_line(current_line.rstrip('\r\n'))
+                if len(row_data) < len(headers):
+                    row_data.extend([''] * (len(headers) - len(row_data)))
+                elif len(row_data) > len(headers):
+                    row_data = row_data[:len(headers)]
+                lines_buffer.append(tuple(row_data))
             
+            # Insert remaining rows
+            if lines_buffer and headers:
+                conn.executemany(insert_sql, lines_buffer)
+                total_rows += len(lines_buffer)
+            
+            # Commit transaction
+            conn.execute("COMMIT")
+            
+        except Exception as e:
+            conn.execute("ROLLBACK")
+            raise Exception(f"Stream processing failed: {str(e)}")
         finally:
-            # CRITICAL: Restore safe settings and release locks before closing
-            try:
-                if self.ultra_mode:
-                    conn.execute("PRAGMA locking_mode = NORMAL")  # Release exclusive lock
-                    conn.execute("PRAGMA synchronous = NORMAL")
-                    conn.execute("PRAGMA journal_mode = WAL")
-                conn.execute("PRAGMA optimize")  # Cleanup
-            except sqlite3.OperationalError:
-                pass  # Ignore errors during cleanup
-            finally:
-                conn.close()
-    
-    def stream_csv_ultra_fast(self, file_content: str, table_name: str, 
-                             replace_existing: bool = False) -> Dict[str, Any]:
-        """
-        Ultra-fast CSV streaming with maximum performance optimizations
-        Target: 150,000+ rows/sec
-        """
-        start_time = time.time()
-        
-        # Parse headers efficiently
-        first_line_end = file_content.find('\n')
-        if first_line_end == -1:
-            raise ValueError("Invalid CSV - no line breaks found")
-        
-        header_line = file_content[:first_line_end]
-        headers = [self._clean_column_name(h.strip().strip('"\'')) 
-                  for h in header_line.split(',')]
-        
-        # Skip header for data processing
-        data_start = first_line_end + 1
-        
-        with self.ultra_optimized_connection() as conn:
-            # Handle existing table
-            if replace_existing:
-                conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
-            
-            # Create table without indexes initially
-            columns = ', '.join([f'[{header}] TEXT' for header in headers])
-            conn.execute(f"CREATE TABLE IF NOT EXISTS [{table_name}] ({columns})")
-            
-            # Prepare optimized insert statement
-            placeholders = ','.join(['?' for _ in headers])
-            insert_sql = f"INSERT INTO [{table_name}] VALUES ({placeholders})"
-            
-            # Determine optimal batch size based on file size
-            file_size = len(file_content)
-            if file_size > 200 * 1024 * 1024:  # >200MB
-                batch_size = self.MEGA_BATCH_SIZE
-            elif file_size > 50 * 1024 * 1024:   # >50MB
-                batch_size = self.ULTRA_BATCH_SIZE
-            else:
-                batch_size = 25000
-            
-            logger.info(f"ULTRA MODE: Using batch size: {batch_size:,} for file size: {file_size:,} bytes")
-            
-            # Manual transaction control for maximum performance
-            conn.execute("BEGIN IMMEDIATE")
-            
-            try:
-                # Process CSV data with optimized parsing
-                total_rows = self._process_csv_data_ultra_fast(
-                    conn, file_content[data_start:], insert_sql, 
-                    headers, batch_size
-                )
-                
-                # Commit single large transaction
-                conn.execute("COMMIT")
-                
-                # Create indexes after all data is inserted (much faster)
-                self._create_optimized_indexes(conn, table_name, headers)
-                
-            except Exception as e:
-                conn.execute("ROLLBACK")
-                raise Exception(f"Ultra-fast insert failed: {str(e)}")
+            conn.close()
         
         elapsed_time = time.time() - start_time
         rows_per_second = int(total_rows / elapsed_time) if elapsed_time > 0 else 0
+        file_size_mb = downloaded_size / (1024 * 1024)
         
-        logger.info(f"ULTRA-FAST COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = {rows_per_second:,} rows/sec")
+        logger.info(f"STREAM COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = {rows_per_second:,} rows/sec ({file_size_mb:.1f}MB)")
+        
+        return {
+            'table_name': table_name,
+            'rows_inserted': total_rows,
+            'columns': len(headers) if headers else 0,
+            'time_elapsed': elapsed_time,
+            'rows_per_second': rows_per_second,
+            'strategy': 'memory_efficient_stream',
+            'file_size_mb': file_size_mb
+        }
+    
+    def _parse_csv_line(self, line):
+        """Robust CSV line parsing using csv.reader"""
+        try:
+            # Use Python's csv.reader for proper CSV parsing
+            reader = csv.reader([line])
+            return next(reader)
+        except (csv.Error, StopIteration):
+            # Fallback to simple split for malformed lines
+            return [cell.strip().strip('"\'') for cell in line.split(',')]
+    
+    def _clean_column_name(self, name):
+        """Enhanced column name cleaning for SQL compatibility"""
+        import re
+        import unicodedata
+        
+        # Convert to string and handle None/empty values
+        if name is None:
+            return 'column_unnamed'
+        
+        name = str(name).strip()
+        if not name:
+            return 'column_empty'
+        
+        # Remove or replace problematic characters
+        # First, normalize unicode characters
+        try:
+            name = unicodedata.normalize('NFKD', name)
+        except:
+            pass
+        
+        # Replace spaces and common separators with underscores
+        name = re.sub(r'[\s\-\.\/\\]+', '_', name)
+        
+        # Remove or replace SQL-problematic characters
+        # Keep only alphanumeric, underscore, and convert others to underscore
+        clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+        
+        # Remove multiple consecutive underscores
+        clean_name = re.sub(r'_+', '_', clean_name)
+        
+        # Remove leading/trailing underscores
+        clean_name = clean_name.strip('_')
+        
+        # Ensure it starts with a letter or underscore
+        if clean_name and not (clean_name[0].isalpha() or clean_name[0] == '_'):
+            clean_name = 'col_' + clean_name
+        
+        # Ensure minimum length
+        if not clean_name:
+            clean_name = 'column'
+        
+        # Truncate to reasonable length
+        clean_name = clean_name[:64]
+        
+        # Handle SQL reserved words (add more as needed)
+        sql_reserved = {
+            'order', 'group', 'select', 'from', 'where', 'insert', 'update', 
+            'delete', 'create', 'drop', 'alter', 'table', 'index', 'view',
+            'user', 'date', 'time', 'timestamp', 'year', 'month', 'day'
+        }
+        
+        if clean_name.lower() in sql_reserved:
+            clean_name = f"{clean_name}_col"
+        
+        return clean_name
+
+    def _ensure_unique_column_names(self, headers):
+        """Ensure all column names are unique"""
+        seen = {}
+        unique_headers = []
+        
+        for header in headers:
+            clean_header = self._clean_column_name(header)
+            
+            if clean_header in seen:
+                seen[clean_header] += 1
+                unique_header = f"{clean_header}_{seen[clean_header]}"
+            else:
+                seen[clean_header] = 0
+                unique_header = clean_header
+            
+            unique_headers.append(unique_header)
+        
+        return unique_headers
+    
+class PooledUltraOptimizedUploader:
+    """Ultra-optimized uploader with connection pooling and memory efficiency"""
+    
+    ULTRA_PRAGMAS = [
+        "PRAGMA synchronous = NORMAL",
+        "PRAGMA journal_mode = WAL",
+        "PRAGMA cache_size = -1000000",  # 1GB cache
+        "PRAGMA temp_store = MEMORY",
+        "PRAGMA mmap_size = 268435456",  # 256MB memory-mapped I/O
+        "PRAGMA threads = 4",  # Enable multi-threading
+    ]
+    
+    def __init__(self, db_path, ultra_mode=False, max_connections=3):
+        self.db_path = db_path
+        self.ultra_mode = ultra_mode
+        self.connection_pool = SQLiteConnectionPool(
+            db_path, 
+            max_connections=max_connections,
+            ultra_pragmas=self.ULTRA_PRAGMAS
+        )
+        self.stream_processor = StreamCSVProcessor(db_path, self.ULTRA_PRAGMAS)
+    
+    def stream_csv_ultra_fast_pooled(self, response_or_content, table_name, replace_existing=False, max_file_size=None):
+        """Ultra-fast CSV processing with connection pooling and streaming"""
+        
+        # Handle both streaming response and content string
+        if hasattr(response_or_content, 'iter_content'):
+            # Streaming response - use memory-efficient processing
+            return self.stream_processor.stream_process_from_response(
+                response_or_content, table_name, max_file_size or (500 * 1024 * 1024), replace_existing
+            )
+        else:
+            # Content string - use pooled batch processing
+            return self._process_content_with_pool(
+                response_or_content, table_name, replace_existing
+            )
+    
+    def _process_content_with_pool(self, csv_content, table_name, replace_existing):
+        """Process CSV content using connection pool"""
+        start_time = time.time()
+        
+        # Handle different line ending formats (Windows \r\n, Unix \n, Mac \r)
+        # Normalize all line endings to \n
+        csv_content = csv_content.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Remove any null bytes that might interfere
+        csv_content = csv_content.replace('\x00', '')
+        
+        # Strip BOM if present
+        if csv_content.startswith('\ufeff'):
+            csv_content = csv_content[1:]
+        
+        content_size_bytes = len(csv_content.encode('utf-8'))
+        content_size_mb = content_size_bytes / (1024 * 1024)
+        
+        # Parse headers efficiently
+        first_line_end = csv_content.find('\n')
+        if first_line_end == -1:
+            # Check if it's a single-line CSV (headers only) or has data with no line breaks
+            if ',' in csv_content or '\t' in csv_content:
+                # Check if there's actual data beyond potential headers
+                potential_headers = self._parse_csv_line(csv_content)
+                if len(potential_headers) > 0:
+                    # Treat entire content as header row with no data
+                    logger.warning("CSV appears to have only headers, no data rows")
+                    header_line = csv_content
+                    csv_data = ""  # No data rows
+                else:
+                    raise ValueError("Invalid CSV format - unable to parse")
+            else:
+                raise ValueError("Invalid CSV - no line breaks or delimiters found")
+        else:
+            header_line = csv_content[:first_line_end]
+            csv_data = csv_content[first_line_end + 1:]
+        
+        # Parse and clean headers
+        headers = [self._clean_column_name(h.strip()) for h in self._parse_csv_line(header_line)]
+        
+        if not headers:
+            raise ValueError("No headers found in CSV file")
+        
+        # Ensure unique column names
+        headers = self._ensure_unique_column_names(headers)
+        
+        # Determine batch size based on content size
+        if content_size_mb > 200:
+            batch_size = 100000
+        elif content_size_mb > 50:
+            batch_size = 50000
+        else:
+            batch_size = 25000
+        
+        logger.info(f"Processing {content_size_mb:.1f}MB file with batch size: {batch_size:,} (pooled)")
+        
+        total_rows = 0
+        
+        with self.connection_pool.get_connection() as conn:
+            try:
+                # Handle existing table
+                if replace_existing:
+                    conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
+                
+                # Create table
+                columns = ', '.join([f'[{header}] TEXT' for header in headers])
+                conn.execute(f"CREATE TABLE IF NOT EXISTS [{table_name}] ({columns})")
+                
+                # Only process if there's actual data
+                if csv_data and csv_data.strip():
+                    # Prepare optimized insert statement
+                    placeholders = ','.join(['?' for _ in headers])
+                    insert_sql = f"INSERT INTO [{table_name}] VALUES ({placeholders})"
+                    
+                    # Manual transaction control
+                    conn.execute("BEGIN IMMEDIATE")
+                    
+                    try:
+                        # Process CSV data with robust parsing
+                        total_rows = self._process_csv_data_robust(
+                            conn, csv_data, insert_sql, 
+                            headers, batch_size
+                        )
+                        
+                        # Commit single large transaction
+                        conn.execute("COMMIT")
+                        
+                    except Exception as e:
+                        conn.execute("ROLLBACK")
+                        raise Exception(f"Pooled insert failed: {str(e)}")
+                else:
+                    logger.warning("No data rows found in CSV, only headers were processed")
+                    
+            except Exception as e:
+                raise Exception(f"Pooled processing failed: {str(e)}")
+        
+        elapsed_time = time.time() - start_time
+        rows_per_second = int(total_rows / elapsed_time) if elapsed_time > 0 and total_rows > 0 else 0
+        
+        logger.info(f"POOLED COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = {rows_per_second:,} rows/sec")
         
         return {
             'table_name': table_name,
@@ -214,32 +542,25 @@ class UltraOptimizedUploader:
             'columns': len(headers),
             'time_elapsed': elapsed_time,
             'rows_per_second': rows_per_second,
-            'strategy': 'ultra_streaming',
+            'strategy': 'pooled_ultra_streaming',
             'batch_size': batch_size,
-            'ultra_mode': self.ultra_mode
+            'file_size_mb': content_size_mb
         }
     
-    def _process_csv_data_ultra_fast(self, conn: sqlite3.Connection, 
-                                   csv_data: str, insert_sql: str,
-                                   headers: List[str], batch_size: int) -> int:
-        """
-        Ultra-fast CSV data processing with minimal overhead
-        Uses string operations instead of csv.reader for maximum speed
-        """
+    def _process_csv_data_robust(self, conn, csv_data, insert_sql, headers, batch_size):
+        """Robust CSV data processing with proper CSV parsing"""
         total_rows = 0
         batch_data = []
         num_columns = len(headers)
         
-        # Process lines directly without CSV reader overhead
-        for line_num, line in enumerate(csv_data.split('\n')):
-            if not line.strip():  # Skip empty lines
+        # Use StringIO and csv.reader for proper CSV parsing
+        csv_reader = csv.reader(io.StringIO(csv_data))
+        
+        for row_data in csv_reader:
+            if not any(cell.strip() for cell in row_data):  # Skip empty rows
                 continue
-                
-            # Fast CSV parsing (simple comma splitting)
-            # Note: This assumes no escaped commas in data
-            row_data = [cell.strip().strip('"\'') for cell in line.split(',')]
             
-            # Pad or truncate to match column count
+            # Normalize row length
             if len(row_data) < num_columns:
                 row_data.extend([''] * (num_columns - len(row_data)))
             elif len(row_data) > num_columns:
@@ -247,15 +568,13 @@ class UltraOptimizedUploader:
             
             batch_data.append(tuple(row_data))
             
-            # Execute batch when size reached
             if len(batch_data) >= batch_size:
                 conn.executemany(insert_sql, batch_data)
                 total_rows += len(batch_data)
                 batch_data.clear()
                 
-                # Progress logging for large files
-                if total_rows % (batch_size * 5) == 0:
-                    logger.info(f"ULTRA: Processed {total_rows:,} rows")
+                if total_rows % (batch_size * 2) == 0:
+                    logger.info(f"POOLED: Processed {total_rows:,} rows")
         
         # Insert remaining rows
         if batch_data:
@@ -264,98 +583,340 @@ class UltraOptimizedUploader:
         
         return total_rows
     
-    def process_excel_ultra_fast(self, file_content: bytes, table_name: str,
-                            sheet_name: str = None, replace_existing: bool = False) -> Dict[str, Any]:
-        """Excel processing with ultra-fast SQLite operations"""
+    def process_excel_ultra_fast(self, file_content, table_name, sheet_name=None, replace_existing=False):
+        """Excel processing with enhanced column handling and robust error recovery"""
         start_time = time.time()
-        
+        file_size_bytes = len(file_content)
+        file_size_mb = file_size_bytes / (1024 * 1024)
         total_rows = 0
-    
-        with self.ultra_optimized_connection() as conn:
-            # Handle existing table
-            if replace_existing:
-                conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
-            
+        headers = []
+        
+        logger.info(f"Starting Excel processing: {file_size_mb:.1f}MB file")
+        
+        with self.connection_pool.get_connection() as conn:
             try:
-                # Read Excel file - FIXED: Use openpyxl engine for better large file handling
-                excel_file = pd.ExcelFile(io.BytesIO(file_content), engine='openpyxl')
-                sheet_name = sheet_name or excel_file.sheet_names[0]
+                # Handle existing table
+                if replace_existing:
+                    try:
+                        conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
+                        logger.info(f"Dropped existing table: {table_name}")
+                    except sqlite3.Error as e:
+                        logger.warning(f"Could not drop existing table: {e}")
                 
-                # For large Excel files, process in chunks using skiprows and nrows
-                file_size = len(file_content)
-                if file_size > 100 * 1024 * 1024:  # 100MB+
-                    chunk_size = 5000   # Smaller chunks for very large files
-                elif file_size > 50 * 1024 * 1024:   # 50MB+
+                # Read Excel file with enhanced error handling
+                try:
+                    excel_file = pd.ExcelFile(io.BytesIO(file_content), engine='openpyxl')
+                    logger.info(f"Excel file loaded successfully with {len(excel_file.sheet_names)} sheets")
+                    
+                    # Determine sheet to process
+                    if sheet_name and sheet_name in excel_file.sheet_names:
+                        target_sheet = sheet_name
+                        logger.info(f"Using specified sheet: {sheet_name}")
+                    elif sheet_name:
+                        logger.warning(f"Sheet '{sheet_name}' not found, using first sheet")
+                        target_sheet = excel_file.sheet_names[0]
+                    else:
+                        target_sheet = excel_file.sheet_names[0]
+                        logger.info(f"Using first sheet: {target_sheet}")
+                    
+                except Exception as excel_error:
+                    logger.error(f"Failed to load Excel file: {str(excel_error)}")
+                    raise ValueError(f"Unable to open Excel file. Please ensure it's a valid Excel file and not corrupted.")
+                
+                # Determine chunk size based on file size
+                if file_size_mb > 100:
+                    chunk_size = 5000
+                    logger.info("Large file detected: using 5K chunk size")
+                elif file_size_mb > 50:
                     chunk_size = 10000
+                    logger.info("Medium file detected: using 10K chunk size")
                 else:
                     chunk_size = 20000
+                    logger.info("Standard file: using 20K chunk size")
                 
-                # First, read just the header to create table structure
-                header_df = pd.read_excel(excel_file, sheet_name=sheet_name, nrows=0)
-                headers = [self._clean_column_name(col) for col in header_df.columns]
+                # ENHANCED: Read and process headers with robust error handling
+                try:
+                    header_df = pd.read_excel(excel_file, sheet_name=target_sheet, nrows=0)
+                    raw_headers = [str(col) for col in header_df.columns]
+                    
+                    logger.info(f"Raw headers extracted: {len(raw_headers)} columns")
+                    logger.debug(f"Sample raw headers: {raw_headers[:5]}")
+                    
+                    # Check if sheet has no columns/data
+                    if not raw_headers:
+                        logger.warning(f"Sheet '{target_sheet}' appears to have no columns/headers")
+                        
+                        # Try to read the first row to check if data exists
+                        try:
+                            first_row_df = pd.read_excel(excel_file, sheet_name=target_sheet, nrows=1, header=None)
+                            if not first_row_df.empty and not first_row_df.columns.empty:
+                                # Use first row as headers
+                                raw_headers = [str(val) for val in first_row_df.iloc[0]]
+                                logger.info(f"Using first row as headers: {len(raw_headers)} columns")
+                            else:
+                                # Sheet is truly empty, try other sheets
+                                logger.warning(f"Sheet '{target_sheet}' is empty, checking other sheets")
+                                
+                                found_data = False
+                                available_sheets = []
+                                sheets_with_data = []
+                                
+                                for alt_sheet in excel_file.sheet_names:
+                                    available_sheets.append(alt_sheet)
+                                    if alt_sheet != target_sheet:
+                                        try:
+                                            alt_df = pd.read_excel(excel_file, sheet_name=alt_sheet, nrows=0)
+                                            if len(alt_df.columns) > 0:
+                                                sheets_with_data.append(alt_sheet)
+                                                if not found_data:
+                                                    # Use the first sheet with data
+                                                    target_sheet = alt_sheet
+                                                    raw_headers = [str(col) for col in alt_df.columns]
+                                                    logger.info(f"Automatically switched to sheet '{alt_sheet}' which has {len(raw_headers)} columns")
+                                                    found_data = True
+                                        except Exception as sheet_check_error:
+                                            logger.debug(f"Could not check sheet '{alt_sheet}': {sheet_check_error}")
+                                            continue
+                                
+                                # If still no headers found, provide helpful error
+                                if not raw_headers:
+                                    if sheets_with_data:
+                                        # Other sheets have data, suggest them
+                                        sheets_list = "', '".join(sheets_with_data[:3])  # Show max 3 sheets
+                                        if len(sheets_with_data) > 3:
+                                            sheets_list += f"' and {len(sheets_with_data) - 3} more"
+                                        error_msg = (
+                                            f"The selected sheet '{excel_file.sheet_names[0]}' is empty. "
+                                            f"However, data was found in: '{sheets_list}'. "
+                                            f"Please specify one of these sheets in the upload form, or let the system auto-select by leaving the sheet field empty."
+                                        )
+                                    else:
+                                        # No sheets have data
+                                        error_msg = (
+                                            f"This Excel file appears to be empty or contains no readable data. "
+                                            f"Found {len(available_sheets)} sheet(s): {', '.join(available_sheets[:5])}, "
+                                            f"but none contain data that can be imported. "
+                                            f"Please check your file and ensure it contains data in at least one sheet."
+                                        )
+                                    raise ValueError(error_msg)
+                                else:
+                                    # We found data and switched sheets - add a note for the user
+                                    logger.info(f"Successfully auto-selected sheet '{target_sheet}' with data")
+                        except ValueError:
+                            raise  # Re-raise our custom error messages
+                        except Exception as e:
+                            logger.error(f"Error checking for data: {str(e)}")
+                            raise ValueError(
+                                f"The Excel sheet '{target_sheet}' appears to be empty. "
+                                f"The file has {len(excel_file.sheet_names)} sheets: {', '.join(excel_file.sheet_names[:5])}. "
+                                f"Try selecting a different sheet or leaving the sheet field empty to auto-select."
+                            )
+                    
+                    # Clean and ensure unique column names
+                    headers = self._ensure_unique_column_names(raw_headers)
+                    
+                    logger.info(f"Processed headers: {len(headers)} unique columns")
+                    logger.debug(f"Sample clean headers: {headers[:5]}")
+                    
+                except ValueError as ve:
+                    raise ve  # Re-raise with our user-friendly message
+                except Exception as header_error:
+                    logger.error(f"Failed to process Excel headers: {str(header_error)}")
+                    # Provide user-friendly error
+                    raise ValueError(
+                        f"Could not read the Excel file properly. "
+                        f"This file has {len(excel_file.sheet_names)} sheet(s): {', '.join(excel_file.sheet_names[:3])}. "
+                        f"Please ensure the file is not corrupted and contains valid data."
+                    )
                 
-                # Create table without indexes initially
-                columns = ', '.join([f'[{header}] TEXT' for header in headers])
-                conn.execute(f"CREATE TABLE IF NOT EXISTS [{table_name}] ({columns})")
+                # ENHANCED: Create table with robust SQL generation
+                try:
+                    # Final check: ensure we have at least one column
+                    if not headers:
+                        raise ValueError("Cannot create table with no columns. The Excel sheet appears to be empty.")
+                    
+                    # Validate all headers are SQL-safe
+                    validated_headers = []
+                    for i, header in enumerate(headers):
+                        if not header or not isinstance(header, str):
+                            validated_headers.append(f"column_{i+1}")
+                        else:
+                            validated_headers.append(header)
+                    
+                    headers = validated_headers
+                    
+                    # Build CREATE TABLE statement
+                    columns = ', '.join([f'[{header}] TEXT' for header in headers])
+                    create_table_sql = f"CREATE TABLE IF NOT EXISTS [{table_name}] ({columns})"
+                    
+                    # Log SQL for debugging (truncated)
+                    sql_preview = create_table_sql[:200] + '...' if len(create_table_sql) > 200 else create_table_sql
+                    logger.debug(f"CREATE TABLE SQL: {sql_preview}")
+                    
+                    conn.execute(create_table_sql)
+                    logger.info(f"Table '{table_name}' created successfully with {len(headers)} columns")
+                    
+                except sqlite3.Error as sql_error:
+                    logger.error(f"SQL Error creating table: {str(sql_error)}")
+                    logger.error(f"Problematic headers: {headers}")
+                    raise ValueError(f"Failed to create table. The column names may contain invalid characters.")
                 
-                # Manual transaction control
+                # Manual transaction control for performance
                 conn.execute("BEGIN IMMEDIATE")
+                logger.info("Started database transaction")
+                
+                # Prepare insert statement
+                placeholders = ','.join(['?' for _ in headers])
+                insert_sql = f"INSERT INTO [{table_name}] VALUES ({placeholders})"
                 
                 try:
-                    # Process Excel in chunks using skiprows approach
+                    # ENHANCED: Process Excel data in chunks with robust error handling
                     chunk_start = 1  # Skip header row
+                    processed_chunks = 0
+                    failed_chunks = 0
                     
                     while True:
                         try:
-                            # Read chunk
-                            chunk_df = pd.read_excel(
-                                excel_file, 
-                                sheet_name=sheet_name, 
-                                skiprows=range(1, chunk_start),  # Skip header + previous rows
-                                nrows=chunk_size,
-                                header=0  # First row of chunk is header
-                            )
+                            logger.debug(f"Processing chunk starting at row {chunk_start}")
                             
-                            if chunk_df.empty:
-                                break
+                            # Read chunk with error handling
+                            try:
+                                chunk_df = pd.read_excel(
+                                    excel_file,
+                                    sheet_name=target_sheet,
+                                    skiprows=range(1, chunk_start),
+                                    nrows=chunk_size,
+                                    header=0
+                                )
+                            except Exception as read_error:
+                                logger.warning(f"Failed to read chunk at row {chunk_start}: {str(read_error)}")
+                                failed_chunks += 1
                                 
-                            # Clean column names to match table schema
-                            chunk_df.columns = headers
+                                # If too many consecutive failures, stop
+                                if failed_chunks > 3:
+                                    logger.error("Too many consecutive chunk failures, stopping")
+                                    break
+                                
+                                chunk_start += chunk_size
+                                continue
                             
-                            # Convert data types for SQLite compatibility
-                            chunk_df = self._optimize_dataframe_types(chunk_df)
+                            # Check if chunk is empty
+                            if chunk_df.empty:
+                                logger.info("Reached end of data")
+                                break
+                            
+                            # Reset failed chunk counter on successful read
+                            failed_chunks = 0
+                            processed_chunks += 1
+                            
+                            # ENHANCED: Handle column mismatch
+                            try:
+                                # Ensure chunk has same number of columns as headers
+                                chunk_columns = len(chunk_df.columns)
+                                expected_columns = len(headers)
+                                
+                                if chunk_columns != expected_columns:
+                                    logger.warning(f"Column count mismatch: got {chunk_columns}, expected {expected_columns}")
+                                    
+                                    # Adjust DataFrame columns to match headers
+                                    if chunk_columns < expected_columns:
+                                        # Add missing columns
+                                        for i in range(chunk_columns, expected_columns):
+                                            chunk_df[f'missing_col_{i}'] = ''
+                                    elif chunk_columns > expected_columns:
+                                        # Remove extra columns
+                                        chunk_df = chunk_df.iloc[:, :expected_columns]
+                                
+                                # Set column names to match our headers
+                                chunk_df.columns = headers
+                                
+                            except Exception as column_error:
+                                logger.warning(f"Column adjustment failed: {str(column_error)}")
+                                chunk_start += chunk_size
+                                continue
+                            
+                            # ENHANCED: Optimize DataFrame types and handle problematic data
+                            try:
+                                chunk_df = self._optimize_dataframe_types(chunk_df)
+                            except Exception as optimize_error:
+                                logger.warning(f"DataFrame optimization failed: {str(optimize_error)}")
+                                # Continue without optimization
                             
                             # Convert to records and batch insert
-                            records = [tuple(row) for row in chunk_df.values]
-                            placeholders = ','.join(['?' for _ in headers])
-                            insert_sql = f"INSERT INTO [{table_name}] VALUES ({placeholders})"
-                            
-                            conn.executemany(insert_sql, records)
-                            total_rows += len(records)
-                            
-                            if total_rows % (chunk_size * 2) == 0:
-                                logger.info(f"EXCEL ULTRA: Processed {total_rows:,} rows")
+                            try:
+                                records = []
+                                for row in chunk_df.values:
+                                    # Convert row to tuple, handling any problematic values
+                                    clean_row = []
+                                    for value in row:
+                                        if pd.isna(value):
+                                            clean_row.append('')
+                                        elif isinstance(value, (int, float, str)):
+                                            clean_row.append(str(value))
+                                        else:
+                                            clean_row.append(str(value))
+                                    records.append(tuple(clean_row))
+                                
+                                # Batch insert
+                                conn.executemany(insert_sql, records)
+                                total_rows += len(records)
+                                
+                                # Progress logging
+                                if total_rows % (chunk_size * 2) == 0:
+                                    logger.info(f"EXCEL POOLED: Processed {total_rows:,} rows in {processed_chunks} chunks")
+                                
+                            except sqlite3.Error as insert_error:
+                                logger.error(f"Insert error for chunk at row {chunk_start}: {str(insert_error)}")
+                                # Continue with next chunk rather than failing completely
+                                failed_chunks += 1
                             
                             chunk_start += chunk_size
                             
+                            # Safety check: prevent infinite loops
+                            if processed_chunks > 10000:  # Arbitrary large number
+                                logger.warning("Processed maximum number of chunks, stopping")
+                                break
+                        
                         except Exception as chunk_error:
-                            logger.error(f"Error processing chunk starting at row {chunk_start}: {chunk_error}")
-                            break
+                            logger.error(f"Unexpected error processing chunk at row {chunk_start}: {str(chunk_error)}")
+                            failed_chunks += 1
+                            
+                            if failed_chunks > 3:
+                                logger.error("Too many consecutive failures, stopping")
+                                break
+                            
+                            chunk_start += chunk_size
+                            continue
                     
+                    # Commit transaction
                     conn.execute("COMMIT")
-                    self._create_optimized_indexes(conn, table_name, headers)
+                    logger.info(f"Transaction committed successfully: {total_rows:,} rows, {processed_chunks} chunks processed")
                     
-                except Exception as e:
+                except Exception as processing_error:
+                    logger.error(f"Excel chunk processing failed: {str(processing_error)}")
+                    try:
+                        conn.execute("ROLLBACK")
+                        logger.info("Transaction rolled back")
+                    except:
+                        pass
+                    raise ValueError(f"Failed to process Excel data: {str(processing_error)}")
+            
+            except ValueError as ve:
+                # These are our user-friendly errors
+                raise ve
+            except Exception as e:
+                logger.error(f"Excel processing error: {str(e)}")
+                try:
                     conn.execute("ROLLBACK")
-                    raise Exception(f"Excel ultra processing failed: {str(e)}")
-                    
-            except Exception as excel_error:
-                raise Exception(f"Excel file processing failed: {str(excel_error)}")
+                except:
+                    pass
+                raise ValueError(f"Excel processing failed: {str(e)}")
         
+        # Calculate performance metrics
         elapsed_time = time.time() - start_time
         rows_per_second = int(total_rows / elapsed_time) if elapsed_time > 0 else 0
         
-        logger.info(f"EXCEL ULTRA COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = {rows_per_second:,} rows/sec")
+        logger.info(f"EXCEL POOLED COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = {rows_per_second:,} rows/sec")
         
         return {
             'table_name': table_name,
@@ -363,527 +924,459 @@ class UltraOptimizedUploader:
             'columns': len(headers),
             'time_elapsed': elapsed_time,
             'rows_per_second': rows_per_second,
-            'strategy': 'excel_ultra_fixed'
+            'strategy': 'excel_pooled_optimized',
+            'file_size_mb': file_size_mb
         }
     
-    def _create_optimized_indexes(self, conn: sqlite3.Connection, 
-                                table_name: str, headers: List[str]):
-        """Create minimal indexes after data insertion"""
-        # Only create index on first column (likely primary key)
-        if headers:
-            try:
-                index_sql = f"CREATE INDEX IF NOT EXISTS idx_{table_name}_main ON [{table_name}] ([{headers[0]}])"
-                conn.execute(index_sql)
-            except Exception as e:
-                logger.warning(f"Could not create index: {e}")
-    
-    def _clean_column_name(self, name: str) -> str:
-        """Fast column name cleaning"""
-        # Basic cleaning - remove non-alphanumeric except underscore
-        clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(name).strip())
-        
-        # Ensure starts with letter/underscore
-        if clean_name and not clean_name[0].isalpha() and clean_name[0] != '_':
-            clean_name = 'col_' + clean_name
-        
-        return clean_name[:64] or 'column'
-    
-    def _optimize_dataframe_types(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _optimize_dataframe_types(self, df):
         """Optimize pandas DataFrame for SQLite insertion"""
         for col in df.columns:
-            # Convert datetime objects to strings
             if df[col].dtype == 'datetime64[ns]':
                 df[col] = df[col].astype(str)
-            # Handle NaN values
             elif df[col].dtype == 'object':
                 df[col] = df[col].fillna('')
-            # Replace inf values in numeric columns
             elif df[col].dtype in ['float64', 'float32']:
                 df[col] = df[col].replace([np.inf, -np.inf], None)
         return df
-
-
-class RobustCSVProcessor:
-    """
-    Robust CSV processor with enhanced validation and error handling
-    """
     
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        
-    def process_csv_robust_fast(self, file_content: str, table_name: str,
-                               replace_existing: bool = False) -> Dict[str, Any]:
-        """Process CSV with enhanced validation and error handling"""
-        start_time = time.time()
-        
-        # STEP 1: Validate CSV structure first
-        is_valid, error_msg, column_info = validate_csv_structure(file_content)
-        if not is_valid:
-            raise Exception(f"CSV validation failed: {error_msg}")
-        
-        logger.info(f"CSV validation passed: {column_info['header_count']} columns, {column_info['sample_rows_checked']} rows sampled")
-        
-        # STEP 2: Process with validated structure
-        csv_file = io.StringIO(file_content)
-        
-        # Use csv.Sniffer to detect dialect
+    def _parse_csv_line(self, line):
+        """Robust CSV line parsing"""
         try:
-            dialect = csv.Sniffer().sniff(file_content[:8192])  # Sample first 8KB
-        except:
-            dialect = csv.excel  # Fallback to standard excel dialect
-        
-        reader = csv.reader(csv_file, dialect=dialect)
-        headers = [self._clean_column_name(h) for h in next(reader)]
-        
-        # Reset for data reading
-        csv_file.seek(0)
-        reader = csv.reader(csv_file, dialect=dialect)
-        next(reader)  # Skip header row
-        
-        with sqlite3.connect(self.db_path) as conn:
-            # Apply performance pragmas
-            conn.isolation_level = None
-            
-            pragmas = [
-                "PRAGMA synchronous = NORMAL",
-                "PRAGMA journal_mode = WAL", 
-                "PRAGMA cache_size = -1000000",
-                "PRAGMA temp_store = MEMORY",
-                "PRAGMA mmap_size = 268435456",
-            ]
-            
-            for pragma in pragmas:
-                conn.execute(pragma)
-            
-            # Handle existing table
-            if replace_existing:
-                conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
-            
-            # Create table
-            columns = ', '.join([f'[{header}] TEXT' for header in headers])
-            conn.execute(f"CREATE TABLE IF NOT EXISTS [{table_name}] ({columns})")
-            
-            # Enhanced batch processing
-            insert_sql = f"INSERT INTO [{table_name}] VALUES ({','.join(['?' for _ in headers])})"
-            
-            batch_size = 25000
-            batch_data = []
-            total_rows = 0
-            error_rows = []
-            
-            # Single transaction for all data
-            conn.execute("BEGIN IMMEDIATE")
-            
-            try:
-                for row_num, row in enumerate(reader, start=2):  # Start counting from row 2
-                    try:
-                        # Enhanced row processing with error tolerance
-                        processed_row = self._process_row_robust(row, len(headers), row_num)
-                        batch_data.append(processed_row)
-                        
-                        if len(batch_data) >= batch_size:
-                            conn.executemany(insert_sql, batch_data)
-                            total_rows += len(batch_data)
-                            batch_data.clear()
-                            
-                            if total_rows % (batch_size * 2) == 0:
-                                logger.info(f"ROBUST: Processed {total_rows:,} rows")
-                    
-                    except Exception as row_error:
-                        error_rows.append({
-                            'row_num': row_num,
-                            'error': str(row_error),
-                            'row_data': str(row)[:100]
-                        })
-                        
-                        # If too many row errors, fail the whole upload
-                        if len(error_rows) > 100 or len(error_rows) > total_rows * 0.05:  # 5% error rate
-                            raise Exception(f"Too many row processing errors ({len(error_rows)}). Sample errors: {error_rows[:3]}")
-                
-                # Insert remaining rows
-                if batch_data:
-                    conn.executemany(insert_sql, batch_data)
-                    total_rows += len(batch_data)
-                
-                conn.execute("COMMIT")
-                
-                # Log any row errors but don't fail
-                if error_rows:
-                    logger.warning(f"Processed CSV with {len(error_rows)} row errors out of {total_rows + len(error_rows)} total rows")
-                
-            except Exception as e:
-                conn.execute("ROLLBACK")
-                raise Exception(f"Robust processing failed: {str(e)}")
-        
-        elapsed_time = time.time() - start_time
-        rows_per_second = int(total_rows / elapsed_time) if elapsed_time > 0 else 0
-        
-        logger.info(f"ROBUST COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = {rows_per_second:,} rows/sec")
-        
-        return {
-            'table_name': table_name,
-            'rows_inserted': total_rows,
-            'columns': len(headers),
-            'time_elapsed': elapsed_time,
-            'rows_per_second': rows_per_second,
-            'strategy': 'robust_enhanced',
-            'error_rows_skipped': len(error_rows)
-        }
+            reader = csv.reader([line])
+            return next(reader)
+        except (csv.Error, StopIteration):
+            return [cell.strip().strip('"\'') for cell in line.split(',')]
     
-    def _process_row_robust(self, row: List[str], expected_length: int, row_num: int) -> List[str]:
-        """Enhanced row processing with better error handling"""
-        try:
-            processed_row = []
-            
-            # Handle each column
-            for i in range(expected_length):
-                if i < len(row):
-                    # Clean and process the cell value
-                    cell_value = str(row[i]).strip()
-                    # Remove problematic characters that might break SQLite
-                    cell_value = cell_value.replace('\x00', '')  # Remove null bytes
-                    processed_row.append(cell_value)
-                else:
-                    # Missing columns - fill with empty string
-                    processed_row.append('')
-            
-            return processed_row
-            
-        except Exception as e:
-            raise Exception(f"Row {row_num} processing failed: {str(e)}")
-    
-    def _clean_column_name(self, name: str) -> str:
-        """Enhanced column name cleaning"""
-        if not name or not str(name).strip():
-            return f'column_{uuid.uuid4().hex[:8]}'
-            
-        # Clean and sanitize
+    def _clean_column_name(self, name):
+        """Fast column name cleaning"""
         clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', str(name).strip())
-        
-        # Ensure starts with letter or underscore
         if clean_name and not clean_name[0].isalpha() and clean_name[0] != '_':
             clean_name = 'col_' + clean_name
-        
-        # Remove consecutive underscores
-        clean_name = re.sub(r'_{2,}', '_', clean_name)
-        
-        # Truncate if too long
-        if len(clean_name) > 60:
-            clean_name = clean_name[:60].rstrip('_')
-        
-        return clean_name[:64] or f'column_{uuid.uuid4().hex[:8]}'
-
-
-def get_optimal_uploader(file_size: int, db_path: str, use_ultra_mode: bool = False):
-    """
-    Choose optimal uploader with lock detection
-    use_ultra_mode: True for maximum speed (some risk), False for safe optimization
-    """
+        return clean_name[:64] or 'column'
     
-    # Test if database is locked before choosing ultra mode
-    if use_ultra_mode and file_size > 50 * 1024 * 1024:
-        try:
-            # Test exclusive lock availability
-            test_conn = sqlite3.connect(db_path, timeout=5.0)
-            test_conn.execute("PRAGMA locking_mode = EXCLUSIVE")
-            test_conn.execute("SELECT 1")  # Test if we can actually use it
-            test_conn.execute("PRAGMA locking_mode = NORMAL")  # Release immediately
-            test_conn.close()
-            
-            logger.debug("Database lock test passed, using ultra mode")
-            return UltraOptimizedUploader(db_path, ultra_mode=True)
-            
-        except sqlite3.OperationalError as e:
-            if "database is locked" in str(e):
-                logger.warning("Database locked, falling back to robust processor")
-                return RobustCSVProcessor(db_path)
-            raise
-    
-    # Original logic for other cases
-    if file_size > 50 * 1024 * 1024:
-        return UltraOptimizedUploader(db_path, ultra_mode=use_ultra_mode)
-    else:
-        return RobustCSVProcessor(db_path)
-
-def monitor_performance_detailed(func):
-    """Enhanced performance monitoring with detailed metrics for both sync and async functions"""
-    import asyncio
-    import functools
-    
-    if asyncio.iscoroutinefunction(func):
-        @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            process = psutil.Process(os.getpid())
-            
-            # Before metrics
-            start_memory = process.memory_info().rss / 1024 / 1024  # MB
-            start_cpu_times = process.cpu_times()
-            start_time = time.time()
-            
-            # Execute the async function
-            result = await func(*args, **kwargs)
-            
-            # After metrics
-            end_time = time.time()
-            end_memory = process.memory_info().rss / 1024 / 1024  # MB
-            end_cpu_times = process.cpu_times()
-            
-            # Calculate detailed metrics
-            total_time = end_time - start_time
-            memory_delta = end_memory - start_memory
-            cpu_time = (end_cpu_times.user - start_cpu_times.user) + (end_cpu_times.system - start_cpu_times.system)
-            cpu_efficiency = (cpu_time / total_time * 100) if total_time > 0 else 0
-            
-            # For async functions that return Response objects, log separately
-            # since we can't modify the Response object easily
-            logger.info(f"ASYNC PERFORMANCE SUMMARY:")
-            logger.info(f"  Function: {func.__name__}")
-            logger.info(f"  Total Time: {total_time:.2f}s")
-            logger.info(f"  Memory Delta: {memory_delta:.1f}MB")
-            logger.info(f"  CPU Time: {cpu_time:.2f}s")
-            logger.info(f"  CPU Efficiency: {cpu_efficiency:.1f}%")
-            logger.info(f"  Memory Start: {start_memory:.1f}MB")
-            logger.info(f"  Memory End: {end_memory:.1f}MB")
-            
-            return result
+    def _ensure_unique_column_names(self, headers):
+        """Ensure all column names are unique"""
+        seen = {}
+        unique_headers = []
         
-        return async_wrapper
-    
-    else:
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            process = psutil.Process(os.getpid())
+        for header in headers:
+            clean_header = self._clean_column_name(header)
             
-            # Before metrics
-            start_memory = process.memory_info().rss / 1024 / 1024  # MB
-            start_cpu_times = process.cpu_times()
-            start_time = time.time()
-            
-            # Execute the sync function
-            result = func(*args, **kwargs)
-            
-            # After metrics
-            end_time = time.time()
-            end_memory = process.memory_info().rss / 1024 / 1024  # MB
-            end_cpu_times = process.cpu_times()
-            
-            # Calculate detailed metrics
-            total_time = end_time - start_time
-            memory_delta = end_memory - start_memory
-            cpu_time = (end_cpu_times.user - start_cpu_times.user) + (end_cpu_times.system - start_cpu_times.system)
-            cpu_efficiency = (cpu_time / total_time * 100) if total_time > 0 else 0
-            
-            # Add performance metrics to result if it's a dictionary
-            if isinstance(result, dict):
-                result.update({
-                    'performance_metrics': {
-                        'memory_start_mb': start_memory,
-                        'memory_end_mb': end_memory,
-                        'memory_delta_mb': memory_delta,
-                        'cpu_time_seconds': cpu_time,
-                        'cpu_efficiency_percent': cpu_efficiency,
-                        'total_wall_time': total_time
-                    }
-                })
-            
-            # Log performance summary
-            if isinstance(result, dict) and 'rows_inserted' in result:
-                logger.info(f"SYNC PERFORMANCE SUMMARY:")
-                logger.info(f" Rows: {result['rows_inserted']:,}")
-                logger.info(f" Time: {total_time:.2f}s")
-                logger.info(f" Speed: {result.get('rows_per_second', 0):,} rows/sec")
-                logger.info(f" Memory: {memory_delta:.1f}MB delta")
-                logger.info(f" CPU Efficiency: {cpu_efficiency:.1f}%")
-                logger.info(f" Strategy: {result.get('strategy', 'unknown')}")
+            if clean_header in seen:
+                seen[clean_header] += 1
+                unique_header = f"{clean_header}_{seen[clean_header]}"
             else:
-                logger.info(f"SYNC PERFORMANCE: {func.__name__} completed in {total_time:.2f}s")
+                seen[clean_header] = 0
+                unique_header = clean_header
             
-            return result
+            unique_headers.append(unique_header)
         
-        return sync_wrapper
+        return unique_headers
     
-def sanitize_filename_for_table(filename):
-    """Convert filename to valid table name using auto-fix logic"""
-    if not filename:
-        return f'table_{uuid.uuid4().hex[:8]}'
+    def close_pool(self):
+        """Close connection pool"""
+        self.connection_pool.close_all()
+
+def get_optimal_uploader(file_size, db_path, use_ultra_mode=False):
+    """Choose optimal uploader with connection pooling"""
+    max_connections = 3 if file_size > 100 * 1024 * 1024 else 2
+    return PooledUltraOptimizedUploader(db_path, ultra_mode=use_ultra_mode, max_connections=max_connections)
+
+# Size validation functions
+async def validate_and_check_size(csv_url, max_file_size, headers):
+    """Size checking with better error handling"""
+    max_size_mb = max_file_size / (1024 * 1024)  # Float division
     
-    # Remove file extension if present
-    base_name = os.path.splitext(filename)[0]
-    
-    # Apply the enhanced auto-fix logic
-    return auto_fix_table_name(base_name)
-
-async def suggest_unique_name(base_name, datasette, db_name):
     try:
-        target_db = datasette.get_database(db_name)
-        existing_tables = await target_db.table_names()
+        head_response = requests.head(csv_url, headers=headers, allow_redirects=True, timeout=10)
+        head_response.raise_for_status()
         
-        # If base name is available, use it
-        if base_name not in existing_tables:
-            return base_name
+        content_length = head_response.headers.get('content-length')
         
-        # Generate numbered alternatives
-        counter = 1
-        while f"{base_name}_{counter}" in existing_tables:
-            counter += 1
-        
-        return f"{base_name}_{counter}"
-        
-    except Exception as e:
-        logger.error(f"Error checking existing tables: {e}")
-        return f"{base_name}_{uuid.uuid4().hex[:8]}"
-
-async def is_table_name_available(target_db, table_name):
-    """Check if table name is available (doesn't exist)"""
-    try:
-        existing_tables = await target_db.table_names()
-        return table_name not in existing_tables
-    except Exception as e:
-        logger.error(f"Error checking table existence: {e}")
-        # If we can't check, assume name might conflict and return False
-        return False
-
-def parse_multipart_form_data(body, boundary):
-    """Improved multipart form data parser with better error handling"""
-    try:
-        # Method 1: Try email parser first
-        headers = f'Content-Type: multipart/form-data; boundary={boundary}\r\n\r\n'
-        msg = BytesParser(policy=default).parsebytes(headers.encode() + body)
-        
-        forms = {}
-        files = {}
-        
-        for part in msg.iter_parts():
-            if not part.is_multipart():
-                content_disposition = part.get('Content-Disposition', '')
-                logger.debug(f"Processing part with Content-Disposition: {content_disposition}")
+        if content_length:
+            try:
+                size_bytes = int(content_length)
+                actual_mb = size_bytes / (1024 * 1024)  # FIXED: Float division
                 
-                if content_disposition:
-                    # Parse Content-Disposition header more carefully
-                    disposition_params = {}
-                    
-                    # Split by semicolon and process each parameter
-                    parts = content_disposition.split(';')
-                    for param_part in parts[1:]:  # Skip first part which is "form-data"
-                        param_part = param_part.strip()
-                        if '=' in param_part:
-                            key, value = param_part.split('=', 1)
-                            key = key.strip()
-                            value = value.strip().strip('"')  # Remove quotes
-                            disposition_params[key] = value
-                    
-                    field_name = disposition_params.get('name')
-                    filename = disposition_params.get('filename')
-                    
-                    logger.debug(f"Field name: {field_name}, Filename: {filename}")
-                    
-                    if field_name:
-                        content = part.get_payload(decode=True)
-                        if filename:  # File upload
-                            files[field_name] = {
-                                'filename': filename,
-                                'content': content or b''
-                            }
-                            logger.debug(f"Found file field: {field_name} = {filename}")
-                        else:  # Form field
-                            text_content = content.decode('utf-8', errors='ignore') if content else ''
-                            forms[field_name] = text_content
-                            logger.debug(f"Found form field: {field_name} = '{text_content}'")
-        
-        logger.debug(f"Final parsed forms: {forms}")
-        logger.debug(f"Final parsed files: {list(files.keys())}")
-        return forms, files
-        
-    except Exception as email_error:
-        logger.warning(f"Email parser failed: {email_error}, trying manual parser")
-        
-        # Method 2: Manual parsing as fallback
-        try:
-            return parse_multipart_manual(body, boundary)
-        except Exception as manual_error:
-            logger.error(f"All parsers failed: email={email_error}, manual={manual_error}")
-            return {}, {}
-
-def parse_multipart_manual(body, boundary):
-    """Manual multipart parser as fallback"""
-    forms = {}
-    files = {}
-    
-    # Split by boundary
-    boundary_bytes = f'--{boundary}'.encode()
-    parts = body.split(boundary_bytes)
-    
-    for part in parts[1:-1]:  # Skip first empty and last closing parts
-        if len(part) < 10:
-            continue
-        
-        # Find headers/content separator
-        if b'\r\n\r\n' in part:
-            headers_bytes, content = part.split(b'\r\n\r\n', 1)
-        elif b'\n\n' in part:
-            headers_bytes, content = part.split(b'\n\n', 1)
+                if size_bytes > max_file_size:
+                    raise ValueError(f"File too large ({actual_mb:.1f}MB). Maximum: {max_size_mb:.0f}MB")
+                
+                logger.info(f"File size check passed: {actual_mb:.1f}MB")
+                return size_bytes
+                
+            except (ValueError, TypeError):
+                logger.warning("Invalid content-length header, will monitor during download")
         else:
-            continue
-        
-        # Parse headers
-        headers_text = headers_bytes.decode('utf-8', errors='ignore')
-        
-        # Extract field name and filename
-        name_match = re.search(r'name="([^"]+)"', headers_text)
-        filename_match = re.search(r'filename="([^"]*)"', headers_text)
-        
-        if name_match:
-            field_name = name_match.group(1)
+            logger.warning("No content-length header, will monitor during download")
             
-            # Clean content (remove trailing boundary markers)
-            content = content.rstrip(b'\r\n--')
-            
-            if filename_match and filename_match.group(1):
-                # File field
-                files[field_name] = {
-                    'filename': filename_match.group(1),
-                    'content': content
-                }
-            else:
-                # Form field  
-                text_content = content.decode('utf-8', errors='ignore')
-                forms[field_name] = text_content
+    except requests.RequestException as e:
+        logger.warning(f"HEAD request failed: {e}, will monitor size during download")
     
-    logger.debug(f"Manual parser - forms: {forms}, files: {list(files.keys())}")
-    return forms, files
+    return None  # Size unknown, will check during download
 
+async def download_with_size_limit(csv_url, max_file_size, headers):
+    """Download with strict size enforcement"""
+    downloaded_size = 0
+    chunks = []
+    max_mb = max_file_size / (1024 * 1024)
+    
+    response = requests.get(csv_url, headers=headers, allow_redirects=True, stream=True, timeout=30)
+    response.raise_for_status()
+    
+    for chunk in response.iter_content(chunk_size=8192):
+        if chunk:
+            # FIXED: Check BEFORE adding chunk to prevent exceeding limit
+            if downloaded_size + len(chunk) > max_file_size:
+                current_mb = downloaded_size / (1024 * 1024)
+                raise ValueError(f"File size limit reached during download ({current_mb:.1f}MB). Maximum: {max_mb:.0f}MB")
+            
+            downloaded_size += len(chunk)
+            chunks.append(chunk)
+            
+            # Progress logging every 5MB
+            if downloaded_size % (5 * 1024 * 1024) < len(chunk):
+                mb_downloaded = downloaded_size / (1024 * 1024)
+                logger.info(f"Downloaded {mb_downloaded:.1f}MB")
+    
+    return b''.join(chunks), downloaded_size
+
+async def decode_content_safely(content_bytes, encoding='auto'):
+    """Content decoding with better error handling"""
+    if encoding == 'auto':
+        if CHARDET_AVAILABLE:
+            try:
+                detected = chardet.detect(content_bytes[:10000])
+                encoding = detected.get('encoding', 'utf-8') if detected.get('confidence', 0) > 0.7 else 'utf-8'
+                logger.info(f"Auto-detected encoding: {encoding}")
+            except Exception:
+                encoding = 'utf-8'
+                logger.info("Chardet detection failed, using UTF-8")
+        else:
+            encoding = 'utf-8'
+            logger.info("Chardet not available, using UTF-8")
+    
+    # Try the specified/detected encoding first
+    try:
+        content = content_bytes.decode(encoding)
+        logger.info(f"Successfully decoded with {encoding}")
+        return content
+    except UnicodeDecodeError:
+        logger.warning(f"Failed to decode with {encoding}, trying fallbacks")
+    
+    # Try fallback encodings
+    fallback_encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-16', 'ascii']
+    for fallback in fallback_encodings:
+        if fallback == encoding:  # Skip if already tried
+            continue
+        try:
+            content = content_bytes.decode(fallback)
+            logger.info(f"Successfully decoded with fallback encoding: {fallback}")
+            return content
+        except UnicodeDecodeError:
+            continue
+    
+    # Last resort: decode with errors='replace'
+    content = content_bytes.decode('utf-8', errors='replace')
+    logger.warning("Used UTF-8 with error replacement - some characters may be corrupted")
+    return content
+
+async def fetch_csv_from_url_stream(datasette, csv_url, encoding='auto'):
+    """Stream-based CSV fetching without loading entire file into memory"""
+    try:
+        await validate_csv_url(datasette, csv_url)
+        
+        headers = {
+            'User-Agent': 'EDGI-Portal/1.0 (Environmental Data Portal)',
+            'Accept': 'text/csv, text/plain, application/csv, */*'
+        }
+        
+        max_file_size = await get_max_file_size(datasette)
+        max_size_mb = max_file_size / (1024 * 1024)
+        
+        logger.info(f"Starting STREAM download: {csv_url} (max size: {max_size_mb:.0f}MB)")
+        
+        # Validate size with HEAD request first
+        await validate_and_check_size(csv_url, max_file_size, headers)
+        
+        # Get streaming response
+        response = requests.get(csv_url, headers=headers, allow_redirects=True, stream=True, timeout=30)
+        response.raise_for_status()
+        
+        # Set encoding for text decoding
+        if encoding != 'auto':
+            response.encoding = encoding
+        elif not response.encoding or response.encoding == 'ISO-8859-1':
+            # requests often defaults to ISO-8859-1, try to detect better encoding
+            response.encoding = 'utf-8'
+        
+        return response  # Return response object for streaming
+        
+    except requests.RequestException as e:
+        raise ValueError(f"Network error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Stream setup error: {str(e)}")
+        raise ValueError(f"Stream setup failed: {str(e)}")
+
+async def fetch_csv_from_url_with_progress(datasette, csv_url, encoding='auto'):
+    """Size checking with proper validation before download"""
+    try:
+        await validate_csv_url(datasette, csv_url)
+        
+        headers = {
+            'User-Agent': 'EDGI-Portal/1.0 (Environmental Data Portal)',
+            'Accept': 'text/csv, text/plain, application/csv, */*'
+        }
+        
+        max_file_size = await get_max_file_size(datasette)
+        max_size_mb = max_file_size / (1024 * 1024)  # FIXED: Use float division
+        
+        logger.info(f"Starting URL download: {csv_url} (max size: {max_size_mb:.0f}MB)")
+        
+        # Better size checking with proper error handling
+        predicted_size = await validate_and_check_size(csv_url, max_file_size, headers)
+        
+        # Download with strict size monitoring
+        content_bytes, final_size = await download_with_size_limit(csv_url, max_file_size, headers)
+        
+        final_size_mb = final_size / (1024 * 1024)  # FIXED: Use float division
+        logger.info(f"Download complete: {final_size_mb:.1f}MB")
+        
+        # Better encoding detection and handling
+        content = await decode_content_safely(content_bytes, encoding)
+        
+        logger.info(f"CSV processed: {len(content)} characters")
+        return content
+        
+    except requests.RequestException as e:
+        raise ValueError(f"Network error: {str(e)}")
+    except Exception as e:
+        logger.error(f"URL fetch error: {str(e)}")
+        raise ValueError(f"Download failed: {str(e)}")
+
+async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None):
+    """Google Sheets fetching with enhanced URL parsing and fixed requests parameters"""
+    try:
+        sheet_url = sheet_url.rstrip('/')
+        
+        # Enhanced URL parsing patterns
+        patterns = [
+            # Standard spreadsheet URLs
+            r'docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]{44})',
+            # Published web URLs  
+            r'docs\.google\.com/spreadsheets/d/e/([a-zA-Z0-9-_]{56})',
+            # Drive sharing URLs
+            r'drive\.google\.com/file/d/([a-zA-Z0-9-_]+)',
+            # Alternative formats
+            r'/spreadsheets/d/([a-zA-Z0-9-_]{30,60})'
+        ]
+        
+        sheet_id = None
+        for pattern in patterns:
+            match = re.search(pattern, sheet_url)
+            if match:
+                sheet_id = match.group(1)
+                # Validate sheet ID length
+                if len(sheet_id) >= 30:  # Valid sheet IDs are typically 44+ chars
+                    break
+                else:
+                    sheet_id = None  # Continue searching
+        
+        if not sheet_id:
+            raise ValueError("Invalid Google Sheets URL format. Please use the sharing URL from Google Sheets.")
+        
+        logger.info(f"Extracted sheet ID: {sheet_id}")
+        
+        # Better GID extraction
+        gid = 0
+        if '#gid=' in sheet_url:
+            try:
+                gid = int(sheet_url.split('#gid=')[1].split('&')[0])
+                logger.info(f"Using GID from URL: {gid}")
+            except (ValueError, IndexError):
+                gid = sheet_index
+        else:
+            gid = sheet_index
+        
+        # More export URL formats with better error handling
+        export_urls = [
+            # Standard export URLs
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv",
+            
+            # Published web URLs (for public sheets)
+            f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?output=csv&gid={gid}",
+            f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?output=csv",
+            
+            # Query API URLs
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/csv, text/plain, application/csv, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        }
+        
+        max_file_size = await get_max_file_size(datasette)
+        max_size_mb = max_file_size / (1024 * 1024)
+        last_error = None
+        
+        for i, csv_url in enumerate(export_urls):
+            try:
+                logger.info(f"Attempting export method {i+1}: {csv_url}")
+
+                # Size checking with timeout - FIXED: removed max_redirects
+                try:
+                    head_response = requests.head(
+                        csv_url, 
+                        timeout=10, 
+                        headers=headers, 
+                        allow_redirects=True
+                    )
+                    
+                    # Better status code handling
+                    if head_response.status_code == 200:
+                        content_length = head_response.headers.get('content-length')
+                        if content_length:
+                            try:
+                                size_bytes = int(content_length)
+                                size_mb = size_bytes / (1024 * 1024)
+                                
+                                if size_bytes > max_file_size:
+                                    raise ValueError(f"Google Sheet too large ({size_mb:.1f}MB). Maximum size: {max_size_mb:.0f}MB")
+                                
+                                logger.info(f"Google Sheet size check passed: {size_mb:.1f}MB")
+                            except (ValueError, TypeError) as e:
+                                if "too large" in str(e):
+                                    raise  # Re-raise size limit errors
+                                logger.warning(f"Invalid content-length: {content_length}")
+                    
+                    elif head_response.status_code in [302, 307]:
+                        # Check if redirecting to login page
+                        location = head_response.headers.get('Location', '')
+                        if 'accounts.google.com' in location or 'ServiceLogin' in location:
+                            last_error = "Google Sheet is private. Please make it publicly accessible."
+                            continue
+                
+                except requests.RequestException:
+                    logger.warning("HEAD request failed, will try direct download")
+
+                # Download with better error handling - FIXED: removed max_redirects
+                try:
+                    response = requests.get(
+                        csv_url, 
+                        timeout=30, 
+                        headers=headers, 
+                        allow_redirects=True, 
+                        stream=True
+                    )
+                    
+                    # Better status code handling
+                    if response.status_code == 401:
+                        last_error = "Google Sheet access denied - make sure the sheet is publicly accessible"
+                        continue
+                    elif response.status_code == 400:
+                        last_error = "Google Sheet access denied - sheet may be private or GID invalid"
+                        continue
+                    elif response.status_code == 404:
+                        last_error = f"Google Sheet not found with this URL format (method {i+1})"
+                        continue
+                    elif response.status_code not in [200]:
+                        last_error = f"Failed to access Google Sheet (HTTP {response.status_code})"
+                        continue
+                    
+                    # Check if response is redirecting to login
+                    if response.url and 'accounts.google.com' in response.url:
+                        last_error = "Google Sheet is private - redirected to login page"
+                        continue
+                    
+                    # Download with size limit enforcement
+                    downloaded_size = 0
+                    chunks = []
+                    
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            # Check size before adding chunk
+                            if downloaded_size + len(chunk) > max_file_size:
+                                current_mb = downloaded_size / (1024 * 1024)
+                                raise ValueError(f"Google Sheet exceeds size limit during download ({current_mb:.1f}MB). Maximum: {max_size_mb:.0f}MB")
+                            
+                            downloaded_size += len(chunk)
+                            chunks.append(chunk)
+                    
+                    # Enhanced content validation
+                    csv_content = b''.join(chunks).decode('utf-8-sig', errors='replace')
+                    
+                    if not csv_content.strip():
+                        last_error = f"Google Sheet appears to be empty (method {i+1})"
+                        continue
+                    
+                    # Check if content is actually HTML (error page)
+                    if csv_content.strip().startswith('<!DOCTYPE html') or '<html' in csv_content:
+                        last_error = f"Received HTML instead of CSV - sheet may be private (method {i+1})"
+                        continue
+                    
+                    if not (',' in csv_content or '\t' in csv_content):
+                        last_error = f"Google Sheet doesn't contain valid CSV data (method {i+1})"
+                        continue
+                    
+                    final_size_mb = downloaded_size / (1024 * 1024)
+                    logger.info(f"Successfully retrieved CSV data using export method {i+1} ({final_size_mb:.1f}MB)")
+                    return csv_content
+                    
+                except requests.RequestException as req_error:
+                    last_error = f"Network error accessing Google Sheets (method {i+1}): {str(req_error)}"
+                    continue
+                
+            except ValueError as val_error:
+                if "too large" in str(val_error) or "exceeds size limit" in str(val_error):
+                    raise  # Re-raise size limit errors immediately
+                last_error = f"Export method {i+1} failed: {str(val_error)}"
+                continue
+            except Exception as method_error:
+                last_error = f"Export method {i+1} failed: {str(method_error)}"
+                continue
+        
+        # More specific error messages
+        if last_error:
+            if "private" in last_error.lower() or "access denied" in last_error.lower():
+                raise ValueError(
+                    "Google Sheet is not publicly accessible. "
+                    "Please make it public by clicking Share > Anyone with the link can view."
+                )
+            elif "too large" in last_error.lower():
+                raise ValueError(last_error)
+            else:
+                raise ValueError(f"Unable to import from Google Sheet: {last_error}")
+        else:
+            raise ValueError("Unable to export data from Google Sheet using any method")
+            
+    except Exception as e:
+        logger.error(f"Google Sheets fetch error: {str(e)}")
+        raise ValueError(f"Google Sheets import failed: {str(e)}")
+        
 async def enhanced_upload_page(datasette, request):
-    """Enhanced upload page with ultra-high performance processing"""
-    logger.debug(f"Enhanced Upload request: method={request.method}, path={request.path}")
-
+    """Upload page with ALL upload types"""
     actor = get_actor_from_request(request)
     if not actor:
-        return Response.redirect("/login?error=Session expired or invalid")
+        return Response.redirect("/login?error=Session expired")
 
-    # Extract database name from path
     path_parts = request.path.strip('/').split('/')
     if len(path_parts) < 2:
-        return Response.text("Invalid URL format", status=400)
+        return Response.text("Invalid URL", status=400)
     
     db_name = path_parts[1]
-    logger.debug(f"Database name extracted: {db_name}")
     
-    # Verify user owns the database
     if not await user_owns_database(datasette, actor["id"], db_name):
         return Response.text("Access denied", status=403)
-
-    # Ensure database is registered before upload attempts
-    try:
-        target_db = datasette.get_database(db_name)
-        if not target_db:
-            await ensure_database_registered(datasette, db_name, actor["id"])
-    except KeyError:
-        await ensure_database_registered(datasette, db_name, actor["id"])
 
     if request.method == "POST":
         return await handle_enhanced_upload(datasette, request, db_name, actor)
     
-    # GET request - show upload form
+    # GET request - show form
     content = await get_portal_content(datasette)
     system_settings = await get_system_settings(datasette)
 
@@ -902,56 +1395,22 @@ async def enhanced_upload_page(datasette, request):
         )
     )
 
-async def ensure_database_registered(datasette, db_name, user_id):
-    """Ensure database is registered with Datasette"""
-    try:
-        # Get database file path
-        portal_db = datasette.get_database('portal')
-        result = await portal_db.execute(
-            "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
-            [db_name, user_id]
-        )
-        db_info = result.first()
-        
-        if not db_info:
-            raise ValueError(f"Database {db_name} not found in portal database")
-        
-        file_path = db_info['file_path']
-        if not file_path:
-            file_path = os.path.join(DATA_DIR, user_id, f"{db_name}.db")
-        
-        if not os.path.exists(file_path):
-            raise ValueError(f"Database file not found: {file_path}")
-        
-        # Register database with Datasette
-        db_instance = Database(datasette, path=file_path, is_mutable=True)
-        datasette.add_database(db_instance, name=db_name)
-        logger.info(f"Successfully registered database: {db_name}")
-        
-    except Exception as e:
-        logger.error(f"Error registering database {db_name}: {e}")
-        raise
-
 async def handle_enhanced_upload(datasette, request, db_name, actor):
-    """Handle enhanced upload form submission with ultra-optimized processing"""
+    """Handle ALL upload types with proper routing"""
     try:
-        # Get max file size for validation
         max_file_size = await get_max_file_size(datasette)
-        
         content_type = request.headers.get('content-type', '').lower()
-        logger.debug(f"Content type: {content_type}")
         
         if 'multipart/form-data' in content_type:
-            return await handle_file_upload_ultra_optimized(datasette, request, db_name, actor, max_file_size)
+            return await handle_file_upload_optimized(datasette, request, db_name, actor, max_file_size)
         else:
             post_vars = await request.post_vars()
             source_type = post_vars.get('source_type')
-            logger.debug(f"Source type: {source_type}")
             
             if source_type == 'sheets':
-                return await handle_sheets_upload(datasette, request, post_vars, db_name, actor)
+                return await handle_sheets_upload_optimized(datasette, request, post_vars, db_name, actor)
             elif source_type == 'url':
-                return await handle_url_upload(datasette, request, post_vars, db_name, actor)
+                return await handle_url_upload_optimized(datasette, request, post_vars, db_name, actor)
             else:
                 error_msg = "Invalid source type"
                 return create_redirect_response(request, db_name, error_msg, is_error=True)
@@ -961,26 +1420,28 @@ async def handle_enhanced_upload(datasette, request, db_name, actor):
         error_msg = await handle_upload_error_gracefully(datasette, e, "enhanced_upload")
         return create_redirect_response(request, db_name, error_msg, is_error=True)
 
-@monitor_performance_detailed
-async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor, max_file_size):
-    """Handle file upload with ultra-high performance processing - supports both form and AJAX"""
+async def handle_file_upload_optimized(datasette, request, db_name, actor, max_file_size):
+    """Optimized file upload with robust AJAX detection and proper response handling"""
     try:
-        # Check if this is an AJAX request
-        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or \
-                 'ajax-upload' in request.path or \
-                 request.headers.get('Accept', '').startswith('application/json')
+        # ROBUST AJAX detection with multiple fallbacks
+        is_ajax = (
+            request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
+            '/ajax-upload-file/' in request.path or
+            request.headers.get('Accept', '').startswith('application/json')
+        )
         
-        logger.debug("Starting ULTRA-OPTIMIZED file upload processing with pre-validation")
+        # Debug logging to understand request type
+        logger.info(f"Request path: {request.path}")
+        logger.info(f"X-Requested-With: {request.headers.get('X-Requested-With')}")
+        logger.info(f"Accept header: {request.headers.get('Accept')}")
+        logger.info(f"AJAX detection result: {is_ajax}")
         
-        # Parse multipart form data
         body = await request.post_body()
-        logger.debug(f"Request body size: {len(body)} bytes")
         
-        # Validate file size early
+        # Early size validation
         if len(body) > max_file_size:
-            size_mb = max_file_size // (1024*1024)
+            size_mb = max_file_size / (1024*1024)
             error_msg = f"File too large (max {size_mb}MB)"
-            
             if is_ajax:
                 return Response.json({"success": False, "error": error_msg}, status=400)
             else:
@@ -988,29 +1449,19 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         
         # Parse form data
         content_type = request.headers.get('content-type', '')
-        boundary = None
-        if 'boundary=' in content_type:
-            boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
+        boundary = content_type.split('boundary=')[-1].split(';')[0].strip() if 'boundary=' in content_type else None
         
         if not boundary:
-            logger.error("No boundary found in content type")
             error_msg = "Invalid form data"
-            
             if is_ajax:
                 return Response.json({"success": False, "error": error_msg}, status=400)
             else:
                 return create_redirect_response(request, db_name, error_msg, is_error=True)
         
-        logger.debug(f"Using boundary: {boundary}")
-        
-        # Parse multipart data
         forms, files = parse_multipart_form_data(body, boundary)
         
-        # Process file upload
         if 'file' not in files:
-            logger.error("No file found in upload")
             error_msg = "No file uploaded"
-            
             if is_ajax:
                 return Response.json({"success": False, "error": error_msg}, status=400)
             else:
@@ -1020,43 +1471,32 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
         filename = file_info['filename']
         file_content = file_info['content']
         
-        logger.debug(f"Processing file: {filename}, size: {len(file_content)} bytes")
+        # Log file information
+        file_size = len(file_content)
+        file_size_mb = file_size / (1024 * 1024)
+        logger.info(f"Processing file: {filename} ({file_size_mb:.1f}MB)")
         
         # Get form options
         custom_table_name = forms.get('table_name', '').strip()
         replace_existing = 'replace_existing' in forms
         excel_sheet = forms.get('excel_sheet', '').strip()
 
-        # FIXED TABLE NAME HANDLING with auto-fix and uniqueness
+        # Table name handling
         if custom_table_name:
-            # User provided custom name - validate and auto-fix if needed
-            is_valid, error_msg = validate_table_name_enhanced(custom_table_name)
+            is_valid, validation_error = validate_table_name_enhanced(custom_table_name)
             if not is_valid:
                 auto_fixed_name = auto_fix_table_name(custom_table_name)
-                is_fixed_valid, fixed_error = validate_table_name_enhanced(auto_fixed_name)
-                if is_fixed_valid:
-                    logger.info(f"Auto-fixed table name: '{custom_table_name}' -> '{auto_fixed_name}'")
-                    base_table_name = auto_fixed_name
-                else:
-                    error_msg = f"Invalid table name: {error_msg}"
-                    logger.error(f"Table name validation failed: {error_msg}")
-                    
-                    if is_ajax:
-                        return Response.json({"success": False, "error": error_msg}, status=400)
-                    else:
-                        return create_redirect_response(request, db_name, error_msg, is_error=True)
+                base_table_name = auto_fixed_name
+                logger.info(f"Auto-fixed table name: '{custom_table_name}' -> '{auto_fixed_name}'")
             else:
                 base_table_name = custom_table_name
         else:
-            # Generate table name from filename
             base_table_name = sanitize_filename_for_table(filename)
         
-        # CRITICAL: Always ensure uniqueness by checking existing tables
         table_name = await suggest_unique_name(base_table_name, datasette, db_name)
+        logger.info(f"Final table name: {table_name}")
         
-        logger.info(f"Final table name for file upload: '{table_name}' (base: '{base_table_name}')")
-        
-        # Get database file path for uploader
+        # Get database file path
         portal_db = datasette.get_database('portal')
         result = await portal_db.execute(
             "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
@@ -1071,100 +1511,150 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
             else:
                 return create_redirect_response(request, db_name, error_msg, is_error=True)
         
-        file_path = db_info['file_path']
-        if not file_path:
-            file_path = os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
+        file_path = db_info['file_path'] or os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
         
-        # ULTRA-OPTIMIZED PROCESSING LOGIC
-        file_size = len(file_content)
+        # Process file with optimized uploader
         file_ext = os.path.splitext(filename)[1].lower()
+        use_ultra_mode = file_size > 50 * 1024 * 1024  # 50MB+
+        uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
         
-        # Choose optimal uploader with ultra mode for large files
-        use_ultra_mode = file_size > 100 * 1024 * 1024  # Use ultra mode for files >100MB
+        logger.info(f"Using uploader mode: {'ultra' if use_ultra_mode else 'standard'}")
         
-        def process_with_monitoring():
-            """Process file with detailed performance monitoring"""
+        try:
             if file_ext in ['.xlsx', '.xls']:
-                # Excel processing
-                if isinstance(uploader, UltraOptimizedUploader):
-                    return uploader.process_excel_ultra_fast(file_content, table_name, excel_sheet, replace_existing)
-                else:
-                    return process_excel_fallback(file_content, table_name, excel_sheet, replace_existing, file_path)
-            
+                logger.info(f"Processing Excel file with sheet: {excel_sheet or 'default'}")
+                result = uploader.process_excel_ultra_fast(file_content, table_name, excel_sheet, replace_existing)
+                
             elif file_ext in ['.csv', '.txt', '.tsv']:
-                # CSV processing
+                logger.info("Processing CSV/text file")
                 csv_content = None
-                for encoding in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                encodings_tried = []
+                successful_encoding = None
+                
+                # Try multiple encodings with BOM handling
+                for encoding in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252', 'iso-8859-1', 'windows-1252', 'ascii']:
                     try:
-                        csv_content = file_content.decode(encoding)
-                        logger.debug(f"Successfully decoded with {encoding}")
-                        break
-                    except UnicodeDecodeError:
+                        test_content = file_content.decode(encoding)
+                        # Verify we actually decoded something meaningful
+                        if test_content and len(test_content.strip()) > 0:
+                            # Check if content has reasonable structure
+                            # (has commas/tabs or newlines)
+                            if (',' in test_content or '\t' in test_content or 
+                                '\n' in test_content or '\r' in test_content):
+                                csv_content = test_content
+                                successful_encoding = encoding
+                                logger.info(f"Successfully decoded with encoding: {encoding}")
+                                break
+                    except (UnicodeDecodeError, AttributeError):
+                        encodings_tried.append(encoding)
                         continue
                 
                 if csv_content is None:
-                    raise ValueError("Could not decode file - unsupported encoding")
+                    # Last resort: try with error replacement
+                    try:
+                        csv_content = file_content.decode('utf-8', errors='replace')
+                        successful_encoding = 'utf-8 (with replacements)'
+                        logger.warning(f"Could not decode file cleanly. Tried: {', '.join(encodings_tried)}. Using UTF-8 with error replacement.")
+                    except Exception as e:
+                        raise ValueError(f"Unable to decode file content: {str(e)}")
                 
-                # Process with optimal strategy
-                if isinstance(uploader, UltraOptimizedUploader):
-                    return uploader.stream_csv_ultra_fast(csv_content, table_name, replace_existing)
-                else:
-                    return uploader.process_csv_robust_fast(csv_content, table_name, replace_existing)
-            
+                # Clean the content
+                # Remove null bytes that might interfere with processing
+                csv_content = csv_content.replace('\x00', '')
+                
+                # Strip BOM if present
+                if csv_content.startswith('\ufeff'):
+                    csv_content = csv_content[1:]
+                
+                # Normalize line endings
+                csv_content = csv_content.replace('\r\n', '\n').replace('\r', '\n')
+                
+                # Validate that we have actual CSV content
+                if not csv_content.strip():
+                    raise ValueError("File appears to be empty after decoding")
+                
+                # Check for basic CSV structure
+                lines = csv_content.split('\n')
+                non_empty_lines = [line for line in lines if line.strip()]
+                
+                if len(non_empty_lines) == 0:
+                    raise ValueError("No data found in file")
+                
+                # Check if first line has delimiters
+                first_line = non_empty_lines[0]
+                if ',' not in first_line and '\t' not in first_line:
+                    # Maybe it's a single-column CSV
+                    logger.warning("No obvious delimiters found, may be single-column data")
+                
+                logger.info(f"CSV prepared for processing: {len(non_empty_lines)} non-empty lines, encoding: {successful_encoding}")
+                
+                result = uploader.stream_csv_ultra_fast_pooled(csv_content, table_name, replace_existing)
             else:
-                raise ValueError("Unsupported file type. Use CSV, TSV, TXT, or Excel files")
-
-        # Retry logic for database locks
-        max_retries = 2
-        last_exception = None
-        result = None
-
-        for attempt in range(max_retries):
-            try:
-                uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
-                logger.info(f"Selected uploader: {type(uploader).__name__} (ultra_mode={getattr(uploader, 'ultra_mode', False)}) - Attempt {attempt + 1}")
-                
-                # Execute with monitoring
-                result = process_with_monitoring()
-                
-                # If we get here, upload was successful
-                logger.info(f"Upload successful on attempt {attempt + 1}")
-                break
-                
-            except sqlite3.OperationalError as e:
-                last_exception = e
-                if "database is locked" in str(e) and attempt < max_retries - 1:
-                    logger.warning(f"Database locked, retrying in 3s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(3)
-                    use_ultra_mode = False  # Fall back to safe mode on retry
-                    continue
-                else:
-                    logger.error(f"Database lock error on final attempt: {e}")
-                    raise
-                    
-            except Exception as e:
-                last_exception = e
-                logger.error(f"Upload error on attempt {attempt + 1}: {type(e).__name__}: {str(e)}")
-                
-                # For non-lock errors, don't retry unless it's the first attempt
-                if attempt == 0 and use_ultra_mode:
-                    logger.warning("First attempt failed, trying with safe mode")
-                    use_ultra_mode = False
-                    continue
-                else:
-                    raise
-
-        # Check if we have a result
-        if result is None:
-            if last_exception:
-                raise last_exception
-            else:
-                raise Exception("Upload failed for unknown reason")       
+                raise ValueError(f"Unsupported file type: {file_ext}. Use CSV, TSV, TXT, or Excel files")
         
-        logger.info(f"ULTRA-OPTIMIZED COMPLETE: {result['rows_inserted']:,} rows in {result['time_elapsed']:.2f}s ({result['rows_per_second']:,} rows/sec)")
+        except ValueError as ve:
+            # ValueError usually contains our user-friendly messages
+            logger.error(f"File processing ValueError: {str(ve)}")
+            error_msg = str(ve)
+            
+            # Clean up connection pool
+            try:
+                uploader.close_pool()
+            except:
+                pass
+            
+            if is_ajax:
+                return Response.json({"success": False, "error": error_msg}, status=400)
+            else:
+                return create_redirect_response(request, db_name, error_msg, is_error=True)
+                
+        except Exception as processing_error:
+            logger.error(f"File processing error: {str(processing_error)}")
+            
+            # Clean up connection pool
+            try:
+                uploader.close_pool()
+            except:
+                pass
+            
+            # Check if the error message is already user-friendly
+            error_str = str(processing_error)
+            if any(phrase in error_str.lower() for phrase in ['empty', 'no data', 'sheet', 'select', 'columns', 'appears to be']):
+                # It's already a user-friendly message from our processing
+                error_msg = error_str
+            else:
+                # Generic error, make it more user-friendly
+                if file_ext in ['.xlsx', '.xls']:
+                    error_msg = (
+                        f"Failed to process Excel file. "
+                        f"Please ensure the file is not corrupted and contains data in at least one sheet."
+                    )
+                elif file_ext in ['.csv', '.txt', '.tsv']:
+                    error_msg = (
+                        f"Failed to process CSV file. "
+                        f"Please ensure the file is properly formatted with consistent delimiters."
+                    )
+                else:
+                    error_msg = f"Failed to process file: {error_str}"
+            
+            if is_ajax:
+                return Response.json({"success": False, "error": error_msg}, status=500)
+            else:
+                return create_redirect_response(request, db_name, error_msg, is_error=True)
+        
+        finally:
+            # Always close connection pool
+            try:
+                uploader.close_pool()
+                logger.info("Connection pool closed successfully")
+            except Exception as close_error:
+                logger.warning(f"Error closing connection pool: {str(close_error)}")
         
         # Update database timestamp
-        await update_database_timestamp(datasette, db_name)
+        try:
+            await update_database_timestamp(datasette, db_name)
+        except Exception as timestamp_error:
+            logger.warning(f"Failed to update database timestamp: {str(timestamp_error)}")
         
         # Sync with database_tables
         try:
@@ -1175,108 +1665,84 @@ async def handle_file_upload_ultra_optimized(datasette, request, db_name, actor,
             db_record = db_result.first()
             if db_record:
                 await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
+                logger.info(f"Synced table visibility for: {table_name}")
         except Exception as sync_error:
-            logger.error(f"Error syncing table visibility: {sync_error}")
+            logger.error(f"Error syncing table visibility: {str(sync_error)}")
 
-        # Enhanced logging with performance metrics
-        metadata = {
-            "source_type": "file",
-            "table_name": table_name,
-            "filename": filename,
-            "file_type": file_ext,
-            "record_count": result['rows_inserted'],
-            "column_count": result['columns'],
-            "processing_strategy": result['strategy'],
-            "time_elapsed": result['time_elapsed'],
-            "rows_per_second": result['rows_per_second'],
-            "file_size_bytes": file_size,
-            "uploader_type": type(uploader).__name__,
-            "ultra_mode": use_ultra_mode
-        }
+        # Log upload activity
+        try:
+            await log_upload_activity_enhanced(
+                datasette, actor.get("id"), "optimized_upload", 
+                f"Uploaded {result['rows_inserted']:,} rows to table '{table_name}' from '{filename}' using {result['strategy']}",
+                {
+                    "source_type": "file_optimized",
+                    "table_name": table_name,
+                    "filename": filename,
+                    "file_type": file_ext,
+                    "record_count": result['rows_inserted'],
+                    "column_count": result['columns'],
+                    "processing_strategy": result['strategy'],
+                    "file_size_mb": file_size_mb,
+                    "processing_time": result['time_elapsed']
+                }
+            )
+        except Exception as log_error:
+            logger.warning(f"Failed to log upload activity: {str(log_error)}")
+
+        # Prepare success message
+        success_msg = f"SUCCESS: Uploaded {result['rows_inserted']:,} rows to table '{table_name}' in {result['time_elapsed']:.1f}s ({result['rows_per_second']:,} rows/sec) - {result['strategy']}"
         
-        # Add performance metrics if available
-        if 'performance_metrics' in result:
-            metadata.update(result['performance_metrics'])
+        logger.info(f"Upload completed successfully: {success_msg}")
+        logger.info(f"Returning response type: {'JSON (AJAX)' if is_ajax else 'Redirect (Form)'}")
         
-        await log_upload_activity_enhanced(
-            datasette, actor.get("id"), "ultra_upload", 
-            f"ULTRA: Uploaded {result['rows_inserted']:,} rows to table '{table_name}' from file '{filename}' in {result['time_elapsed']:.1f}s",
-            metadata
-        )
-        
-        success_msg = format_upload_success_message(result, table_name)
-        
-        # Return appropriate response based on request type
+        # CRITICAL: Return appropriate response type based on request
         if is_ajax:
-            # AJAX response with JSON
-            stats = extract_upload_stats(success_msg)
             return Response.json({
                 "success": True,
                 "message": success_msg,
-                "stats": stats,
-                "redirect_url": "/manage-databases"
+                "redirect_url": "/manage-databases",
+                "stats": {
+                    "rows": result['rows_inserted'],
+                    "columns": result.get('columns', 0),
+                    "time": result['time_elapsed'],
+                    "speed": result['rows_per_second'],
+                    "strategy": result['strategy'],
+                    "file_size_mb": file_size_mb
+                },
+                "table_info": {
+                    "name": table_name,
+                    "database": db_name,
+                    "source": "file_upload"
+                }
             })
         else:
-            # Regular form response with redirect
             return create_redirect_response(request, db_name, success_msg)
         
     except Exception as e:
-        logger.error(f"Ultra file upload error: {str(e)}")
-        error_msg = await handle_upload_error_gracefully(datasette, e, "ultra_file_upload")
+        logger.error(f"File upload handler error: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
         
-        if is_ajax:
-            return Response.json({"success": False, "error": error_msg}, status=500)
+        error_msg = await handle_upload_error_gracefully(datasette, e, "file_upload_optimized")
+        
+        # CRITICAL: Ensure error responses also respect request type
+        is_ajax_for_error = (
+            request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
+            '/ajax-upload-file/' in request.path or
+            request.headers.get('Accept', '').startswith('application/json')
+        )
+        
+        logger.info(f"Error response type: {'JSON (AJAX)' if is_ajax_for_error else 'Redirect (Form)'}")
+        
+        if is_ajax_for_error:
+            return Response.json({
+                "success": False, 
+                "error": error_msg
+            }, status=500)
         else:
             return create_redirect_response(request, db_name, error_msg, is_error=True)
-        
-def format_upload_success_message(result, table_name):
-    """Format upload success message with performance indicators"""
-    rows = result['rows_inserted']
-    time_elapsed = result['time_elapsed']
-    rows_per_sec = result['rows_per_second']
-    
-    # Performance badge based on speed
-    if rows_per_sec > 100000:
-        badge = "ULTRA-FAST"
-    elif rows_per_sec > 50000:
-        badge = "HIGH-SPEED" 
-    else:
-        badge = "SUCCESS"
-    
-    return (f"{badge}: Successfully uploaded {rows:,} rows to table "
-            f"'{table_name}' in {time_elapsed:.1f}s ({rows_per_sec:,} rows/sec)")
-
-def process_excel_fallback(file_content: bytes, table_name: str, sheet_name: str, replace_existing: bool, file_path: str):
-    """Fallback Excel processing for robust processor"""
-    # Basic Excel processing without ultra optimizations
-    excel_file = pd.ExcelFile(io.BytesIO(file_content))
-    sheet_name = sheet_name or excel_file.sheet_names[0]
-    
-    # Read entire sheet (for smaller files this is acceptable)
-    df = pd.read_excel(excel_file, sheet_name=sheet_name)
-    
-    # Basic processing
-    headers = [re.sub(r'[^a-zA-Z0-9_]', '_', str(col)) for col in df.columns]
-    df.columns = headers
-    
-    # Convert to SQLite
-    with sqlite3.connect(file_path) as conn:
-        if replace_existing:
-            conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
-        
-        df.to_sql(table_name, conn, if_exists='append', index=False, chunksize=10000)
-    
-    return {
-        'table_name': table_name,
-        'rows_inserted': len(df),
-        'columns': len(headers),
-        'time_elapsed': 0,  # Not measured in fallback
-        'rows_per_second': 0,
-        'strategy': 'excel_fallback'
-    }
-
-async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
-    """Handle Google Sheets upload - SIMPLIFIED VERSION"""
+                                        
+async def handle_sheets_upload_optimized(datasette, request, post_vars, db_name, actor):
+    """Google Sheets upload with optimized processing"""
     try:
         sheets_url = post_vars.get('sheets_url', '').strip()
         sheet_index = int(post_vars.get('sheet_index', '0'))
@@ -1287,32 +1753,23 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
             return create_redirect_response(request, db_name, "Google Sheets URL is required", is_error=True)
         
         # Fetch data from Google Sheets
-        csv_content = await fetch_sheet_data(sheets_url, sheet_index)
+        csv_content = await fetch_sheet_data(sheets_url, sheet_index, datasette)
         
-        # Table name handling without complex extraction
+        # Table name handling
         if custom_table_name:
             is_valid, error_msg = validate_table_name_enhanced(custom_table_name)
             if not is_valid:
                 auto_fixed_name = auto_fix_table_name(custom_table_name)
-                is_fixed_valid, fixed_error = validate_table_name_enhanced(auto_fixed_name)
-                if is_fixed_valid:
-                    logger.info(f"Auto-fixed table name: '{custom_table_name}' -> '{auto_fixed_name}'")
-                    base_table_name = auto_fixed_name
-                else:
-                    return create_redirect_response(request, db_name, f"Invalid table name: {error_msg}", is_error=True)
+                base_table_name = auto_fixed_name
             else:
                 base_table_name = custom_table_name
         else:
-            # Generate simple meaningful name
             if sheet_index > 0:
                 base_table_name = f"google_sheet_{sheet_index}"
             else:
                 base_table_name = "google_sheet"
         
-        # Ensure uniqueness
         table_name = await suggest_unique_name(base_table_name, datasette, db_name)
-        
-        logger.info(f"Final table name for Google Sheets: '{table_name}' (base: '{base_table_name}', sheet_index: {sheet_index})")
 
         # Get database file path
         portal_db = datasette.get_database('portal')
@@ -1324,19 +1781,15 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
         
         file_path = db_info['file_path'] if db_info else os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
         
-        # Process with ultra-optimized uploader
+        # Process with optimized uploader
         file_size = len(csv_content.encode('utf-8'))
-        use_ultra_mode = file_size > 50 * 1024 * 1024  # Ultra mode for large sheets
+        use_ultra_mode = file_size > 50 * 1024 * 1024
         uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
         
-        @monitor_performance_detailed
-        def process_sheets_with_monitoring():
-            if isinstance(uploader, UltraOptimizedUploader):
-                return uploader.stream_csv_ultra_fast(csv_content, table_name)
-            else:
-                return uploader.process_csv_robust_fast(csv_content, table_name)
-        
-        result = process_sheets_with_monitoring()
+        try:
+            result = uploader.stream_csv_ultra_fast_pooled(csv_content, table_name)
+        finally:
+            uploader.close_pool()
         
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
@@ -1355,35 +1808,31 @@ async def handle_sheets_upload(datasette, request, post_vars, db_name, actor):
 
         # Log activity
         await log_upload_activity_enhanced(
-            datasette, actor.get("id"), "ultra_sheets_upload", 
-            f"Imported {result['rows_inserted']:,} rows to table '{table_name}' from Google Sheets in {result['time_elapsed']:.1f}s",
+            datasette, actor.get("id"), "sheets_upload_optimized", 
+            f"Imported {result['rows_inserted']:,} rows from Google Sheets to table '{table_name}' using {result['strategy']}",
             {
-                "source_type": "google_sheets",
+                "source_type": "google_sheets_optimized",
                 "table_name": table_name,
                 "sheets_url": sheets_url,
                 "record_count": result['rows_inserted'],
-                "column_count": result['columns'],
-                "processing_strategy": result['strategy'],
-                "rows_per_second": result['rows_per_second']
+                "processing_strategy": result['strategy']
             }
         )
         
-        success_msg = format_upload_success_message(result, table_name)
+        success_msg = f"SUCCESS: Imported {result['rows_inserted']:,} rows from Google Sheets to table '{table_name}' in {result['time_elapsed']:.1f}s ({result['rows_per_second']:,} rows/sec) - {result['strategy']}"
         return create_redirect_response(request, db_name, success_msg)
 
     except Exception as e:
-        logger.error(f"Sheets upload with real names error: {e}")
-        error_msg = await handle_upload_error_gracefully(datasette, e, "sheets_upload")
+        logger.error(f"Optimized sheets upload error: {e}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "sheets_upload_optimized")
         return create_redirect_response(request, db_name, error_msg, is_error=True)
     
-async def handle_url_upload(datasette, request, post_vars, db_name, actor):
-    """Handle web CSV upload with ultra-optimized processing"""
+async def handle_url_upload_optimized(datasette, request, post_vars, db_name, actor):
+    """Memory-efficient web CSV upload with streaming"""
     try:
         csv_url = post_vars.get('csv_url', '').strip()
         custom_table_name = post_vars.get('table_name', '').strip()
         encoding = post_vars.get('encoding', 'auto')
-        
-        logger.debug(f"Web CSV params: url='{csv_url}', table_name='{custom_table_name}', encoding='{encoding}'")
         
         if not csv_url:
             return create_redirect_response(request, db_name, "CSV URL is required", is_error=True)
@@ -1391,33 +1840,23 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         # Validate URL domain
         await validate_csv_url(datasette, csv_url)
         
-        # Fetch CSV from URL
-        csv_content = await fetch_csv_from_url_with_progress(datasette, csv_url, encoding)
+        # Get streaming response instead of loading content
+        response = await fetch_csv_from_url_stream(datasette, csv_url, encoding)
         
-        # TABLE NAME HANDLING with auto-fix for Web CSV
+        # Table name handling
         if custom_table_name:
-            # User provided custom name
             is_valid, error_msg = validate_table_name_enhanced(custom_table_name)
             if not is_valid:
                 auto_fixed_name = auto_fix_table_name(custom_table_name)
-                is_fixed_valid, fixed_error = validate_table_name_enhanced(auto_fixed_name)
-                if is_fixed_valid:
-                    logger.info(f"Auto-fixed Web CSV table name: '{custom_table_name}' -> '{auto_fixed_name}'")
-                    base_table_name = auto_fixed_name
-                else:
-                    return create_redirect_response(request, db_name, f"Invalid table name: {error_msg}", is_error=True)
+                base_table_name = auto_fixed_name
             else:
                 base_table_name = custom_table_name
         else:
-            # Generate table name from URL filename
             url_path = urlparse(csv_url).path
             filename = os.path.basename(url_path) or "web_csv"
             base_table_name = sanitize_filename_for_table(filename)
         
-        # CRITICAL: Always ensure uniqueness
         table_name = await suggest_unique_name(base_table_name, datasette, db_name)
-        
-        logger.info(f"Final table name for Web CSV: '{table_name}' (base: '{base_table_name}')")
         
         # Get database file path
         portal_db = datasette.get_database('portal')
@@ -1429,19 +1868,18 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         
         file_path = db_info['file_path'] if db_info else os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
         
-        # Process with ultra-optimized uploader
-        file_size = len(csv_content.encode('utf-8'))
-        use_ultra_mode = file_size > 50 * 1024 * 1024  # Ultra mode for large CSVs
-        uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
+        # Use optimized uploader with streaming
+        max_file_size = await get_max_file_size(datasette)
+        uploader = get_optimal_uploader(0, file_path, use_ultra_mode=True)  # Always use ultra mode for URL
         
-        @monitor_performance_detailed
-        def process_url_with_monitoring():
-            if isinstance(uploader, UltraOptimizedUploader):
-                return uploader.stream_csv_ultra_fast(csv_content, table_name)
-            else:
-                return uploader.process_csv_robust_fast(csv_content, table_name)
-        
-        result = process_url_with_monitoring()
+        try:
+            # Stream process directly from response
+            result = uploader.stream_csv_ultra_fast_pooled(
+                response, table_name, replace_existing=False, max_file_size=max_file_size
+            )
+        finally:
+            # Close connection pool
+            uploader.close_pool()
         
         # Update database timestamp
         await update_database_timestamp(datasette, db_name)
@@ -1460,186 +1898,109 @@ async def handle_url_upload(datasette, request, post_vars, db_name, actor):
         
         # Log activity
         await log_upload_activity_enhanced(
-            datasette, actor.get("id"), "ultra_url_upload", 
-            f"Imported {result['rows_inserted']:,} rows to table '{table_name}' from web CSV in {result['time_elapsed']:.1f}s",
+            datasette, actor.get("id"), "url_upload_optimized", 
+            f"Stream imported {result['rows_inserted']:,} rows from web CSV to table '{table_name}' using {result['strategy']}",
             {
-                "source_type": "web_csv",
+                "source_type": "web_csv_stream",
                 "table_name": table_name,
                 "csv_url": csv_url,
                 "record_count": result['rows_inserted'],
-                "column_count": result['columns'],
-                "processing_strategy": result['strategy'],
-                "rows_per_second": result['rows_per_second']
+                "processing_strategy": result['strategy']
             }
         )
         
-        success_msg = format_upload_success_message(result, table_name)
+        success_msg = f"SUCCESS: Stream imported {result['rows_inserted']:,} rows from web CSV to table '{table_name}' in {result['time_elapsed']:.1f}s ({result['rows_per_second']:,} rows/sec) - {result['strategy']}"
         return create_redirect_response(request, db_name, success_msg)
         
     except Exception as e:
-        logger.error(f"Web CSV upload error: {str(e)}")
-        error_msg = await handle_upload_error_gracefully(datasette, e, "url_upload")
+        logger.error(f"Optimized web CSV upload error: {str(e)}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "url_upload_optimized")
         return create_redirect_response(request, db_name, error_msg, is_error=True)
 
-async def fetch_sheet_data(sheet_url, sheet_index=0):
-    """Enhanced Google Sheets fetching with multiple export methods and detailed error handling"""
+# Utility functions
+async def suggest_unique_name(base_name, datasette, db_name):
+    """Generate unique table name"""
     try:
-        # Clean URL and extract sheet ID
-        sheet_url = sheet_url.rstrip('/')  # Remove trailing slash
+        target_db = datasette.get_database(db_name)
+        existing_tables = await target_db.table_names()
         
-        patterns = [
-            r'docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)',
-            r'drive\.google\.com/file/d/([a-zA-Z0-9-_]+)'
-        ]
+        if base_name not in existing_tables:
+            return base_name
         
-        sheet_id = None
-        for pattern in patterns:
-            match = re.search(pattern, sheet_url)
-            if match:
-                sheet_id = match.group(1)
-                break
+        counter = 1
+        while f"{base_name}_{counter}" in existing_tables:
+            counter += 1
         
-        if not sheet_id:
-            raise ValueError("Invalid Google Sheets URL format")
+        return f"{base_name}_{counter}"
         
-        logger.info(f"Extracted sheet ID: {sheet_id}")
-        
-        # Handle gid extraction
-        gid = 0
-        if '#gid=' in sheet_url:
-            try:
-                gid = int(sheet_url.split('#gid=')[1].split('&')[0])
-            except (ValueError, IndexError):
-                gid = sheet_index
-        else:
-            gid = sheet_index
-        
-        # Multiple export URL formats to try
-        export_urls = [
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv",
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
-        ]
-        
-        # Enhanced headers to appear more like a browser
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://docs.google.com/',
-            'Connection': 'keep-alive'
-        }
-        
-        last_error = None
-        
-        # Try each export URL
-        for i, csv_url in enumerate(export_urls):
-            try:
-                logger.info(f"Attempting export method {i+1}: {csv_url}")
-                response = requests.get(csv_url, timeout=30, headers=headers, allow_redirects=True)
-                
-                # Enhanced error checking with specific messages
-                if response.status_code == 400:
-                    last_error = "Google Sheet access denied - make sure the sheet is publicly accessible with 'Anyone with the link can view' permission"
-                    logger.warning(f"Export method {i+1}: HTTP 400 - {last_error}")
-                    continue
-                elif response.status_code == 401:
-                    last_error = "Google Sheet is private - please make it publicly accessible"
-                    logger.warning(f"Export method {i+1}: HTTP 401 - {last_error}")
-                    continue
-                elif response.status_code == 403:
-                    last_error = "Google Sheet access forbidden - check sharing permissions"
-                    logger.warning(f"Export method {i+1}: HTTP 403 - {last_error}")
-                    continue
-                elif response.status_code == 404:
-                    last_error = "Google Sheet not found - please check the URL"
-                    logger.warning(f"Export method {i+1}: HTTP 404 - {last_error}")
-                    continue
-                elif response.status_code != 200:
-                    last_error = f"Failed to access Google Sheet (HTTP {response.status_code})"
-                    logger.warning(f"Export method {i+1}: {last_error}")
-                    continue
-                
-                # Check content type
-                content_type = response.headers.get('content-type', '').lower()
-                logger.info(f"Export method {i+1}: Got content-type: {content_type}")
-                
-                if 'text/html' in content_type:
-                    # If we get HTML, it's likely a permission/login page
-                    if 'accounts.google.com' in response.text or 'sign in' in response.text.lower():
-                        last_error = "Google Sheet requires sign-in - please make it publicly accessible"
-                        logger.warning(f"Export method {i+1}: Got login page")
-                        continue
-                    else:
-                        last_error = "Google Sheet returned HTML instead of CSV - check permissions"
-                        logger.warning(f"Export method {i+1}: Got HTML response")
-                        continue
-                
-                # Try to get CSV content
-                csv_content = response.text.strip()
-                
-                # Validate CSV content
-                if not csv_content:
-                    last_error = "Google Sheet appears to be empty"
-                    logger.warning(f"Export method {i+1}: Empty content")
-                    continue
-                
-                # Basic CSV validation
-                if not (',' in csv_content or '\t' in csv_content):
-                    last_error = "Google Sheet doesn't appear to contain valid CSV data"
-                    logger.warning(f"Export method {i+1}: Invalid CSV format")
-                    continue
-                
-                # Success! We got valid CSV data
-                logger.info(f"Successfully retrieved CSV data using export method {i+1}")
-                logger.info(f"CSV preview: {csv_content[:200]}...")
-                return csv_content
-                
-            except requests.RequestException as req_error:
-                last_error = f"Network error accessing Google Sheets: {str(req_error)}"
-                logger.warning(f"Export method {i+1}: Network error - {req_error}")
-                continue
-            except Exception as method_error:
-                last_error = f"Export method {i+1} failed: {str(method_error)}"
-                logger.warning(last_error)
-                continue
-        
-        # If all methods failed, raise the last error or a general one
-        if last_error:
-            raise ValueError(last_error)
-        else:
-            raise ValueError("Unable to export data from Google Sheet using any method")
-            
     except Exception as e:
-        logger.error(f"Google Sheets fetch error: {str(e)}")
-        if "ValueError" in str(type(e)):
-            raise  # Re-raise ValueError with original message
-        else:
-            raise ValueError(f"Google Sheets import failed: {str(e)}")
-            
+        logger.error(f"Error checking tables: {e}")
+        return f"{base_name}_{uuid.uuid4().hex[:8]}"
+
+def parse_multipart_form_data(body, boundary):
+    """Simplified multipart parser using email parser"""
+    try:
+        headers = f'Content-Type: multipart/form-data; boundary={boundary}\r\n\r\n'
+        msg = BytesParser(policy=default).parsebytes(headers.encode() + body)
+        
+        forms = {}
+        files = {}
+        
+        for part in msg.iter_parts():
+            if not part.is_multipart():
+                content_disposition = part.get('Content-Disposition', '')
+                
+                name_match = re.search(r'name="([^"]+)"', content_disposition)
+                filename_match = re.search(r'filename="([^"]*)"', content_disposition)
+                
+                if name_match:
+                    field_name = name_match.group(1)
+                    content = part.get_payload(decode=True)
+                    
+                    if filename_match and filename_match.group(1):
+                        files[field_name] = {
+                            'filename': filename_match.group(1),
+                            'content': content or b''
+                        }
+                    else:
+                        forms[field_name] = content.decode('utf-8', errors='ignore') if content else ''
+        
+        return forms, files
+        
+    except Exception as e:
+        logger.error(f"Multipart parsing failed: {e}")
+        return {}, {}
+
+def create_redirect_response(request, db_name, message, is_error=False):
+    """Create safe redirect response"""
+    try:
+        param = 'error' if is_error else 'success'
+        base_url = f"/upload-table/{db_name}"
+        redirect_url = create_safe_redirect_url(base_url, param, message, is_error)
+        return Response.redirect(redirect_url)
+    except Exception as e:
+        logger.error(f"Error creating redirect: {e}")
+        fallback_msg = "Upload failed" if is_error else "Upload completed"
+        return Response.redirect(f"/upload-table/{db_name}?error={fallback_msg}")
+
 async def validate_csv_url(datasette, url):
-    """Validate CSV URL using dynamic blocked domains list"""
+    """Validate CSV URL using blocked domains list"""
     try:
         parsed = urlparse(url)
         
-        # Allow localhost for development
         if parsed.netloc.startswith('localhost') or parsed.netloc.startswith('127.0.0.1'):
             return True
         
-        # Check if domain is blocked
         domain = parsed.netloc.lower()
         if await is_domain_blocked(datasette, domain):
             raise ValueError(f"Domain '{domain}' is blocked by system administrator")
         
-        # Check for parent domain blocking
         domain_parts = domain.split('.')
         for i in range(len(domain_parts)):
             parent_domain = '.'.join(domain_parts[i:])
             if await is_domain_blocked(datasette, parent_domain):
                 raise ValueError(f"Domain '{domain}' is blocked")
         
-        # Check file extension
         path_lower = parsed.path.lower()
         if not any(path_lower.endswith(ext) for ext in ['.csv', '.txt', '.tsv']):
             raise ValueError("URL must point to a CSV, TXT, or TSV file")
@@ -1650,172 +2011,456 @@ async def validate_csv_url(datasette, url):
             if content_length:
                 size_mb = int(content_length) / (1024 * 1024)
                 max_file_size = await get_max_file_size(datasette)
-  # Temporary limit
-                if size_mb > max_file_size:
-                    raise ValueError(f"File too large ({size_mb:.1f}MB). Maximum: {max_file_size}MB")
+                max_mb = max_file_size // (1024 * 1024)
+                if size_mb > max_mb:
+                    raise ValueError(f"File too large ({size_mb:.1f}MB). Maximum: {max_mb}MB")
         except requests.RequestException:
-            # If HEAD fails, proceed but warn
             logger.warning(f"Could not check file size for {url}")
             
         return True
         
     except Exception as e:
         raise ValueError(f"Invalid URL: {str(e)}")
-    
-async def fetch_csv_from_url_with_progress(datasette, csv_url, encoding='auto'):
-    """
-    FIXED: Fetch CSV with proper timeout, size limits, and early termination
-    """
-    try:
-        await validate_csv_url(datasette, csv_url)
-        
-        headers = {
-            'User-Agent': 'EDGI-Portal/1.0 (Environmental Data Portal)',
-            'Accept': 'text/csv, text/plain, application/csv, */*'
-        }
-        
-        max_file_size = await get_max_file_size(datasette)
-        
-        logger.info(f"Starting URL download: {csv_url} (max size: {max_file_size // (1024*1024)}MB)")
-        
-        # FIXED: Use asyncio-compatible httpx instead of blocking requests
-        import httpx
-        
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=120.0)) as client:
-            # Check file size first with HEAD request
-            try:
-                head_response = await client.head(csv_url, headers=headers, follow_redirects=True)
-                content_length = head_response.headers.get('content-length')
-                
-                if content_length:
-                    size_bytes = int(content_length)
-                    if size_bytes > max_file_size:
-                        size_mb = max_file_size // (1024 * 1024)
-                        actual_mb = size_bytes // (1024 * 1024)
-                        raise ValueError(f"File too large ({actual_mb}MB). Maximum: {size_mb}MB")
-                    
-                    logger.info(f"File size from HEAD: {size_bytes // (1024*1024)}MB")
-                
-            except httpx.RequestError:
-                logger.warning("HEAD request failed, proceeding with GET")
-            
-            # Download with streaming and size monitoring
-            downloaded_size = 0
-            chunks = []
-            
-            async with client.stream('GET', csv_url, headers=headers, follow_redirects=True) as response:
-                response.raise_for_status()
-                
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    if chunk:
-                        downloaded_size += len(chunk)
-                        
-                        # Size check during download
-                        if downloaded_size > max_file_size:
-                            size_mb = max_file_size // (1024 * 1024)
-                            raise ValueError(f"File exceeded {size_mb}MB during download")
-                        
-                        chunks.append(chunk)
-                        
-                        # Log progress every 5MB
-                        if downloaded_size % (5 * 1024 * 1024) == 0:
-                            mb_downloaded = downloaded_size // (1024 * 1024)
-                            logger.info(f"Downloaded {mb_downloaded}MB from URL")
-        
-        # Combine and decode
-        content_bytes = b''.join(chunks)
-        logger.info(f"Download complete: {len(content_bytes)} bytes")
-        
-        # Encoding detection and decoding
-        if encoding == 'auto':
-            try:
-                import chardet
-                detected = chardet.detect(content_bytes[:10000])
-                encoding = detected.get('encoding', 'utf-8') if detected.get('confidence', 0) > 0.7 else 'utf-8'
-            except ImportError:
-                encoding = 'utf-8'
-        
-        try:
-            content = content_bytes.decode(encoding)
-        except UnicodeDecodeError:
-            for fallback in ['utf-8', 'latin-1', 'cp1252']:
-                try:
-                    content = content_bytes.decode(fallback)
-                    logger.info(f"Used fallback encoding: {fallback}")
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:
-                raise ValueError("Could not decode file with any encoding")
-        
-        logger.info(f"CSV processed: {len(content)} characters")
-        return content
-        
-    except httpx.TimeoutException:
-        raise ValueError("Download timed out - file too large or server too slow")
-    except httpx.RequestError as e:
-        raise ValueError(f"Network error: {str(e)}")
-    except Exception as e:
-        logger.error(f"URL fetch error: {str(e)}")
-        raise ValueError(f"Download failed: {str(e)}")
-    
-def create_redirect_response(request, db_name, message, is_error=False):
-    """Create redirect response with properly encoded message"""
-    try:
-        # Use the enhanced redirect URL creation from common_utils
-        redirect_to = request.args.get('redirect', 'upload')
-        param = 'error' if is_error else 'success'
-        
-        if redirect_to == 'manage-databases':
-            base_url = "/manage-databases"
-        else:
-            base_url = f"/upload-table/{db_name}"
-        
-        redirect_url = create_safe_redirect_url(base_url, param, message, is_error)
-        return Response.redirect(redirect_url)
-        
-    except Exception as e:
-        logger.error(f"Error creating redirect: {e}")
-        # Fallback redirect
-        param = 'error' if is_error else 'success'
-        fallback_msg = "Upload failed" if is_error else "Upload completed"
-        return Response.redirect(f"/upload-table/{db_name}?{param}={fallback_msg}")
 
+# AJAX handlers
 async def ajax_file_upload_handler(datasette, request):
-    """AJAX File Upload Handler - Returns JSON response"""
+    """AJAX-only file upload handler"""
     try:
         actor = get_actor_from_request(request)
         if not actor:
             return Response.json({"success": False, "error": "Authentication required"}, status=401)
 
-        # Extract database name from path
+        path_parts = request.path.strip('/').split('/')
+        if len(path_parts) < 2:
+            return Response.json({"success": False, "error": "Invalid URL"}, status=400)
+        
+        db_name = path_parts[1]
+        
+        if not await user_owns_database(datasette, actor["id"], db_name):
+            return Response.json({"success": False, "error": "Access denied"}, status=403)
+
+        max_file_size = await get_max_file_size(datasette)
+        
+        return await handle_file_upload_optimized(datasette, request, db_name, actor, max_file_size)
+
+    except Exception as e:
+        logger.error(f"AJAX file upload error: {str(e)}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_file_upload")
+        return Response.json({"success": False, "error": error_msg}, status=500)
+    
+async def ajax_sheets_upload_handler(datasette, request):
+    """AJAX Google Sheets upload handler with enhanced error handling and validation"""
+    try:
+        # Authentication check
+        actor = get_actor_from_request(request)
+        if not actor:
+            return Response.json({"success": False, "error": "Authentication required"}, status=401)
+
+        # Extract database name from URL
         path_parts = request.path.strip('/').split('/')
         if len(path_parts) < 2:
             return Response.json({"success": False, "error": "Invalid URL format"}, status=400)
         
         db_name = path_parts[1]
         
-        # Verify user owns the database
+        # Authorization check
         if not await user_owns_database(datasette, actor["id"], db_name):
             return Response.json({"success": False, "error": "Access denied"}, status=403)
 
-        # Use existing file upload logic which properly handles multipart data
-        max_file_size = await get_max_file_size(datasette)
+        # Parse form data from AJAX request
+        content_type = request.headers.get('content-type', '')
+        body = await request.post_body()
         
-        # The existing function already handles AJAX detection and JSON responses
-        result = await handle_file_upload_ultra_optimized(datasette, request, db_name, actor, max_file_size)
-        return result
+        forms, files = parse_multipart_form_data_from_ajax(body, content_type)
+        
+        # Extract form parameters
+        sheets_url = forms.get('sheets_url', '').strip()
+        sheet_index = int(forms.get('sheet_index', '0') or '0')
+        custom_table_name = forms.get('table_name', '').strip()
+        
+        # Validate required parameters
+        if not sheets_url:
+            return Response.json({"success": False, "error": "Google Sheets URL is required"}, status=400)
+        
+        # Enhanced URL validation
+        valid_domains = ['docs.google.com/spreadsheets/', 'drive.google.com/file/']
+        if not any(domain in sheets_url.lower() for domain in valid_domains):
+            return Response.json({
+                "success": False, 
+                "error": "Please enter a valid Google Sheets URL. Use the Share link from your Google Sheet."
+            }, status=400)
 
+        # Process Google Sheets import with enhanced error handling
+        try:
+            logger.info(f"Starting Google Sheets import from: {sheets_url}")
+            csv_content = await fetch_sheet_data(sheets_url, sheet_index, datasette)
+            
+        except ValueError as sheet_error:
+            error_msg = str(sheet_error)
+            logger.error(f"Google Sheets fetch error: {error_msg}")
+            
+            # Enhanced user-friendly error messages
+            if "Invalid Google Sheets URL format" in error_msg:
+                user_msg = "Invalid Google Sheets URL. Please use the sharing link from your Google Sheet."
+            elif "not publicly accessible" in error_msg or "private" in error_msg.lower() or "access denied" in error_msg.lower():
+                user_msg = "This Google Sheet is private. To fix this:\n1. Open your Google Sheet\n2. Click 'Share' (top right)\n3. Change to 'Anyone with the link can view'\n4. Copy the new link and try again"
+            elif "too large" in error_msg:
+                user_msg = error_msg  # Keep the detailed size error
+            elif "empty" in error_msg:
+                user_msg = "The Google Sheet appears to be empty. Please check that it contains data."
+            elif "not found" in error_msg or "404" in error_msg:
+                user_msg = "Google Sheet not found. Please check the URL and make sure the sheet exists."
+            elif "timeout" in error_msg.lower() or "network" in error_msg.lower():
+                user_msg = "Network timeout while accessing Google Sheets. Please try again."
+            else:
+                user_msg = f"Failed to import from Google Sheets: {error_msg}"
+            
+            return Response.json({"success": False, "error": user_msg}, status=400)
+        
+        except Exception as unexpected_error:
+            logger.error(f"Unexpected error during Google Sheets fetch: {str(unexpected_error)}")
+            return Response.json({
+                "success": False, 
+                "error": f"Unexpected error accessing Google Sheet: {str(unexpected_error)}"
+            }, status=500)
+        
+        # Handle table name generation
+        if custom_table_name:
+            is_valid, validation_error = validate_table_name_enhanced(custom_table_name)
+            if not is_valid:
+                auto_fixed_name = auto_fix_table_name(custom_table_name)
+                base_table_name = auto_fixed_name
+                logger.info(f"Auto-fixed table name from '{custom_table_name}' to '{auto_fixed_name}'")
+            else:
+                base_table_name = custom_table_name
+        else:
+            # Generate default table name based on sheet index
+            if sheet_index > 0:
+                base_table_name = f"google_sheet_{sheet_index}"
+            else:
+                base_table_name = "google_sheet"
+        
+        # Ensure unique table name
+        table_name = await suggest_unique_name(base_table_name, datasette, db_name)
+        logger.info(f"Using table name: {table_name}")
+        
+        # Get database file path
+        portal_db = datasette.get_database('portal')
+        try:
+            result = await portal_db.execute(
+                "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
+                [db_name, actor["id"]]
+            )
+            db_info = result.first()
+            
+            if not db_info:
+                return Response.json({"success": False, "error": "Database not found"}, status=404)
+            
+            file_path = db_info['file_path'] or os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
+            
+        except Exception as db_error:
+            logger.error(f"Database lookup error: {str(db_error)}")
+            return Response.json({"success": False, "error": "Database access error"}, status=500)
+        
+        # Process with optimized uploader
+        file_size = len(csv_content.encode('utf-8'))
+        file_size_mb = file_size / (1024 * 1024)
+        use_ultra_mode = file_size > 50 * 1024 * 1024
+        
+        logger.info(f"Processing Google Sheets data: {file_size_mb:.1f}MB, ultra_mode: {use_ultra_mode}")
+        
+        uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
+        
+        try:
+            # Process the CSV content with optimized uploader
+            upload_result = uploader.stream_csv_ultra_fast_pooled(csv_content, table_name)
+            logger.info(f"Upload completed: {upload_result['rows_inserted']:,} rows in {upload_result['time_elapsed']:.1f}s")
+            
+        except Exception as upload_error:
+            logger.error(f"Upload processing error: {str(upload_error)}")
+            return Response.json({
+                "success": False, 
+                "error": f"Failed to process data: {str(upload_error)}"
+            }, status=500)
+            
+        finally:
+            # Always close the connection pool
+            try:
+                uploader.close_pool()
+            except Exception as close_error:
+                logger.warning(f"Error closing connection pool: {str(close_error)}")
+        
+        # Update database timestamp
+        try:
+            await update_database_timestamp(datasette, db_name)
+        except Exception as timestamp_error:
+            logger.warning(f"Failed to update database timestamp: {str(timestamp_error)}")
+
+        # Sync with database_tables for visibility management
+        try:
+            portal_db = datasette.get_database('portal')
+            db_result = await portal_db.execute(
+                "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
+            )
+            db_record = db_result.first()
+            if db_record:
+                await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
+                logger.info(f"Synced table '{table_name}' visibility for database {db_record['db_id']}")
+        except Exception as sync_error:
+            logger.error(f"Error syncing table visibility: {str(sync_error)}")
+            # Don't fail the request for sync errors
+        
+        # Log upload activity for audit trail
+        try:
+            await log_upload_activity_enhanced(
+                datasette, 
+                actor.get("id"), 
+                "ajax_sheets_upload_optimized", 
+                f"AJAX: Imported {upload_result['rows_inserted']:,} rows from Google Sheets to table '{table_name}' using {upload_result['strategy']}",
+                {
+                    "source_type": "google_sheets_ajax_optimized",
+                    "table_name": table_name,
+                    "sheets_url": sheets_url,
+                    "sheet_index": sheet_index,
+                    "record_count": upload_result['rows_inserted'],
+                    "processing_strategy": upload_result['strategy'],
+                    "file_size_mb": file_size_mb,
+                    "processing_time": upload_result['time_elapsed']
+                }
+            )
+        except Exception as log_error:
+            logger.warning(f"Failed to log upload activity: {str(log_error)}")
+        
+        # Prepare success response
+        success_msg = f"SUCCESS: Imported {upload_result['rows_inserted']:,} rows from Google Sheets to table '{table_name}' in {upload_result['time_elapsed']:.1f}s ({upload_result['rows_per_second']:,} rows/sec) - {upload_result['strategy']}"
+        
+        logger.info(f"Google Sheets import completed successfully: {success_msg}")
+        
+        return Response.json({
+            "success": True,
+            "message": success_msg,
+            "redirect_url": "/manage-databases",
+            "stats": {
+                "rows": upload_result['rows_inserted'],
+                "columns": upload_result.get('columns', 0),
+                "time": upload_result['time_elapsed'],
+                "speed": upload_result['rows_per_second'],
+                "strategy": upload_result['strategy'],
+                "file_size_mb": file_size_mb,
+                "table_name": table_name
+            },
+            "table_info": {
+                "name": table_name,
+                "database": db_name,
+                "source": "google_sheets"
+            }
+        })
+        
     except Exception as e:
-        logger.error(f"AJAX file upload error: {str(e)}")
-        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_file_upload")
-        return Response.json({"success": False, "error": error_msg}, status=500)
+        # Catch-all error handler
+        logger.error(f"AJAX sheets upload handler error: {str(e)}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_sheets_upload_optimized")
+        
+        return Response.json({
+            "success": False, 
+            "error": f"Upload failed: {error_msg}"
+        }, status=500)
+    
+async def enhanced_size_validation_and_estimation(csv_url, max_file_size, headers, datasette=None):
+    """Enhanced size validation with multiple estimation methods and user-friendly messages"""
+    max_size_mb = max_file_size / (1024 * 1024)
+    size_info = {
+        'estimated_size': None,
+        'confidence': 'unknown',
+        'method': 'none',
+        'can_proceed': False,
+        'warning_message': None,
+        'error_message': None
+    }
+    
+    try:
+        logger.info(f"Starting size validation for: {csv_url}")
+        logger.info(f"Maximum allowed size: {max_size_mb:.0f}MB")
+        
+        # Method 1: Standard HEAD request
+        try:
+            head_response = requests.head(csv_url, headers=headers, allow_redirects=True, timeout=10)
+            
+            if head_response.status_code == 200:
+                content_length = head_response.headers.get('content-length')
+                if content_length:
+                    try:
+                        size_bytes = int(content_length)
+                        size_mb = size_bytes / (1024 * 1024)
+                        
+                        size_info.update({
+                            'estimated_size': size_bytes,
+                            'confidence': 'high',
+                            'method': 'content-length',
+                            'can_proceed': size_bytes <= max_file_size
+                        })
+                        
+                        if size_bytes > max_file_size:
+                            size_info['error_message'] = (
+                                f"File is too large ({size_mb:.1f}MB). "
+                                f"Maximum allowed size is {max_size_mb:.0f}MB. "
+                                f"Please try a smaller file or contact your administrator to increase the limit."
+                            )
+                        else:
+                            logger.info(f"Size check passed: {size_mb:.1f}MB via content-length")
+                            
+                        return size_info
+                        
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid content-length header: {content_length}")
+        
+        except requests.RequestException as e:
+            logger.warning(f"HEAD request failed: {e}")
+        
+        # Method 2: Partial download estimation
+        try:
+            logger.info("Attempting partial download for size estimation")
+            
+            # Download first 1MB to estimate compression ratio and structure
+            sample_headers = {**headers, 'Range': 'bytes=0-1048575'}  # First 1MB
+            sample_response = requests.get(csv_url, headers=sample_headers, timeout=15, stream=True)
+            
+            if sample_response.status_code in [200, 206]:  # 206 = Partial Content
+                sample_data = b''
+                downloaded = 0
+                
+                for chunk in sample_response.iter_content(chunk_size=8192):
+                    if chunk:
+                        sample_data += chunk
+                        downloaded += len(chunk)
+                        if downloaded >= 1024 * 1024:  # 1MB sample
+                            break
+                
+                if downloaded > 0:
+                    # Analyze sample for estimation
+                    try:
+                        # Try to decode and count lines in sample
+                        sample_text = sample_data.decode('utf-8-sig', errors='ignore')
+                        sample_lines = sample_text.count('\n')
+                        
+                        if sample_lines > 10:  # Meaningful sample
+                            # Estimate based on average line length
+                            avg_line_length = len(sample_text) / sample_lines
+                            
+                            # Make conservative estimates
+                            if avg_line_length < 100:
+                                # Short lines, likely small to medium dataset
+                                estimated_total_lines = sample_lines * 10  # Conservative multiplier
+                            else:
+                                # Long lines, likely larger dataset
+                                estimated_total_lines = sample_lines * 5
+                            
+                            estimated_size = int(estimated_total_lines * avg_line_length)
+                            estimated_mb = estimated_size / (1024 * 1024)
+                            
+                            size_info.update({
+                                'estimated_size': estimated_size,
+                                'confidence': 'medium',
+                                'method': 'partial_sampling',
+                                'can_proceed': estimated_size <= max_file_size * 1.2  # Add 20% buffer
+                            })
+                            
+                            if estimated_size > max_file_size:
+                                size_info['error_message'] = (
+                                    f"File appears to be approximately {estimated_mb:.1f}MB (estimated from sample). "
+                                    f"Maximum allowed size is {max_size_mb:.0f}MB. "
+                                    f"This estimate may not be exact, but the file is likely too large."
+                                )
+                            else:
+                                size_info['warning_message'] = (
+                                    f"Estimated file size: ~{estimated_mb:.1f}MB (based on sample analysis). "
+                                    f"Actual size may vary. Processing will be monitored during download."
+                                )
+                                
+                            logger.info(f"Estimated size via sampling: ~{estimated_mb:.1f}MB")
+                            return size_info
+                            
+                    except Exception as analysis_error:
+                        logger.warning(f"Sample analysis failed: {analysis_error}")
+                        
+        except requests.RequestException as e:
+            logger.warning(f"Partial download failed: {e}")
+        
+        # Method 3: Domain-based estimation
+        parsed_url = urlparse(csv_url)
+        domain = parsed_url.netloc.lower()
+        
+        # Known patterns for common data sources
+        size_hints = {
+            'data.cityofnewyork.us': {'typical_size': '5-50MB', 'max_likely': 100},
+            'data.wa.gov': {'typical_size': '10-100MB', 'max_likely': 200},
+            'data.gov': {'typical_size': '1-20MB', 'max_likely': 50},
+            'github.com': {'typical_size': '1-10MB', 'max_likely': 25},
+            'githubusercontent.com': {'typical_size': '1-10MB', 'max_likely': 25}
+        }
+        
+        for known_domain, info in size_hints.items():
+            if known_domain in domain:
+                max_likely_mb = info['max_likely']
+                
+                size_info.update({
+                    'estimated_size': None,
+                    'confidence': 'low',
+                    'method': 'domain_heuristic',
+                    'can_proceed': max_likely_mb <= max_size_mb
+                })
+                
+                if max_likely_mb > max_size_mb:
+                    size_info['error_message'] = (
+                        f"Files from {domain} typically range {info['typical_size']} "
+                        f"which may exceed your {max_size_mb:.0f}MB limit. "
+                        f"Consider requesting a size limit increase from your administrator."
+                    )
+                else:
+                    size_info['warning_message'] = (
+                        f"Files from {domain} typically range {info['typical_size']}. "
+                        f"Download will be monitored and stopped if it exceeds {max_size_mb:.0f}MB."
+                    )
+                    
+                logger.info(f"Domain-based estimation for {domain}: {info['typical_size']}")
+                return size_info
+        
+        # Method 4: Fallback - allow with warning
+        size_info.update({
+            'estimated_size': None,
+            'confidence': 'unknown',
+            'method': 'fallback',
+            'can_proceed': True,
+            'warning_message': (
+                f"Could not determine file size in advance. "
+                f"Download will be monitored and stopped if it exceeds {max_size_mb:.0f}MB. "
+                f"Large files may take several minutes to process."
+            )
+        })
+        
+        logger.info("Using fallback approach - size monitoring during download")
+        return size_info
+        
+    except Exception as e:
+        logger.error(f"Size validation failed: {str(e)}")
+        
+        # Error fallback
+        size_info.update({
+            'estimated_size': None,
+            'confidence': 'unknown',
+            'method': 'error_fallback',
+            'can_proceed': True,
+            'warning_message': (
+                f"Size validation encountered an error. "
+                f"Download will proceed with monitoring (max {max_size_mb:.0f}MB). "
+                f"Please ensure your file is not too large."
+            )
+        })
+        
+        return size_info
 
-async def ajax_sheets_upload_handler(datasette, request):
-    """
-    AJAX Google Sheets Upload Handler - SIMPLIFIED VERSION
-    No complex sheet name extraction - uses simple, reliable naming
-    """
+async def ajax_url_upload_handler(datasette, request):
+    """Enhanced URL upload with better size estimation and user messages"""
     try:
         actor = get_actor_from_request(request)
         if not actor:
@@ -1827,54 +2472,69 @@ async def ajax_sheets_upload_handler(datasette, request):
         if not await user_owns_database(datasette, actor["id"], db_name):
             return Response.json({"success": False, "error": "Access denied"}, status=403)
 
-        # Parse multipart form data properly
+        # Parse form data
         content_type = request.headers.get('content-type', '')
         body = await request.post_body()
-        
         forms, files = parse_multipart_form_data_from_ajax(body, content_type)
         
-        # Extract form data
-        sheets_url = forms.get('sheets_url', '').strip()
-        sheet_index = int(forms.get('sheet_index', '0') or '0')
-        custom_table_name = forms.get('table_name', '').strip()
-        first_row_headers = 'first_row_headers' in forms
-        
-        logger.debug(f"AJAX Google Sheets params: url='{sheets_url}', sheet_index={sheet_index}, table_name='{custom_table_name}', headers={first_row_headers}")
-        
-        if not sheets_url:
-            return Response.json({"success": False, "error": "Google Sheets URL is required"}, status=400)
-        
-        if 'docs.google.com/spreadsheets/' not in sheets_url:
-            return Response.json({"success": False, "error": "Please enter a valid Google Sheets URL"}, status=400)
+        csv_url = forms.get('csv_url', '').strip()
+        if not csv_url:
+            return Response.json({"success": False, "error": "CSV URL is required"}, status=400)
 
-        # Fetch CSV data (this works fine)
-        csv_content = await fetch_sheet_data(sheets_url, sheet_index)
+        custom_table_name = forms.get('table_name', '').strip()
+        encoding = forms.get('encoding', 'auto')
         
-        # SIMPLIFIED: Table name handling without complex extraction
+        # Enhanced size validation with user-friendly messages
+        try:
+            await validate_csv_url(datasette, csv_url)
+            
+            headers = {
+                'User-Agent': 'EDGI-Portal/1.0 (Environmental Data Portal)',
+                'Accept': 'text/csv, text/plain, application/csv, */*'
+            }
+            
+            max_file_size = await get_max_file_size(datasette)
+            
+            # ENHANCED: Comprehensive size validation
+            size_info = await enhanced_size_validation_and_estimation(
+                csv_url, max_file_size, headers, datasette
+            )
+            
+            # Handle size validation results
+            if size_info['error_message']:
+                return Response.json({
+                    "success": False, 
+                    "error": size_info['error_message']
+                }, status=400)
+            
+            # If we have a warning, we'll include it in the success response
+            warning_message = size_info.get('warning_message')
+            
+            logger.info(f"Size validation result: {size_info['method']} - {size_info['confidence']} confidence")
+            
+        except ValueError as validation_error:
+            return Response.json({
+                "success": False, 
+                "error": str(validation_error)
+            }, status=400)
+
+        # Process URL upload with streaming
+        response = await fetch_csv_from_url_stream(datasette, csv_url, encoding)
+        
+        # Handle table name
         if custom_table_name:
-            # User provided custom name - validate and auto-fix
             is_valid, error_msg = validate_table_name_enhanced(custom_table_name)
             if not is_valid:
                 auto_fixed_name = auto_fix_table_name(custom_table_name)
-                is_fixed_valid, fixed_error = validate_table_name_enhanced(auto_fixed_name)
-                if is_fixed_valid:
-                    logger.info(f"AJAX: Auto-fixed table name: '{custom_table_name}' -> '{auto_fixed_name}'")
-                    base_table_name = auto_fixed_name
-                else:
-                    return Response.json({"success": False, "error": f"Invalid table name: {error_msg}"}, status=400)
+                base_table_name = auto_fixed_name
             else:
                 base_table_name = custom_table_name
         else:
-            # SIMPLIFIED: Generate simple meaningful name based on sheet index
-            if sheet_index > 0:
-                base_table_name = f"google_sheet_{sheet_index}"
-            else:
-                base_table_name = "google_sheet"
+            url_path = urlparse(csv_url).path
+            filename = os.path.basename(url_path) or "web_csv"
+            base_table_name = sanitize_filename_for_table(filename)
         
-        # CRITICAL: Ensure uniqueness
         table_name = await suggest_unique_name(base_table_name, datasette, db_name)
-        
-        logger.info(f"AJAX: Final table name for Google Sheets: '{table_name}' (base: '{base_table_name}', sheet_index: {sheet_index})")
         
         # Get database file path
         portal_db = datasette.get_database('portal')
@@ -1887,23 +2547,47 @@ async def ajax_sheets_upload_handler(datasette, request):
         if not db_info:
             return Response.json({"success": False, "error": "Database not found"}, status=404)
         
-        file_path = db_info['file_path'] if db_info else os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
+        file_path = db_info['file_path'] or os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
         
-        # Process with ultra-optimized uploader
-        file_size = len(csv_content.encode('utf-8'))
-        use_ultra_mode = file_size > 50 * 1024 * 1024
-        uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
+        # Process with streaming uploader
+        uploader = get_optimal_uploader(0, file_path, use_ultra_mode=True)
         
-        if isinstance(uploader, UltraOptimizedUploader):
-            upload_result = uploader.stream_csv_ultra_fast(csv_content, table_name)
-        else:
-            upload_result = uploader.process_csv_robust_fast(csv_content, table_name)
+        try:
+            upload_result = uploader.stream_csv_ultra_fast_pooled(
+                response, table_name, replace_existing=False, max_file_size=max_file_size
+            )
+        except Exception as processing_error:
+            error_str = str(processing_error)
+            if "exceeds size limit" in error_str or "File size limit reached" in error_str:
+                # Extract actual size from error message if possible
+                size_match = re.search(r'(\d+\.?\d*)\s*MB', error_str)
+                actual_size = size_match.group(1) if size_match else "unknown"
+                max_size_mb = max_file_size / (1024 * 1024)
+                
+                user_friendly_error = (
+                    f"File size limit exceeded during download. "
+                    f"The file was larger than the {max_size_mb:.0f}MB limit"
+                )
+                if actual_size != "unknown":
+                    user_friendly_error += f" (approximately {actual_size}MB)"
+                user_friendly_error += ". Please try a smaller file or contact your administrator to increase the size limit."
+                
+                return Response.json({
+                    "success": False, 
+                    "error": user_friendly_error
+                }, status=400)
+            else:
+                raise processing_error
+                
+        finally:
+            uploader.close_pool()
         
-        # Update database timestamp
+        # Update database and log
         await update_database_timestamp(datasette, db_name)
         
         # Sync with database_tables
         try:
+            portal_db = datasette.get_database('portal')
             db_result = await portal_db.execute(
                 "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
             )
@@ -1911,471 +2595,75 @@ async def ajax_sheets_upload_handler(datasette, request):
             if db_record:
                 await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
         except Exception as sync_error:
-            logger.error(f"AJAX: Error syncing table visibility: {sync_error}")
-
-        # Simplified logging
+            logger.error(f"Error syncing table visibility: {sync_error}")
+        
         await log_upload_activity_enhanced(
-            datasette, actor.get("id"), "ajax_sheets_upload", 
-            f"AJAX: Imported {upload_result['rows_inserted']:,} rows to table '{table_name}' from Google Sheets",
+            datasette, actor.get("id"), "ajax_url_upload_enhanced", 
+            f"Enhanced stream import: {upload_result['rows_inserted']:,} rows from web CSV to table '{table_name}'",
             {
-                "source_type": "google_sheets_ajax",
+                "source_type": "web_csv_stream_enhanced",
                 "table_name": table_name,
-                "sheets_url": sheets_url,
-                "sheet_index": sheet_index,
+                "csv_url": csv_url,
                 "record_count": upload_result['rows_inserted'],
-                "column_count": upload_result['columns'],
-                "upload_method": "ajax"
+                "processing_strategy": upload_result['strategy'],
+                "size_estimation_method": size_info['method']
             }
         )
         
-        # Format success message
-        success_msg = format_upload_success_message(upload_result, table_name)
-        stats = extract_upload_stats(success_msg)
+        # Prepare success message
+        success_msg = f"SUCCESS: Stream imported {upload_result['rows_inserted']:,} rows from web CSV to table '{table_name}' in {upload_result['time_elapsed']:.1f}s ({upload_result['rows_per_second']:,} rows/sec) - {upload_result['strategy']}"
         
-        # AJAX JSON Response
+        # Include warning if we had size estimation issues
+        if warning_message:
+            success_msg += f" (Note: {warning_message})"
+        
         return Response.json({
             "success": True,
             "message": success_msg,
-            "stats": stats,
-            "table_name": table_name,
-            "rows_imported": upload_result['rows_inserted'],
-            "redirect_url": "/manage-databases"
+            "redirect_url": "/manage-databases",
+            "stats": {
+                "rows": upload_result['rows_inserted'],
+                "time": upload_result['time_elapsed'],
+                "speed": upload_result['rows_per_second'],
+                "strategy": upload_result['strategy']
+            }
         })
-        
+            
     except Exception as e:
-        logger.error(f"AJAX sheets upload error: {str(e)}")
-        error_msg = str(e)
-        
-        # Provide specific user-friendly error messages
-        if "access denied" in error_msg.lower() or "private" in error_msg.lower() or "400" in error_msg:
-            user_msg = "Google Sheet is not publicly accessible. Please make it publicly viewable and try again."
-        elif "forbidden" in error_msg.lower() or "403" in error_msg:
-            user_msg = "Permission denied. Make sure the Google Sheet is shared publicly."
-        elif "not found" in error_msg.lower() or "404" in error_msg:
-            user_msg = "Google Sheet not found. Please check the URL."
-        else:
-            user_msg = await handle_upload_error_gracefully(datasette, e, "ajax_sheets_upload")
-        
-        return Response.json({"success": False, "error": user_msg}, status=500)
-            
-async def ajax_url_upload_handler(datasette, request):
-    """AJAX URL Upload Handler - with early size detection"""
-    try:
-        actor = get_actor_from_request(request)
-        if not actor:
-            return Response.json({"success": False, "error": "Authentication required"}, status=401)
-
-        path_parts = request.path.strip('/').split('/')
-        db_name = path_parts[1]
-        
-        if not await user_owns_database(datasette, actor["id"], db_name):
-            return Response.json({"success": False, "error": "Access denied"}, status=403)
-
-        # Parse multipart form data properly
-        content_type = request.headers.get('content-type', '')
-        body = await request.post_body()
-        
-        forms, files = parse_multipart_form_data_from_ajax(body, content_type)
-        
-        # Extract form data
-        csv_url = forms.get('csv_url', '').strip()
-
-        if not csv_url:
-            return Response.json({"success": False, "error": "CSV URL is required"}, status=400)
-        
-        # FIXED: Quick size check before processing
-        try:
-            import httpx
-            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-                head_response = await client.head(csv_url, follow_redirects=True)
-                content_length = head_response.headers.get('content-length')
-                
-                if content_length:
-                    size_bytes = int(content_length)
-                    max_file_size = await get_max_file_size(datasette)
-                    
-                    if size_bytes > max_file_size:
-                        size_mb = max_file_size // (1024 * 1024)
-                        actual_mb = size_bytes // (1024 * 1024)
-                        return Response.json({
-                            "success": False, 
-                            "error": f"File too large ({actual_mb}MB). Maximum size allowed: {size_mb}MB"
-                        }, status=400)
-                    
-                    logger.info(f"URL file size check: {size_bytes // (1024*1024)}MB (within limits)")
-        
-        except Exception as size_check_error:
-            logger.warning(f"Could not check file size: {size_check_error}")
-            # Continue anyway - size will be checked during download
-
-        custom_table_name = forms.get('table_name', '').strip()
-        encoding = forms.get('encoding', 'auto')
-        
-        logger.debug(f"Web CSV params: url='{csv_url}', table_name='{custom_table_name}', encoding='{encoding}'")
-        
-        try:
-            # Validate URL domain
-            await validate_csv_url(datasette, csv_url)
-            
-            # Fetch CSV from URL
-            csv_content = await fetch_csv_from_url_with_progress(datasette, csv_url, encoding)
-            
-            # FIXED TABLE NAME HANDLING with auto-fix for Web CSV
-            if custom_table_name:
-                is_valid, error_msg = validate_table_name_enhanced(custom_table_name)
-                if not is_valid:
-                    auto_fixed_name = auto_fix_table_name(custom_table_name)
-                    is_fixed_valid, fixed_error = validate_table_name_enhanced(auto_fixed_name)
-                    if is_fixed_valid:
-                        logger.info(f"Auto-fixed Web CSV table name: '{custom_table_name}' -> '{auto_fixed_name}'")
-                        base_table_name = auto_fixed_name
-                    else:
-                        error_msg = f"Invalid table name: {error_msg}"
-                        return Response.json({"success": False, "error": error_msg}, status=400)
-                else:
-                    base_table_name = custom_table_name
-            else:
-                # Generate table name from URL filename
-                url_path = urlparse(csv_url).path
-                filename = os.path.basename(url_path) or "web_csv"
-                base_table_name = sanitize_filename_for_table(filename)
-            
-            # CRITICAL: Ensure uniqueness
-            table_name = await suggest_unique_name(base_table_name, datasette, db_name)
-            
-            logger.info(f"Final table name for AJAX Web CSV: '{table_name}' (base: '{base_table_name}')")
-            
-            # Get database file path
-            portal_db = datasette.get_database('portal')
-            result = await portal_db.execute(
-                "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
-                [db_name, actor["id"]]
-            )
-            db_info = result.first()
-            
-            if not db_info:
-                return Response.json({"success": False, "error": "Database not found"}, status=404)
-            
-            file_path = db_info['file_path'] if db_info else os.path.join(DATA_DIR, actor["id"], f"{db_name}.db")
-            
-            # Process with ultra-optimized uploader
-            file_size = len(csv_content.encode('utf-8'))
-            use_ultra_mode = file_size > 50 * 1024 * 1024
-            uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode)
-            
-            if isinstance(uploader, UltraOptimizedUploader):
-                upload_result = uploader.stream_csv_ultra_fast(csv_content, table_name)
-            else:
-                upload_result = uploader.process_csv_robust_fast(csv_content, table_name)
-            
-            # Update database timestamp
-            await update_database_timestamp(datasette, db_name)
-            
-            # Sync with database_tables
-            try:
-                db_result = await portal_db.execute(
-                    "SELECT db_id FROM databases WHERE db_name = ? AND status != 'Deleted'", [db_name]
-                )
-                db_record = db_result.first()
-                if db_record:
-                    await sync_database_tables_on_upload(datasette, db_record['db_id'], table_name)
-            except Exception as sync_error:
-                logger.error(f"Error syncing table visibility: {sync_error}")
-            
-            # Log activity
-            await log_upload_activity_enhanced(
-                datasette, actor.get("id"), "ajax_url_upload", 
-                f"Imported {upload_result['rows_inserted']:,} rows to table '{table_name}' from web CSV",
-                {
-                    "source_type": "web_csv",
-                    "table_name": table_name,
-                    "csv_url": csv_url,
-                    "record_count": upload_result['rows_inserted'],
-                    "column_count": upload_result['columns']
-                }
-            )
-            
-            success_msg = format_upload_success_message(upload_result, table_name)
-            stats = extract_upload_stats(success_msg)
-            
-            return Response.json({
-                "success": True,
-                "message": success_msg,
-                "stats": stats,
-                "redirect_url": "/manage-databases"
-            })
-            
-        except Exception as e:
-            logger.error(f"URL processing error: {str(e)}")
-            error_msg = await handle_upload_error_gracefully(datasette, e, "url_upload")
-            return Response.json({"success": False, "error": error_msg}, status=500)
-        
-    except Exception as e:
-        logger.error(f"AJAX URL upload error: {str(e)}")
-        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_url_upload")
+        logger.error(f"Enhanced AJAX URL upload error: {str(e)}")
+        error_msg = await handle_upload_error_gracefully(datasette, e, "ajax_url_upload_enhanced")
         return Response.json({"success": False, "error": error_msg}, status=500)
-
-def check_httpx_dependency():
-    """Check if httpx is available, fallback to requests with warnings"""
-    try:
-        import httpx
-        return True
-    except ImportError:
-        logger.warning("httpx not available, using requests (blocking). Install httpx for better performance.")
-        return False
     
 def parse_multipart_form_data_from_ajax(body, content_type):
-    """Parse multipart form data from AJAX requests properly"""
+    """Parse multipart form data from AJAX requests"""
     try:
-        # Extract boundary
         boundary = None
         if 'boundary=' in content_type:
             boundary = content_type.split('boundary=')[-1].split(';')[0].strip()
         
         if not boundary:
-            logger.error("No boundary found in content type")
             return {}, {}
         
-        # Use existing parser but ensure we get the correct format
         forms, files = parse_multipart_form_data(body, boundary)
         
-        # Convert forms to proper format (handle list values)
         processed_forms = {}
         for key, value in forms.items():
             if isinstance(value, list) and len(value) > 0:
-                processed_forms[key] = value[0]  # Take first value
+                processed_forms[key] = value[0]
             else:
                 processed_forms[key] = value if isinstance(value, str) else str(value)
         
-        logger.debug(f"Processed forms: {processed_forms}")
         return processed_forms, files
         
     except Exception as e:
         logger.error(f"Error parsing multipart data from AJAX: {e}")
         return {}, {}
 
-def extract_upload_stats(success_msg):
-    """Extract upload statistics from success message for display"""
-    import re
-    
-    # Pattern to match statistics
-    rows_pattern = r'(\d{1,3}(?:,\d{3})*)\s+rows'
-    time_pattern = r'in\s+([\d.]+)s'
-    speed_pattern = r'\((\d{1,3}(?:,\d{3})*)\s+rows/sec\)'
-    
-    rows_match = re.search(rows_pattern, success_msg)
-    time_match = re.search(time_pattern, success_msg)
-    speed_match = re.search(speed_pattern, success_msg)
-    
-    if rows_match and time_match and speed_match:
-        return f"{rows_match.group(1)} rows | {speed_match.group(1)} rows/sec | {time_match.group(1)}s"
-    
-    return None
-
-def validate_table_name_enhanced(name):
-    """Enhanced table name validation with detailed error messages"""
-    if not name:
-        return False, "Table name cannot be empty"
-    
-    # Convert to string for validation
-    name = str(name).strip()
-    
-    # Check length
-    if len(name) > 64:
-        return False, "Table name too long (max 64 characters)"
-    
-    # Must start with letter (not underscore)
-    if not re.match(r'^[a-zA-Z]', name):
-        return False, "Table name must start with a letter"
-    
-    # Check format (only letters, numbers, underscores)
-    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
-        return False, "Table name can only contain letters, numbers, and underscores"
-    
-    # Check for SQL keywords
-    sql_keywords = {
-        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
-        'TABLE', 'INDEX', 'VIEW', 'DATABASE', 'FROM', 'WHERE', 'ORDER', 
-        'GROUP', 'HAVING', 'UNION', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
-        'FULL', 'CROSS', 'ON', 'AS', 'AND', 'OR', 'NOT', 'NULL'
-    }
-    
-    if name.upper() in sql_keywords:
-        return False, f"'{name}' is a reserved SQL keyword"
-    
-    return True, None
-
-def pre_validate_upload_data(table_name, filename=None):
-    """Pre-validate upload data before processing"""
-    errors = []
-    
-    # Auto-fix table name if it's invalid
-    if table_name:
-        is_valid, error = validate_table_name_enhanced(table_name)
-        if not is_valid:
-            # Try to auto-fix common issues
-            fixed_name = auto_fix_table_name(table_name)
-            if fixed_name != table_name:
-                # Log the auto-fix but don't error
-                logger.info(f"Auto-fixed table name: '{table_name}' -> '{fixed_name}'")
-                # You'd need to return the fixed name somehow
-            else:
-                errors.append(f"Table name error: {error}")
-    
-    # Validate filename if provided
-    if filename:
-        # Check for problematic characters in filename
-        if any(char in filename for char in ['<', '>', ':', '"', '|', '?', '*']):
-            errors.append("Filename contains invalid characters")
-        
-        # Check file extension
-        allowed_extensions = ['.csv', '.txt', '.tsv', '.xlsx', '.xls']
-        ext = os.path.splitext(filename)[1].lower()
-        if ext not in allowed_extensions:
-            errors.append(f"Invalid file type '{ext}'. Allowed: {', '.join(allowed_extensions)}")
-    
-    return errors
-
-def auto_fix_table_name(name):
-    """Auto-fix common table name issues"""
-    if not name:
-        return name
-    
-    # Convert to string and strip
-    name = str(name).strip()
-    
-    # Replace invalid characters with underscores
-    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    
-    # If starts with number or underscore, prefix with 'table_'
-    if name and not re.match(r'^[a-zA-Z]', name):
-        name = 'table_' + name
-    
-    # Remove consecutive underscores
-    name = re.sub(r'_{2,}', '_', name)
-    
-    # Remove leading/trailing underscores
-    name = name.strip('_')
-    
-    # Truncate if too long
-    if len(name) > 64:
-        name = name[:60]
-    
-    # Fallback for empty names
-    if not name:
-        name = f'table_{uuid.uuid4().hex[:8]}'
-    
-    return name
-
-def validate_csv_structure(csv_content: str, max_sample_rows: int = 100) -> tuple:
-    """Enhanced CSV validation with better error handling"""
-    try:
-        if not csv_content or not csv_content.strip():
-            return False, "CSV content is empty", None
-            
-        # Check for minimum content
-        if len(csv_content.strip()) < 10:
-            return False, "CSV content too short to be valid", None
-            
-        csv_file = io.StringIO(csv_content)
-        
-        # Try different dialects with better error handling
-        try:
-            # Sample first 8KB for dialect detection
-            sample = csv_content[:8192]
-            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
-        except (csv.Error, Exception) as e:
-            logger.debug(f"Dialect detection failed: {e}, using excel dialect")
-            dialect = csv.excel
-        
-        reader = csv.reader(csv_file, dialect=dialect)
-        
-        # Read header with error handling
-        try:
-            headers = next(reader)
-            if not headers or all(not str(h).strip() for h in headers):
-                return False, "CSV file has no valid headers", None
-        except (StopIteration, UnicodeDecodeError, csv.Error) as e:
-            return False, f"CSV file has no readable content: {str(e)}", None
-        
-        # Validate headers
-        valid_headers = [str(h).strip() for h in headers if str(h).strip()]
-        if len(valid_headers) == 0:
-            return False, "CSV file has no valid column headers", None
-        
-        if len(valid_headers) != len(headers):
-            logger.warning(f"CSV has {len(headers) - len(valid_headers)} empty headers out of {len(headers)} total")
-        
-        # Sample validation with better error handling
-        row_lengths = []
-        sample_rows = 0
-        inconsistent_rows = []
-        header_length = len(headers)
-        
-        try:
-            for row_num, row in enumerate(reader, start=2):
-                if sample_rows >= max_sample_rows:
-                    break
-                
-                if not row or all(not str(cell).strip() for cell in row):
-                    continue  # Skip completely empty rows
-                    
-                row_length = len(row)
-                row_lengths.append(row_length)
-                
-                # Check for significant inconsistencies (allow some flexibility)
-                variance = abs(row_length - header_length)
-                if variance > max(2, header_length * 0.1):  # Allow 10% variance or 2 columns, whichever is larger
-                    inconsistent_rows.append({
-                        'row_num': row_num,
-                        'expected': header_length,
-                        'actual': row_length,
-                        'variance': variance
-                    })
-                    
-                sample_rows += 1
-                
-        except (csv.Error, UnicodeDecodeError) as e:
-            logger.warning(f"Error sampling CSV rows: {e}")
-            # Continue with partial validation if we got some data
-        
-        if not row_lengths:
-            return False, "CSV file contains only headers with no valid data rows", None
-        
-        # Analyze inconsistencies
-        inconsistent_percentage = len(inconsistent_rows) / len(row_lengths) if row_lengths else 0
-        
-        if inconsistent_percentage > 0.2:  # More than 20% inconsistent
-            error_details = f"CSV has too many inconsistent rows ({inconsistent_percentage:.1%}). "
-            error_details += f"Expected {header_length} columns but found major variances in {len(inconsistent_rows)} rows."
-            return False, error_details, None
-        
-        # Return validation info
-        column_info = {
-            'header_count': len(headers),
-            'valid_headers': len(valid_headers),
-            'headers_sample': valid_headers[:10],
-            'sample_rows_checked': sample_rows,
-            'inconsistent_rows': len(inconsistent_rows),
-            'inconsistent_percentage': inconsistent_percentage,
-            'avg_row_length': sum(row_lengths) / len(row_lengths) if row_lengths else 0,
-            'row_length_range': (min(row_lengths), max(row_lengths)) if row_lengths else (0, 0)
-        }
-        
-        return True, None, column_info
-        
-    except Exception as e:
-        logger.error(f"CSV validation error: {e}")
-        return False, f"CSV validation failed due to unexpected error: {str(e)}", None    
-
 @hookimpl
 def register_routes():
-    """Register both regular and AJAX upload routes"""
+    """Register ALL upload routes with optimized handlers"""
     return [
-        # Regular upload route
         (r"^/upload-table/([^/]+)$", enhanced_upload_page),
-        
-        # AJAX upload routes
         (r"^/ajax-upload-file/([^/]+)$", ajax_file_upload_handler),
         (r"^/ajax-upload-sheets/([^/]+)$", ajax_sheets_upload_handler),
         (r"^/ajax-upload-url/([^/]+)$", ajax_url_upload_handler),

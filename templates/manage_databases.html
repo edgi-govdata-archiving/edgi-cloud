@@ -400,7 +400,7 @@
                                                             <i class="ri-eye-off-line mr-1"></i>Hide All
                                                         </button>
                                                         
-                                                        <!-- Sort Options with Visibility + Display Order as default -->
+                                                        <!-- Sort Options -->
                                                         <select id="sort-tables-{{ db.db_id }}" onchange="sortTables('{{ db.db_id }}')" 
                                                                 class="px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
                                                             <option value="visibility-order">Sort by Visibility + Order</option>
@@ -419,7 +419,7 @@
                                                         <div class="table-item flex items-center p-3 bg-gray-50 rounded"
                                                             data-table-name="{{ table.name }}" 
                                                             data-records="{{ table.record_count|default(0) }}" 
-                                                            data-visible="{{ table.show_in_homepage|default(true)|lower }}"
+                                                            data-visible="{{ table.show_in_homepage|default(true)|string|lower }}"
                                                             data-order="{{ table.display_order|default(100) }}">
                                                             
                                                             <!-- Table Info Section with Inline Edit -->
@@ -775,12 +775,7 @@
             const tables = Array.from(container.getElementsByClassName('table-item'));
             const sortBy = sortSelect.value || 'visibility-order';
             
-            console.log(`Sorting ${tables.length} tables by: ${sortBy} for database: ${dbId}`);
-            
-            // Debug: Log table data before sorting
-            tables.forEach((table, index) => {
-                console.log(`Table ${index}: ${table.dataset.tableName}, visible: ${table.dataset.visible}, order: ${table.dataset.order}`);
-            });
+            console.log(`Sorting ${tables.length} tables by: ${sortBy}`);
             
             tables.sort((a, b) => {
                 switch (sortBy) {
@@ -790,30 +785,31 @@
                     case 'records':
                         const aRecords = parseInt(a.dataset.records) || 0;
                         const bRecords = parseInt(b.dataset.records) || 0;
-                        return bRecords - aRecords;
+                        return bRecords - aRecords; // Higher records first
                         
                     case 'visibility':
-                        // Proper string to boolean conversion
                         const aVisible = a.dataset.visible === 'true';
                         const bVisible = b.dataset.visible === 'true';
-                        return bVisible - aVisible; // true (1) comes before false (0)
+                        // Convert boolean to number: true=1, false=0
+                        return Number(bVisible) - Number(aVisible); // Visible first
                         
                     case 'order':
                         const aOrder = parseInt(a.dataset.order) || 0;
                         const bOrder = parseInt(b.dataset.order) || 0;
-                        return bOrder - aOrder; // Higher numbers first
+                        return bOrder - aOrder; // Higher order first
                         
                     case 'visibility-order':
                     default:
-                        // First sort by visibility (visible tables first)
+                        // FIXED: First sort by visibility (visible tables first)
                         const aVis = a.dataset.visible === 'true';
                         const bVis = b.dataset.visible === 'true';
                         
+                        // If visibility is different, visible comes first
                         if (aVis !== bVis) {
-                            return bVis - aVis; // Visible (true=1) comes before hidden (false=0)
+                            return Number(bVis) - Number(aVis); // true (1) - false (0) = visible first
                         }
                         
-                        // If same visibility, sort by display order DESC (higher numbers first)
+                        // If same visibility, sort by display_order DESC (higher numbers first)
                         const aOrderVis = parseInt(a.dataset.order) || 0;
                         const bOrderVis = parseInt(b.dataset.order) || 0;
                         return bOrderVis - aOrderVis;
@@ -825,39 +821,33 @@
             tables.forEach(table => container.appendChild(table));
             
             console.log(`Sorting complete for ${dbId}`);
-            
-            // Debug: Log table order after sorting
-            const updatedTables = Array.from(container.getElementsByClassName('table-item'));
-            console.log('Tables after sorting:');
-            updatedTables.forEach((table, index) => {
-                console.log(`  ${index + 1}. ${table.dataset.tableName} (visible: ${table.dataset.visible}, order: ${table.dataset.order})`);
-            });
         }
 
         // Initialize sorting properly on DOM ready with better timing
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, initializing table sorting...');
+            console.log('DOM loaded, initializing...');
             
-            // Find all table containers and initialize sorting
+            // Find all database containers
             const containers = document.querySelectorAll('[id^="tables-container-"]');
             console.log(`Found ${containers.length} table containers`);
             
             containers.forEach(container => {
                 const dbId = container.id.replace('tables-container-', '');
-                const sortSelect = document.getElementById(`sort-tables-${dbId}`);
+                console.log(`Initializing database: ${dbId}`);
                 
+                // Debug the initial state
+                debugTableData(dbId);
+                
+                // Set default sorting
+                const sortSelect = document.getElementById(`sort-tables-${dbId}`);
                 if (sortSelect) {
-                    // Set default to visibility-order
                     sortSelect.value = 'visibility-order';
-                    console.log(`Initializing sort for database: ${dbId}`);
                     
-                    // Apply initial sort after DOM is fully ready
+                    // Apply initial sort after a delay
                     setTimeout(() => {
+                        console.log(`Applying initial sort for ${dbId}`);
                         sortTables(dbId);
-                        console.log(`Applied initial sort for ${dbId}`);
-                    }, 500); // Increased delay to ensure DOM is ready
-                } else {
-                    console.warn(`Sort select not found for database: ${dbId}`);
+                    }, 500);
                 }
             });
         });
@@ -985,101 +975,159 @@
         }
 
         // Enhanced bulk toggle with progress indication
-        async function bulkToggleVisibility(dbId, show) {
+        async function bulkToggleVisibility(dbId, targetState) {
+            console.log(`=== BULK TOGGLE: Setting all tables to ${targetState ? 'VISIBLE' : 'HIDDEN'} ===`);
+            
             const container = document.getElementById(`tables-container-${dbId}`);
+            if (!container) {
+                console.error(`Container not found: tables-container-${dbId}`);
+                return;
+            }
+            
             const tables = Array.from(container.getElementsByClassName('table-item'));
-            let updateCount = 0;
-            let totalTables = tables.length;
+            console.log(`Processing ${tables.length} tables`);
             
-            const showText = show ? 'showing' : 'hiding';
-            console.log(`Starting bulk ${showText} for ${tables.length} tables`);
+            if (tables.length === 0) {
+                return;
+            }
             
-            // Disable bulk buttons during operation
-            const bulkButtons = document.querySelectorAll(`button[onclick*="bulkToggleVisibility('${dbId}'"]`);
-            bulkButtons.forEach(btn => {
-                btn.disabled = true;
-                btn.style.opacity = '0.5';
+            // Get CSRF token
+            const csrfToken = document.querySelector('input[name="csrftoken"]')?.value;
+            if (!csrfToken) {
+                alert('Security token not found. Please refresh the page.');
+                return;
+            }
+            
+            // Disable BOTH bulk buttons during operation
+            const showAllBtn = document.querySelector(`button[onclick*="bulkToggleVisibility('${dbId}', true)"]`);
+            const hideAllBtn = document.querySelector(`button[onclick*="bulkToggleVisibility('${dbId}', false)"]`);
+            
+            // Store original button states
+            const originalShowText = showAllBtn ? showAllBtn.innerHTML : '';
+            const originalHideText = hideAllBtn ? hideAllBtn.innerHTML : '';
+            
+            // Disable both buttons
+            [showAllBtn, hideAllBtn].forEach(btn => {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.5';
+                }
             });
             
+            // Set processing state
+            if (targetState && showAllBtn) {
+                showAllBtn.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Showing All...';
+            } else if (!targetState && hideAllBtn) {
+                hideAllBtn.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Hiding All...';
+            }
+            
+            let processedCount = 0;
+            let errorCount = 0;
+            
             try {
+                // Process each table
                 for (const table of tables) {
                     const tableName = table.dataset.tableName;
                     const currentlyVisible = table.dataset.visible === 'true';
                     
-                    // Skip if already in desired state (for efficiency)
-                    if (currentlyVisible === show) {
-                        console.log(`Skipping ${tableName} - already ${show ? 'visible' : 'hidden'}`);
+                    // Skip if already in target state
+                    if (currentlyVisible === targetState) {
+                        console.log(`Skipping ${tableName} - already ${targetState ? 'visible' : 'hidden'}`);
                         continue;
                     }
                     
                     try {
+                        console.log(`  Making API call for ${tableName} with data:`, {
+                            db_id: dbId,
+                            table_name: tableName,
+                            show_in_homepage: targetState
+                        });
+                        
                         const response = await fetch('/api/toggle-table-visibility', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
+                                'X-CSRFToken': csrfToken
                             },
                             body: JSON.stringify({
                                 db_id: dbId,
                                 table_name: tableName,
-                                show_in_homepage: show
+                                show_in_homepage: targetState
                             })
                         });
                         
+                        console.log(`Response for ${tableName}:`, {
+                            status: response.status,
+                            statusText: response.statusText,
+                            ok: response.ok
+                        });
+                        
                         if (response.ok) {
-                            updateCount++;
+                            const result = await response.json();
+                            console.log(`API Result for ${tableName}:`, result);
+                            
+                            processedCount++;
                             
                             // Update DOM immediately
-                            table.dataset.visible = show.toString();
+                            table.dataset.visible = targetState.toString();
                             
-                            // Update button appearance
-                            const button = table.querySelector('button[onclick*="toggleTableVisibility"]');
-                            if (button) {
-                                const icon = button.querySelector('i');
-                                if (show) {
-                                    button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-green-50 border-green-300 text-green-700 hover:bg-green-100';
-                                    icon.className = 'ri-eye-line mr-1';
-                                    button.innerHTML = '<i class="ri-eye-line mr-1"></i>Show';
-                                } else {
-                                    button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100';
-                                    icon.className = 'ri-eye-off-line mr-1';
-                                    button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>Hide';
-                                }
-                                button.setAttribute('onclick', `toggleTableVisibility('${dbId}', '${tableName}', ${show})`);
+                            // Update the individual table's visibility button
+                            const tableButton = table.querySelector('button[onclick*="toggleTableVisibility"]');
+                            if (tableButton) {
+                                updateSingleTableButton(tableButton, tableName, dbId, targetState);
                             }
-                            
-                            console.log(`Bulk updated ${tableName}: ${show}`);
                         } else {
-                            console.error(`Failed to update ${tableName}`);
+                            const errorText = await response.text();
+                            console.error(`API Error for ${tableName}:`, errorText);
+                            console.error(`Failed to update ${tableName}: ${response.status}`);
+                            errorCount++;
                         }
-                    } catch (error) {
-                        console.error(`Error updating ${tableName}:`, error);
                     }
                     
-                    // Small delay to avoid overwhelming the server
+                    // Small delay to prevent server overload
                     await new Promise(resolve => setTimeout(resolve, 50));
                 }
                 
-                console.log(`Bulk operation complete: ${updateCount}/${totalTables} tables updated`);
+                console.log(`Bulk operation complete: ${processedCount} processed, ${errorCount} errors`);
                 
-                // Re-sort the tables after bulk operation
+                // Re-sort tables if needed
                 const sortSelect = document.getElementById(`sort-tables-${dbId}`);
                 if (sortSelect && (sortSelect.value === 'visibility-order' || sortSelect.value === 'visibility')) {
-                    setTimeout(() => {
-                        console.log('Re-sorting after bulk visibility change');
-                        sortTables(dbId);
-                    }, 200);
+                    setTimeout(() => sortTables(dbId), 200);
                 }
                 
             } finally {
-                // Re-enable bulk buttons
-                bulkButtons.forEach(btn => {
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                });
+                // Restore both buttons to their correct states
+                if (showAllBtn) {
+                    showAllBtn.disabled = false;
+                    showAllBtn.style.opacity = '1';
+                    showAllBtn.innerHTML = originalShowText || '<i class="ri-eye-line mr-1"></i>Show All';
+                }
+                
+                if (hideAllBtn) {
+                    hideAllBtn.disabled = false;
+                    hideAllBtn.style.opacity = '1';
+                    hideAllBtn.innerHTML = originalHideText || '<i class="ri-eye-off-line mr-1"></i>Hide All';
+                }
+                
+                console.log('Bulk buttons restored');
             }
         }
 
+        // Fixed function to update individual table buttons
+        function updateSingleTableButton(button, tableName, dbId, isVisible) {
+            if (isVisible) {
+                button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-green-50 border-green-300 text-green-700 hover:bg-green-100';
+                button.innerHTML = '<i class="ri-eye-line mr-1"></i>Show';
+            } else {
+                button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100';
+                button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>Hide';
+            }
+            
+            // Update onclick to reflect current state
+            button.setAttribute('onclick', `toggleTableVisibility('${dbId}', '${tableName}', ${isVisible})`);
+        }
+        
         // Table rename functionality
         function enableTableNameEdit(dbId, tableName, displayElement) {
             const container = displayElement.parentElement;
@@ -1174,27 +1222,34 @@
         }
 
         // Debug function for troubleshooting table sorting
-        function debugTableSort(dbId) {
+        function debugTableData(dbId) {
             const container = document.getElementById(`tables-container-${dbId}`);
-            if (!container) {
-                console.error(`Container not found: tables-container-${dbId}`);
-                return;
-            }
-            
             const tables = Array.from(container.getElementsByClassName('table-item'));
-            const sortSelect = document.getElementById(`sort-tables-${dbId}`);
             
-            console.log(`=== Debug info for database ${dbId} ===`);
-            console.log(`Sort select value: ${sortSelect ? sortSelect.value : 'NOT FOUND'}`);
+            console.log('=== TABLE DATA DEBUG ===');
+            console.log(`Database ID: ${dbId}`);
             console.log(`Total tables: ${tables.length}`);
             
             tables.forEach((table, index) => {
-                console.log(`Table ${index + 1}: ${table.dataset.tableName}`);
-                console.log(`  - Visible: "${table.dataset.visible}" (type: ${typeof table.dataset.visible})`);
-                console.log(`  - Order: "${table.dataset.order}" (type: ${typeof table.dataset.order})`);
-                console.log(`  - Records: "${table.dataset.records}"`);
+                const name = table.dataset.tableName;
+                const visible = table.dataset.visible;
+                const order = table.dataset.order;
+                const visibleBool = table.dataset.visible === 'true';
+                
+                console.log(`Table ${index + 1}: ${name}`);
+                console.log(`  - visible (string): "${visible}"`);
+                console.log(`  - visible (boolean): ${visibleBool}`);
+                console.log(`  - display_order: "${order}" (${typeof order})`);
+                console.log(`  - display_order (int): ${parseInt(order) || 0}`);
+                
+                // Check button state
+                const button = table.querySelector('button[onclick*="toggleTableVisibility"]');
+                if (button) {
+                    console.log(`  - button text: "${button.textContent.trim()}"`);
+                }
             });
-            console.log(`=== End debug info ===`);
+            
+            console.log('=== END TABLE DATA DEBUG ===');
         }
 
         // Update countdowns every minute
