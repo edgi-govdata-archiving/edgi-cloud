@@ -1,5 +1,5 @@
 """
-Common Utilities Module for EDGI Datasette Cloud Portal
+Common Utilities Module for Resette Datasette Cloud Portal
 Provides shared functionality for database management, user authentication,
 content management, and utility functions used across all modules.
 """

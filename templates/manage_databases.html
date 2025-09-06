@@ -671,57 +671,91 @@
             }
         }
 
-        // NEW DROPDOWN FUNCTIONS
         function toggleCreateDropdown() {
+            console.log('Header dropdown toggle triggered');
+            
+            // Target the HEADER dropdown specifically
             const menu = document.getElementById('create-menu');
             const button = document.getElementById('create-button');
+            
+            if (!menu || !button) {
+                console.error('Header dropdown elements not found:', { menu: !!menu, button: !!button });
+                return;
+            }
+            
             const arrow = button.querySelector('.ri-arrow-down-s-line, .ri-arrow-up-s-line');
             
             if (menu.classList.contains('hidden')) {
+                // Close main dropdown first to prevent conflicts
+                const mainMenu = document.getElementById('main-create-menu');
+                if (mainMenu) mainMenu.classList.add('hidden');
+                
                 menu.classList.remove('hidden');
-                arrow.className = 'ri-arrow-up-s-line ml-1';
+                if (arrow) arrow.className = 'ri-arrow-up-s-line ml-1';
+                console.log('Header dropdown opened');
             } else {
                 menu.classList.add('hidden');
-                arrow.className = 'ri-arrow-down-s-line ml-1';
+                if (arrow) arrow.className = 'ri-arrow-down-s-line ml-1';
+                console.log('Header dropdown closed');
             }
         }
 
         function toggleMainCreateDropdown() {
+            console.log('Main dropdown toggle triggered');
+            
+            // Target the MAIN PAGE dropdown specifically
             const menu = document.getElementById('main-create-menu');
             const button = document.getElementById('main-create-button');
+            
+            if (!menu || !button) {
+                console.error('Main dropdown elements not found:', { menu: !!menu, button: !!button });
+                return;
+            }
+            
             const arrow = button.querySelector('.ri-arrow-down-s-line, .ri-arrow-up-s-line');
             
             if (menu.classList.contains('hidden')) {
+                // Close header dropdown first to prevent conflicts
+                const headerMenu = document.getElementById('create-menu');
+                if (headerMenu) headerMenu.classList.add('hidden');
+                
                 menu.classList.remove('hidden');
-                arrow.className = 'ri-arrow-up-s-line ml-1';
+                if (arrow) arrow.className = 'ri-arrow-up-s-line ml-1';
+                console.log('Main dropdown opened');
             } else {
                 menu.classList.add('hidden');
-                arrow.className = 'ri-arrow-down-s-line ml-1';
+                if (arrow) arrow.className = 'ri-arrow-down-s-line ml-1';
+                console.log('Main dropdown closed');
             }
         }
 
         // Close dropdowns when clicking outside
         document.addEventListener('click', function(event) {
-            // Header dropdown
-            const createDropdown = document.getElementById('create-dropdown');
-            const createMenu = document.getElementById('create-menu');
-            const createButton = document.getElementById('create-button');
+            const headerDropdown = document.getElementById('create-dropdown');
+            const mainDropdown = document.getElementById('main-create-dropdown');
             
-            if (createDropdown && !createDropdown.contains(event.target)) {
-                createMenu.classList.add('hidden');
-                const arrow = createButton.querySelector('.ri-arrow-up-s-line');
-                if (arrow) arrow.className = 'ri-arrow-down-s-line ml-1';
+            // Close header dropdown if clicking outside
+            if (headerDropdown && !headerDropdown.contains(event.target)) {
+                const headerMenu = document.getElementById('create-menu');
+                const headerButton = document.getElementById('create-button');
+                
+                if (headerMenu && !headerMenu.classList.contains('hidden')) {
+                    headerMenu.classList.add('hidden');
+                    const arrow = headerButton?.querySelector('.ri-arrow-up-s-line');
+                    if (arrow) arrow.className = 'ri-arrow-down-s-line ml-1';
+                }
             }
-
-            // Main dropdown
-            const mainCreateDropdown = document.getElementById('main-create-dropdown');
-            const mainCreateMenu = document.getElementById('main-create-menu');
-            const mainCreateButton = document.getElementById('main-create-button');
             
-            if (mainCreateDropdown && !mainCreateDropdown.contains(event.target)) {
-                mainCreateMenu.classList.add('hidden');
-                const arrow = mainCreateButton.querySelector('.ri-arrow-up-s-line');
-                if (arrow) arrow.className = 'ri-arrow-down-s-line ml-1';
+            // Close main dropdown if clicking outside
+            if (mainDropdown && !mainDropdown.contains(event.target)) {
+                const mainMenu = document.getElementById('main-create-menu');
+                const mainButton = document.getElementById('main-create-button');
+                
+                if (mainMenu && !mainMenu.classList.contains('hidden')) {
+                    mainMenu.classList.add('hidden');
+                    const arrow = mainButton?.querySelector('.ri-arrow-up-s-line');
+                    if (arrow) arrow.className = 'ri-arrow-down-s-line ml-1';
+                }
             }
         });
 
@@ -746,20 +780,39 @@
         }
 
         // Table search function
+        let searchDebounceTimer = null;
+
         function filterTables(dbId) {
+            // Clear previous timer
+            if (searchDebounceTimer) {
+                clearTimeout(searchDebounceTimer);
+            }
+            
+            // Debounce search by 300ms
+            searchDebounceTimer = setTimeout(() => {
+                performTableFilter(dbId);
+            }, 300);
+        }
+
+        function performTableFilter(dbId) {
             const searchInput = document.getElementById(`table-search-${dbId}`);
             const container = document.getElementById(`tables-container-${dbId}`);
-            const tables = container.getElementsByClassName('table-item');
-            const searchTerm = searchInput.value.toLowerCase();
             
+            if (!searchInput || !container) return;
+            
+            const tables = container.getElementsByClassName('table-item');
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            
+            let visibleCount = 0;
             Array.from(tables).forEach(table => {
                 const tableName = table.dataset.tableName.toLowerCase();
-                if (tableName.includes(searchTerm)) {
-                    table.style.display = '';
-                } else {
-                    table.style.display = 'none';
-                }
+                const isMatch = !searchTerm || tableName.includes(searchTerm);
+                
+                table.style.display = isMatch ? '' : 'none';
+                if (isMatch) visibleCount++;
             });
+            
+            console.log(`Filtered tables: ${visibleCount} visible out of ${tables.length}`);
         }
 
         // Corrected sortTables function with proper data attribute handling
@@ -790,8 +843,8 @@
                     case 'visibility':
                         const aVisible = a.dataset.visible === 'true';
                         const bVisible = b.dataset.visible === 'true';
-                        // Convert boolean to number: true=1, false=0
-                        return Number(bVisible) - Number(aVisible); // Visible first
+                        // FIXED: Visible tables first (true before false)
+                        return Number(bVisible) - Number(aVisible);
                         
                     case 'order':
                         const aOrder = parseInt(a.dataset.order) || 0;
@@ -800,16 +853,16 @@
                         
                     case 'visibility-order':
                     default:
-                        // FIXED: First sort by visibility (visible tables first)
+                        // CRITICAL FIX: Proper visibility + order sorting
                         const aVis = a.dataset.visible === 'true';
                         const bVis = b.dataset.visible === 'true';
                         
-                        // If visibility is different, visible comes first
+                        // First, compare visibility (visible tables first)
                         if (aVis !== bVis) {
-                            return Number(bVis) - Number(aVis); // true (1) - false (0) = visible first
+                            return bVis ? 1 : -1; // bVis=true returns 1, putting visible first
                         }
                         
-                        // If same visibility, sort by display_order DESC (higher numbers first)
+                        // If same visibility, sort by display_order DESC
                         const aOrderVis = parseInt(a.dataset.order) || 0;
                         const bOrderVis = parseInt(b.dataset.order) || 0;
                         return bOrderVis - aOrderVis;
@@ -825,31 +878,46 @@
 
         // Initialize sorting properly on DOM ready with better timing
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, initializing...');
+            console.log('DOM loaded, initializing manage databases...');
             
-            // Find all database containers
-            const containers = document.querySelectorAll('[id^="tables-container-"]');
-            console.log(`Found ${containers.length} table containers`);
-            
-            containers.forEach(container => {
-                const dbId = container.id.replace('tables-container-', '');
-                console.log(`Initializing database: ${dbId}`);
+            try {
+                // Initialize all database containers
+                const containers = document.querySelectorAll('[id^="tables-container-"]');
+                console.log(`Found ${containers.length} table containers`);
                 
-                // Debug the initial state
-                debugTableData(dbId);
-                
-                // Set default sorting
-                const sortSelect = document.getElementById(`sort-tables-${dbId}`);
-                if (sortSelect) {
-                    sortSelect.value = 'visibility-order';
+                containers.forEach(container => {
+                    const dbId = container.id.replace('tables-container-', '');
+                    console.log(`Initializing database: ${dbId}`);
                     
-                    // Apply initial sort after a delay
-                    setTimeout(() => {
-                        console.log(`Applying initial sort for ${dbId}`);
-                        sortTables(dbId);
-                    }, 500);
-                }
-            });
+                    // Set default sorting
+                    const sortSelect = document.getElementById(`sort-tables-${dbId}`);
+                    if (sortSelect) {
+                        sortSelect.value = 'visibility-order';
+                        
+                        // Apply initial sort after DOM is fully ready
+                        setTimeout(() => {
+                            console.log(`Applying initial sort for ${dbId}`);
+                            sortTables(dbId);
+                        }, 100);
+                    }
+                });
+                
+                // Test dropdown functionality
+                setTimeout(() => {
+                    const headerDropdown = document.getElementById('create-dropdown');
+                    const mainDropdown = document.getElementById('main-create-dropdown');
+                    
+                    console.log('Dropdown elements check:', {
+                        headerDropdown: !!headerDropdown,
+                        mainDropdown: !!mainDropdown,
+                        headerMenu: !!document.getElementById('create-menu'),
+                        mainMenu: !!document.getElementById('main-create-menu')
+                    });
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error during initialization:', error);
+            }
         });
 
         // Update display order function with proper re-sorting
@@ -915,6 +983,25 @@
             try {
                 console.log(`Toggling visibility for ${tableName}: ${currentlyVisible} -> ${!currentlyVisible}`);
                 
+                // Find the table row first
+                const tableRow = document.querySelector(`[data-table-name="${tableName}"]`);
+                if (!tableRow) {
+                    console.error(`Table row not found for: ${tableName}`);
+                    return;
+                }
+                
+                // Find the button
+                const button = tableRow.querySelector('button[onclick*="toggleTableVisibility"]');
+                if (!button) {
+                    console.error(`Toggle button not found for: ${tableName}`);
+                    return;
+                }
+                
+                // Disable button during operation
+                const originalContent = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Updating...';
+                
                 const response = await fetch('/api/toggle-table-visibility', {
                     method: 'POST',
                     headers: {
@@ -929,49 +1016,59 @@
                 });
                 
                 if (response.ok) {
-                    // Update the DOM immediately instead of reloading page
-                    const tableRow = document.querySelector(`[data-table-name="${tableName}"]`);
-                    if (tableRow) {
-                        const newVisibility = !currentlyVisible;
-                        tableRow.dataset.visible = newVisibility.toString();
-                        
-                        // Update button appearance and functionality
-                        const button = tableRow.querySelector('button[onclick*="toggleTableVisibility"]');
-                        if (button) {
-                            const icon = button.querySelector('i');
-                            if (newVisibility) {
-                                button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-green-50 border-green-300 text-green-700 hover:bg-green-100';
-                                icon.className = 'ri-eye-line mr-1';
-                                button.innerHTML = '<i class="ri-eye-line mr-1"></i>Show';
-                            } else {
-                                button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100';
-                                icon.className = 'ri-eye-off-line mr-1';
-                                button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>Hide';
-                            }
-                            
-                            // Update onclick attribute
-                            button.setAttribute('onclick', `toggleTableVisibility('${dbId}', '${tableName}', ${newVisibility})`);
-                        }
-                        
-                        console.log(`Updated visibility for ${tableName} to ${newVisibility}`);
-                        
-                        // Re-sort if using visibility-related sorting
-                        const sortSelect = document.getElementById(`sort-tables-${dbId}`);
-                        if (sortSelect && (sortSelect.value === 'visibility-order' || sortSelect.value === 'visibility')) {
-                            setTimeout(() => {
-                                console.log('Re-sorting after visibility toggle');
-                                sortTables(dbId);
-                            }, 100);
-                        }
+                    const newVisibility = !currentlyVisible;
+                    
+                    // Update dataset immediately
+                    tableRow.dataset.visible = newVisibility.toString();
+                    
+                    // Update button appearance with correct styling
+                    updateTableVisibilityButton(button, tableName, dbId, newVisibility);
+                    
+                    console.log(`Successfully updated visibility for ${tableName} to ${newVisibility}`);
+                    
+                    // Re-sort if using visibility-related sorting
+                    const sortSelect = document.getElementById(`sort-tables-${dbId}`);
+                    if (sortSelect && (sortSelect.value === 'visibility-order' || sortSelect.value === 'visibility')) {
+                        setTimeout(() => {
+                            console.log('Re-sorting after visibility toggle');
+                            sortTables(dbId);
+                        }, 100);
                     }
                 } else {
                     console.error('Failed to update table visibility - server response not OK');
+                    // Restore button
+                    button.disabled = false;
+                    button.innerHTML = originalContent;
                     alert('Failed to update table visibility');
                 }
+                
             } catch (error) {
                 console.error('Error toggling table visibility:', error);
+                // Restore button state
+                const button = document.querySelector(`[data-table-name="${tableName}"] button[onclick*="toggleTableVisibility"]`);
+                if (button) {
+                    button.disabled = false;
+                    // Try to restore original state
+                    updateTableVisibilityButton(button, tableName, dbId, currentlyVisible);
+                }
                 alert('Error updating table visibility');
             }
+        }
+
+        // Helper function to update button appearance
+        function updateTableVisibilityButton(button, tableName, dbId, isVisible) {
+            button.disabled = false;
+            
+            if (isVisible) {
+                button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-green-50 border-green-300 text-green-700 hover:bg-green-100';
+                button.innerHTML = '<i class="ri-eye-line mr-1"></i>Show';
+            } else {
+                button.className = 'text-sm flex items-center px-3 py-1 rounded border transition bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100';
+                button.innerHTML = '<i class="ri-eye-off-line mr-1"></i>Hide';
+            }
+            
+            // Update onclick attribute with current state
+            button.setAttribute('onclick', `toggleTableVisibility('${dbId}', '${tableName}', ${isVisible})`);
         }
 
         // Enhanced bulk toggle with progress indication
@@ -1255,10 +1352,6 @@
         // Update countdowns every minute
         setInterval(updateCountdowns, 60000);
         updateCountdowns(); // Initial call
-
-        // Make debug function available globally for testing
-        window.debugTableSort = debugTableSort;
-        window.sortTables = sortTables;
     </script>
 </body>
 </html>

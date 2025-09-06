@@ -1352,7 +1352,7 @@ async def log_startup_success_startup(datasette, registered_count, failed_count,
         
         await log_database_action(
             datasette, "system", "startup", 
-            f"EDGI Database Management Module started: {startup_details}",
+            f"Resette Database Management Module started: {startup_details}",
             {
                 "registered_databases": registered_count,
                 "failed_databases": failed_count,
@@ -1752,7 +1752,7 @@ def startup(datasette):
     
     async def inner():
         try:
-            logger.info("Starting EDGI Datasette Database Management Module...")
+            logger.info("Starting Resette Database Management Module...")
             
             # Ensure directories exist
             ensure_data_directories()
