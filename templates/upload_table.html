@@ -62,7 +62,6 @@
 
                 {% if error %}
                     <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-                        <!-- Decode URL-encoded error messages -->
                         {% set decoded_error = error %}
                         <p class="text-sm font-medium">{{ decoded_error }}</p>
                         
@@ -162,7 +161,7 @@
                         </nav>
                     </div>
 
-                    <!-- File Upload Panel - Updated for AJAX -->
+                    <!-- File Upload Panel -->
                     <div id="file-panel" class="upload-panel p-6">
                         <form id="file-upload-form" onsubmit="return handleFileUpload(event)">
                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
@@ -212,7 +211,6 @@
                                         </div>
                                     </div>
 
-
                                     <div class="mt-4">
                                         <label class="flex items-center">
                                             <input type="checkbox" name="replace_existing" class="mr-2">
@@ -232,7 +230,7 @@
                         </form>
                     </div>
 
-                    <!-- Google Sheets Panel - Updated for AJAX -->
+                    <!-- Google Sheets Panel -->
                     <div id="sheets-panel" class="upload-panel p-6 hidden">
                         <form id="sheets-upload-form" onsubmit="return handleSheetsUpload(event)">
                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
@@ -315,7 +313,7 @@
                         </form>
                     </div>
 
-                    <!-- Web CSV Panel - Updated for AJAX -->
+                    <!-- Web CSV Panel -->
                     <div id="url-panel" class="upload-panel p-6 hidden">
                         <form id="url-upload-form" onsubmit="return handleUrlUpload(event)">
                             <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
@@ -439,6 +437,7 @@
     </main>
 
     <script>
+        // Enhanced UploadManager with better cancel button handling
         class UploadManager {
             constructor() {
                 this.currentXHR = null;
@@ -447,6 +446,17 @@
                 this.isUploading = false;
                 this.currentUploadId = null;
                 this.abortController = null;
+                this.isCancelling = false;
+                this.cancelRequested = false;
+                this.cancelTimeoutId = null;
+            }
+
+            generateUploadId(type) {
+                // Generate unique upload ID with user ID, database name, and timestamp
+                const userId = '{{ actor.id }}';
+                const dbName = '{{ db_name }}';
+                const timestamp = Date.now();
+                return `${userId}_${dbName}_${timestamp}_${type}`;
             }
 
             showProgress(title, message, type = 'file', filename = '', filesize = '') {
@@ -458,6 +468,7 @@
                 const uploadFilename = document.getElementById('upload-filename');
                 const uploadFilesize = document.getElementById('upload-filesize');
                 const uploadResult = document.getElementById('upload-result');
+                const cancelButton = document.getElementById('cancel-upload-btn');
 
                 // Set content
                 progressTitle.textContent = title;
@@ -477,9 +488,27 @@
                     uploadDetails.classList.add('hidden');
                 }
                 
-                // Reset progress
+                // Reset progress and states
                 this.resetProgress();
                 uploadResult.classList.add('hidden');
+                this.isCancelling = false;
+                this.cancelRequested = false;
+                
+                // Clear any existing cancel timeout
+                if (this.cancelTimeoutId) {
+                    clearTimeout(this.cancelTimeoutId);
+                    this.cancelTimeoutId = null;
+                }
+                
+                // CRITICAL: Reset and enable cancel button properly
+                if (cancelButton) {
+                    cancelButton.classList.remove('hidden');
+                    cancelButton.style.display = 'inline-block';
+                    cancelButton.style.pointerEvents = 'auto';
+                    cancelButton.disabled = false;
+                    cancelButton.innerHTML = '<i class="ri-close-line mr-1"></i>Cancel Upload';
+                    cancelButton.className = 'bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition text-sm';
+                }
                 
                 // Show overlay
                 overlay.classList.remove('hidden');
@@ -490,17 +519,52 @@
 
             hideProgress() {
                 const overlay = document.getElementById('upload-progress-overlay');
+                const cancelButton = document.getElementById('cancel-upload-btn');
+                
+                // Hide the overlay
                 overlay.classList.add('hidden');
                 
+                // Clear all timers
                 if (this.progressTimer) {
                     clearInterval(this.progressTimer);
                     this.progressTimer = null;
                 }
                 
+                if (this.cancelTimeoutId) {
+                    clearTimeout(this.cancelTimeoutId);
+                    this.cancelTimeoutId = null;
+                }
+                
+                // Reset all states completely
                 this.isUploading = false;
+                this.isCancelling = false;
+                this.cancelRequested = false;
                 this.currentXHR = null;
+                this.currentUploadId = null;
+                this.abortController = null;
+                this.startTime = null;
+                
+                // Reset cancel button to default state
+                if (cancelButton) {
+                    cancelButton.disabled = false;
+                    cancelButton.style.pointerEvents = 'auto';
+                    cancelButton.classList.remove('hidden');
+                    cancelButton.innerHTML = '<i class="ri-close-line mr-1"></i>Cancel Upload';
+                    cancelButton.className = 'bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition text-sm';
+                }
+                
+                // Reset progress bar and other UI elements
+                this.resetProgress();
+                
+                // Hide result area
+                const uploadResult = document.getElementById('upload-result');
+                if (uploadResult) {
+                    uploadResult.classList.add('hidden');
+                }
+                
+                console.log('Progress dialog fully reset and hidden');
             }
-
+            
             resetProgress() {
                 const progressBar = document.getElementById('progress-bar');
                 
@@ -522,12 +586,19 @@
                 const progressTransferred = document.getElementById('progress-transferred');
                 const progressSpeed = document.getElementById('progress-speed');
                 const uploadEta = document.getElementById('upload-eta');
+                const cancelButton = document.getElementById('cancel-upload-btn');
                 
                 // Hide specific progress details for non-file uploads
                 progressPercentage.textContent = '';
                 progressTransferred.textContent = 'Processing...';
                 progressSpeed.textContent = '';
                 uploadEta.textContent = 'Please wait...';
+                
+                // IMPORTANT: Make sure cancel button is VISIBLE
+                if (cancelButton) {
+                    cancelButton.classList.remove('hidden');
+                    cancelButton.style.display = 'inline-block';
+                }
                 
                 // Show pulsing animation instead of percentage-based progress
                 progressBar.style.width = '100%';
@@ -550,30 +621,8 @@
                 }
             }
 
-            updateProgressMessage(operation, step) {
-                const progressMessage = document.getElementById('progress-message');
-                
-                if (operation === 'sheets') {
-                    const messages = [
-                        'Connecting to Google Sheets...',
-                        'Downloading sheet data...',
-                        'Processing CSV data...',
-                        'Importing to database...'
-                    ];
-                    progressMessage.textContent = messages[step] || 'Processing...';
-                } else if (operation === 'url') {
-                    const messages = [
-                        'Connecting to URL...',
-                        'Downloading CSV file...',
-                        'Processing data...',
-                        'Importing to database...'
-                    ];
-                    progressMessage.textContent = messages[step] || 'Processing...';
-                }
-            }
-            
             updateProgress(loaded, total) {
-                if (!this.isUploading) return;
+                if (!this.isUploading || this.isCancelling) return;
 
                 // Only update for real file uploads with progress data
                 if (!loaded || !total || loaded === 0 || total === 0) return;
@@ -606,60 +655,149 @@
             startTimer() {
                 const progressTime = document.getElementById('progress-time');
                 this.progressTimer = setInterval(() => {
-                    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-                    progressTime.textContent = `Elapsed: ${elapsed}s`;
+                    if (this.startTime) {
+                        const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                        progressTime.textContent = `Elapsed: ${elapsed}s`;
+                    }
                 }, 1000);
             }
 
-                cancelUpload() {
-                    console.log('Cancelling upload...');
-                    
-                    // Send cancellation to backend if we have an upload ID
-                    if (this.currentUploadId) {
-                        fetch('/api/cancel-upload', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value
-                            },
-                            body: JSON.stringify({
-                                upload_id: this.currentUploadId
-                            })
-                        }).then(response => {
-                            if (response.ok) {
-                                console.log('Backend cancellation requested');
-                            }
-                        }).catch(error => {
-                            console.log('Backend cancellation failed:', error);
-                        });
-                    }
-                    
-                    // Abort the HTTP request
-                    if (this.abortController) {
-                        this.abortController.abort();
-                        this.abortController = null;
-                        console.log('Aborted fetch request');
-                    }
-                    
-                    if (this.currentXHR) {
-                        this.currentXHR.abort();
-                        this.currentXHR = null;
-                        console.log('Aborted XHR request');
-                    }
-                    
-                    // Clear timers
-                    if (this.progressTimer) {
-                        clearInterval(this.progressTimer);
-                        this.progressTimer = null;
-                    }
-                    
-                    this.isUploading = false;
-                    this.showResult('Upload cancelled successfully', 'error');
-                    
-                    setTimeout(() => {
-                        this.hideProgress();
-                    }, 2000);
+            cancelUpload() {
+                // Prevent multiple cancellation attempts
+                if (this.isCancelling || this.cancelRequested) {
+                    console.log('Cancellation already in progress, ignoring duplicate request');
+                    return;
                 }
+                
+                this.isCancelling = true;
+                this.cancelRequested = true;
+                
+                const cancelTime = new Date().toISOString();
+                const elapsedSeconds = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
+                
+                console.log('FRONTEND CANCEL INITIATED:', {
+                    cancelTime: cancelTime,
+                    elapsedSeconds: elapsedSeconds.toFixed(1),
+                    uploadId: this.currentUploadId,
+                    isUploading: this.isUploading
+                });
+                
+                // Immediately disable and update cancel button
+                const cancelButton = document.getElementById('cancel-upload-btn');
+                if (cancelButton) {
+                    cancelButton.disabled = true;
+                    cancelButton.style.pointerEvents = 'none';
+                    cancelButton.innerHTML = '<i class="ri-loader-line animate-spin mr-1"></i>Cancelling...';
+                    cancelButton.className = 'bg-gray-500 text-white px-4 py-2 rounded cursor-not-allowed text-sm';
+                }
+                
+                // Update UI immediately with extended cleanup messaging
+                const progressTitle = document.getElementById('progress-title');
+                const progressMessage = document.getElementById('progress-message');
+                const progressPercentage = document.getElementById('progress-percentage');
+                const progressTransferred = document.getElementById('progress-transferred');
+                const progressSpeed = document.getElementById('progress-speed');
+                const uploadEta = document.getElementById('upload-eta');
+                
+                if (progressTitle) progressTitle.textContent = 'Cancelling Upload...';
+                if (progressMessage) progressMessage.textContent = 'Stopping download and cleaning up. This may take 30-60 seconds for large files...';
+                
+                // Hide specific progress details during cancellation
+                if (progressPercentage) progressPercentage.textContent = '';
+                if (progressTransferred) progressTransferred.textContent = 'Cancelling...';
+                if (progressSpeed) progressSpeed.textContent = '';
+                if (uploadEta) uploadEta.textContent = 'Cleaning up...';
+                
+                // Start extended cleanup timer with status updates
+                this.startCancellationProgress();
+                
+                // Send cancellation to backend
+                if (this.currentUploadId) {
+                    const cancelPayload = {
+                        upload_id: this.currentUploadId,
+                        frontend_cancel_time: cancelTime,
+                        frontend_elapsed_seconds: elapsedSeconds,
+                        immediate: true
+                    };
+                    
+                    fetch('/api/cancel-upload', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': document.querySelector('input[name="csrftoken"]').value,
+                            'X-Priority': 'high'
+                        },
+                        body: JSON.stringify(cancelPayload)
+                    }).then(response => {
+                        console.log('Cancel response:', response.status);
+                        if (progressMessage) {
+                            progressMessage.textContent = 'Cancellation confirmed. Cleaning up background processes...';
+                        }
+                    }).catch(error => {
+                        console.log('Cancel request failed:', error);
+                        if (progressMessage) {
+                            progressMessage.textContent = 'Cleanup in progress. Large files may take longer to stop...';
+                        }
+                    });
+                }
+                
+                // Abort requests
+                if (this.abortController) {
+                    this.abortController.abort();
+                    this.abortController = null;
+                }
+                
+                if (this.currentXHR) {
+                    this.currentXHR.abort();
+                    this.currentXHR = null;
+                }
+                
+                this.isUploading = false;
+            }
+
+            // Extended cancellation progress:
+            startCancellationProgress() {
+                let seconds = 0;
+                const maxWaitTime = 90; // 90 seconds max wait
+                const progressMessage = document.getElementById('progress-message');
+                const progressTransferred = document.getElementById('progress-transferred');
+                
+                // Clear any existing timer
+                if (this.cancelTimeoutId) {
+                    clearTimeout(this.cancelTimeoutId);
+                }
+                
+                const updateCancellationStatus = () => {
+                    seconds += 2;
+                    
+                    if (seconds <= 10) {
+                        if (progressMessage) progressMessage.textContent = 'Stopping download process...';
+                        if (progressTransferred) progressTransferred.textContent = `Cancelling... ${seconds}s`;
+                    } else if (seconds <= 30) {
+                        if (progressMessage) progressMessage.textContent = 'Cleaning up downloaded data...';
+                        if (progressTransferred) progressTransferred.textContent = `Cleanup in progress... ${seconds}s`;
+                    } else if (seconds <= 60) {
+                        if (progressMessage) progressMessage.textContent = 'Finalizing cancellation for large file...';
+                        if (progressTransferred) progressTransferred.textContent = `Almost done... ${seconds}s`;
+                    } else if (seconds <= maxWaitTime) {
+                        if (progressMessage) progressMessage.textContent = 'Large file cleanup taking longer than expected...';
+                        if (progressTransferred) progressTransferred.textContent = `Please wait... ${seconds}s`;
+                    } else {
+                        // Force close after max wait time
+                        this.showResult('Upload cancelled. Cleanup completed after extended wait.', 'error');
+                        setTimeout(() => {
+                            this.hideProgress();
+                        }, 3000);
+                        return;
+                    }
+                    
+                    // Continue updating every 2 seconds
+                    this.cancelTimeoutId = setTimeout(updateCancellationStatus, 2000);
+                };
+                
+                // Start the status updates
+                updateCancellationStatus();
+            }
 
             showResult(message, type) {
                 const uploadResult = document.getElementById('upload-result');
@@ -673,21 +811,73 @@
             }
 
             // File Upload via AJAX
+            async uploadFile(formElement, dbName) {
+                const formData = new FormData(formElement);
+                const fileInput = formElement.querySelector('input[type="file"]');
+                const file = fileInput.files[0];
+                
+                if (!file) {
+                    alert('Please select a file');
+                    return;
+                }
+
+                // Validate file
+                if (!this.validateFile(file)) {
+                    return;
+                }
+
+                // Generate and add upload ID
+                this.currentUploadId = this.generateUploadId('file');
+                formData.append('upload_id', this.currentUploadId);
+
+                // Show progress with file details
+                const fileSize = (file.size / 1024 / 1024).toFixed(1) + ' MB';
+                this.showProgress('Uploading File', `Processing ${file.name}...`, 'file', file.name, fileSize);
+
+                try {
+                    const ajaxUrl = `/ajax-upload-file/${dbName}`;
+                    const response = await this.sendAjaxRequest(ajaxUrl, formData);
+                    this.handleUploadSuccess(response);
+                } catch (error) {
+                    this.handleUploadError(error);
+                }
+            }
+
+            // Sheets Upload via AJAX
+            async uploadSheets(formElement, dbName) {
+                const formData = new FormData(formElement);
+                const sheetsUrl = formData.get('sheets_url');
+                
+                if (!sheetsUrl) {
+                    alert('Please enter a Google Sheets URL');
+                    return;
+                }
+
+                if (!sheetsUrl.includes('docs.google.com/spreadsheets/')) {
+                    alert('Please enter a valid Google Sheets URL');
+                    return;
+                }
+
+                // Generate and add upload ID
+                this.currentUploadId = this.generateUploadId('sheets');
+                formData.append('upload_id', this.currentUploadId);
+
+                this.showProgress('Importing Google Sheets', 'Fetching data from Google Sheets...', 'sheets');
+                this.showIndeterminateProgress();
+
+                try {
+                    const ajaxUrl = `/ajax-upload-sheets/${dbName}`;
+                    const response = await this.sendAjaxRequest(ajaxUrl, formData);
+                    this.handleUploadSuccess(response);
+                } catch (error) {
+                    this.handleUploadError(error);
+                }
+            }
+
+            // URL Upload via AJAX  
             async uploadUrl(formElement, dbName) {
-                console.log('=== URL UPLOAD DEBUG START ===');
-                
-                // RESET state before starting
-                this.isUploading = false;
-                this.abortController = null;
-                
                 const formData = new FormData(formElement);
                 const csvUrl = formData.get('csv_url');
-                
-                // Log all form data
-                console.log('Form data being sent:');
-                for (let [key, value] of formData.entries()) {
-                    console.log(`  ${key}: ${value}`);
-                }
                 
                 if (!csvUrl) {
                     alert('Please enter a CSV URL');
@@ -701,37 +891,30 @@
                     return;
                 }
 
-                // Generate upload ID for tracking
-                this.currentUploadId = `{{ actor.id }}_${dbName}_${Date.now()}`;
-                
+                // Generate and add upload ID
+                this.currentUploadId = this.generateUploadId('url');
+                formData.append('upload_id', this.currentUploadId);
+
                 this.showProgress('Downloading CSV', 'Fetching data from URL...', 'url');
                 this.showIndeterminateProgress();
 
                 try {
                     this.abortController = new AbortController();
                     
-                    // FIXED: Use the correct AJAX URL path
                     const ajaxUrl = `/ajax-upload-url/${dbName}`;
-                    console.log(`Making AJAX request to: ${ajaxUrl}`);
                     
-                    // CRITICAL FIX: Add proper headers for AJAX detection
                     const response = await fetch(ajaxUrl, {
                         method: 'POST',
                         body: formData,
                         signal: this.abortController.signal,
                         headers: {
-                            'X-Requested-With': 'XMLHttpRequest', // CRITICAL: This marks it as AJAX
-                            // Don't set Content-Type for FormData - let browser set it with boundary
+                            'X-Requested-With': 'XMLHttpRequest',
                         }
                     });
-
-                    console.log(`Response status: ${response.status}`);
-                    console.log(`Response headers:`, response.headers);
 
                     let result;
                     try {
                         const responseText = await response.text();
-                        console.log(`Response text: ${responseText}`);
                         result = JSON.parse(responseText);
                     } catch (parseError) {
                         console.error('Failed to parse JSON response:', parseError);
@@ -744,7 +927,6 @@
                         this.handleUploadError(new Error(result.error));
                     }
                 } catch (error) {
-                    console.error('URL upload error:', error);
                     if (error.name === 'AbortError') {
                         this.showResult('Download cancelled by user', 'error');
                     } else {
@@ -752,102 +934,6 @@
                     }
                 } finally {
                     this.currentUploadId = null;
-                    console.log('=== URL UPLOAD DEBUG END ===');
-                }
-            }
-
-            // Sheets Upload via AJAX with proper debugging
-            async uploadSheets(formElement, dbName) {
-                console.log('=== SHEETS UPLOAD DEBUG START ===');
-                
-                // RESET state before starting
-                this.isUploading = false;
-                this.currentXHR = null;
-                
-                const formData = new FormData(formElement);
-                const sheetsUrl = formData.get('sheets_url');
-                
-                console.log('Sheets form data:');
-                for (let [key, value] of formData.entries()) {
-                    console.log(`  ${key}: ${value}`);
-                }
-                
-                if (!sheetsUrl) {
-                    alert('Please enter a Google Sheets URL');
-                    return;
-                }
-
-                if (!sheetsUrl.includes('docs.google.com/spreadsheets/')) {
-                    alert('Please enter a valid Google Sheets URL');
-                    return;
-                }
-
-                this.showProgress('Importing Google Sheets', 'Fetching data from Google Sheets...', 'sheets');
-                this.showIndeterminateProgress();
-
-                try {
-                    // FIXED: Use proper AJAX URL and headers
-                    const ajaxUrl = `/ajax-upload-sheets/${dbName}`;
-                    console.log(`Making AJAX request to: ${ajaxUrl}`);
-                    
-                    // Use XHR for better control and debugging
-                    const response = await this.sendAjaxRequest(ajaxUrl, formData);
-                    this.handleUploadSuccess(response);
-                } catch (error) {
-                    console.error('Sheets upload error:', error);
-                    if (error.message === 'Upload cancelled') {
-                        this.showResult('Import cancelled by user', 'error');
-                        console.log('Google Sheets import properly cancelled');
-                    } else {
-                        this.handleUploadError(error);
-                    }
-                } finally {
-                    this.currentXHR = null;
-                    console.log('=== SHEETS UPLOAD DEBUG END ===');
-                }
-            }
-
-            // File Upload via AJAX with proper debugging
-            async uploadFile(formElement, dbName) {
-                console.log('=== FILE UPLOAD DEBUG START ===');
-                
-                // RESET state before starting
-                this.isUploading = false;
-                this.currentXHR = null;
-                
-                const formData = new FormData(formElement);
-                const fileInput = formElement.querySelector('input[type="file"]');
-                const file = fileInput.files[0];
-                
-                console.log('File form data:');
-                for (let [key, value] of formData.entries()) {
-                    console.log(`  ${key}: ${value}`);
-                }
-                
-                if (!file) {
-                    alert('Please select a file');
-                    return;
-                }
-
-                // Validate file
-                if (!this.validateFile(file)) {
-                    return;
-                }
-
-                // Show progress with file details
-                const fileSize = (file.size / 1024 / 1024).toFixed(1) + ' MB';
-                this.showProgress('Uploading File', `Processing ${file.name}...`, 'file', file.name, fileSize);
-
-                try {
-                    const ajaxUrl = `/ajax-upload-file/${dbName}`;
-                    console.log(`Making AJAX request to: ${ajaxUrl}`);
-                    
-                    const response = await this.sendAjaxRequest(ajaxUrl, formData);
-                    this.handleUploadSuccess(response);
-                } catch (error) {
-                    this.handleUploadError(error);
-                } finally {
-                    console.log('=== FILE UPLOAD DEBUG END ===');
                 }
             }
             
@@ -877,43 +963,25 @@
                     const xhr = new XMLHttpRequest();
                     this.currentXHR = xhr;
 
-                    console.log(`=== XHR DEBUG ===`);
-                    console.log(`Making AJAX request to: ${url}`);
-                    
-                    // CRITICAL: Set the AJAX header before sending
                     xhr.open('POST', url);
                     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-                    
-                    // Log form data being sent
-                    console.log('Sending form data:');
-                    for (let [key, value] of formData.entries()) {
-                        console.log(`  ${key}: ${value instanceof File ? `[File: ${value.name}]` : value}`);
-                    }
 
                     // Track upload progress
                     xhr.upload.addEventListener('progress', (e) => {
-                        console.log(`Upload progress: ${e.loaded}/${e.total}`);
-                        if (e.lengthComputable) {
+                        if (e.lengthComputable && !this.isCancelling) {
                             this.updateProgress(e.loaded, e.total);
                         }
                     });
 
                     xhr.addEventListener('load', () => {
-                        console.log(`Response status: ${xhr.status}`);
-                        console.log(`Response headers: ${xhr.getAllResponseHeaders()}`);
-                        console.log(`Response text: ${xhr.responseText}`);
-                        
                         if (xhr.status === 200) {
                             try {
                                 const response = JSON.parse(xhr.responseText);
-                                console.log('Parsed response:', response);
                                 resolve(response);
                             } catch (e) {
-                                console.error('JSON parse error:', e);
                                 reject(new Error('Invalid response format'));
                             }
                         } else {
-                            // Try to parse error response to get detailed message
                             try {
                                 const errorResponse = JSON.parse(xhr.responseText);
                                 if (errorResponse.error) {
@@ -933,25 +1001,32 @@
                     });
 
                     xhr.addEventListener('error', (e) => {
-                        console.error('XHR error:', e);
                         this.isUploading = false;
                         reject(new Error('Network error occurred'));
                     });
 
                     xhr.addEventListener('abort', () => {
-                        console.log('XHR aborted');
                         this.isUploading = false;
                         reject(new Error('Upload cancelled'));
                     });
 
-                    // Send the request
-                    console.log('Sending XHR request...');
                     xhr.send(formData);
                 });
             }
 
             handleUploadSuccess(response) {
                 if (response.success) {
+                    // Clear any existing timers first
+                    if (this.cancelTimeoutId) {
+                        clearTimeout(this.cancelTimeoutId);
+                        this.cancelTimeoutId = null;
+                    }
+                    
+                    if (this.progressTimer) {
+                        clearInterval(this.progressTimer);
+                        this.progressTimer = null;
+                    }
+                    
                     const message = `
                         <div class="flex items-center">
                             <i class="ri-check-circle-line text-green-600 text-lg mr-2"></i>
@@ -963,16 +1038,41 @@
                     `;
                     this.showResult(message, 'success');
                     
-                    // Redirect after showing success
+                    // Hide cancel button on success
+                    const cancelButton = document.getElementById('cancel-upload-btn');
+                    if (cancelButton) {
+                        cancelButton.classList.add('hidden');
+                    }
+                    
+                    // Update progress UI for success
+                    const progressTitle = document.getElementById('progress-title');
+                    const progressMessage = document.getElementById('progress-message');
+                    if (progressTitle) progressTitle.textContent = 'Upload Complete!';
+                    if (progressMessage) progressMessage.textContent = 'Redirecting to your databases...';
+                    
+                    // Set upload state to complete
+                    this.isUploading = false;
+                    this.isCancelling = false;
+                    this.cancelRequested = false;
+                    
+                    // Redirect after showing success (with forced cleanup)
                     setTimeout(() => {
-                        window.location.href = response.redirect_url || '/manage-databases';
+                        // Force close the dialog before redirect
+                        this.hideProgress();
+                        
+                        // Small delay to ensure dialog is closed, then redirect
+                        setTimeout(() => {
+                            window.location.href = response.redirect_url || '/manage-databases';
+                        }, 100);
                     }, 2000);
                 } else {
+                    // Handle case where response.success is false
                     this.showResult(response.error || 'Upload failed', 'error');
                     setTimeout(() => this.hideProgress(), 3000);
                 }
             }
 
+            // Update handleUploadError to show user-friendly messages:
             handleUploadError(error) {
                 console.error('Upload error details:', error);
                 
@@ -980,53 +1080,49 @@
                 let errorMessage = 'Upload failed';
                 let suggestions = [];
                 
-                // Parse error message for user-friendly display
                 if (error.message) {
                     const msg = error.message;
                     
-                    // IMPROVED: Check if this is already a detailed user-friendly message
-                    if (msg.includes('Please try:') || msg.includes('Solutions:') || msg.includes('maximum allowed size')) {
-                        // This is already a user-friendly message from backend - display as-is
-                        errorMessage = msg;
+                    // Handle specific error types with user-friendly messages
+                    if (msg.includes('too large') || msg.includes('size limit')) {
+                        errorMessage = 'File is too large for upload';
+                        suggestions = [
+                            '• Try a smaller file',
+                            '• Contact administrator to increase size limit',
+                            '• Consider splitting the data into multiple files'
+                        ];
+                    } else if (msg.includes('cancelled')) {
+                        errorMessage = 'Upload was cancelled';
+                        suggestions = [];
+                    } else if (msg.includes('network') || msg.includes('connection')) {
+                        errorMessage = 'Network connection failed';
+                        suggestions = [
+                            '• Check your internet connection',
+                            '• Try again in a few moments',
+                            '• Verify the URL is accessible'
+                        ];
+                    } else if (msg.includes('timeout')) {
+                        errorMessage = 'Upload timed out';
+                        suggestions = [
+                            '• Check your internet connection',
+                            '• Try a smaller file',
+                            '• Try again during off-peak hours'
+                        ];
+                    } else if (msg.includes('format') || msg.includes('CSV')) {
+                        errorMessage = 'File format is not supported';
+                        suggestions = [
+                            '• Ensure the file is a valid CSV',
+                            '• Check that all rows have the same number of columns',
+                            '• Verify the file has proper headers'
+                        ];
                     } else {
-                        // Process other error types
-                        const msgLower = msg.toLowerCase();
-                        
-                        if (msgLower.includes('size') || msgLower.includes('large') || msgLower.includes('exceeded')) {
-                            errorMessage = msg; // Keep original message which may have size details
-                            suggestions = [
-                                '• Use a smaller dataset',
-                                '• Filter data before uploading', 
-                                '• Split into multiple files',
-                                '• Contact admin to increase limit'
-                            ];
-                        } else if (msgLower.includes('timeout')) {
-                            errorMessage = 'Upload timed out - the file may be too large or the connection too slow';
-                            suggestions = [
-                                '• Check your internet connection',
-                                '• Try a smaller file',
-                                '• Try again during off-peak hours'
-                            ];
-                        } else if (msgLower.includes('network')) {
-                            errorMessage = 'Network connection failed';
-                            suggestions = [
-                                '• Check your internet connection',
-                                '• Check if the URL is accessible', 
-                                '• Try again in a few moments'
-                            ];
-                        } else if (msgLower.includes('private') || msgLower.includes('access')) {
-                            errorMessage = msg; // Keep original detailed message
-                        } else if (msgLower.includes('cancelled')) {
-                            errorMessage = 'Upload was cancelled';
-                        } else {
-                            errorMessage = msg; // Use the actual error message from backend
-                        }
+                        errorMessage = msg.length > 100 ? msg.substring(0, 100) + '...' : msg;
                     }
                 }
                 
                 // Build error display
                 let errorHtml = `<div class="text-red-700">
-                    <div class="font-medium mb-2">${errorMessage.replace(/\n/g, '<br>')}</div>`;
+                    <div class="font-medium mb-2">${errorMessage}</div>`;
                 
                 if (suggestions.length > 0) {
                     errorHtml += `
@@ -1048,21 +1144,14 @@
                 closeBtn.className = 'mt-3 bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition text-sm';
                 closeBtn.onclick = () => {
                     this.hideProgress();
-                    // RESET all form states
-                    this.resetProgress();
-                    this.isUploading = false;
-                    this.currentXHR = null;
-                    this.abortController = null;
                 };
                 
                 document.getElementById('upload-result-content').appendChild(closeBtn);
                 
-                // Update progress icon to error state
+                // Update UI state
                 document.getElementById('progress-icon').className = 'ri-error-warning-line text-5xl text-red-500';
                 document.getElementById('progress-title').textContent = 'Upload Failed';
                 document.getElementById('progress-message').textContent = '';
-                
-                // Hide progress elements
                 document.getElementById('progress-bar').parentElement.parentElement.classList.add('hidden');
                 document.getElementById('upload-details').classList.add('hidden');
                 document.getElementById('cancel-upload-btn').classList.add('hidden');
@@ -1092,37 +1181,28 @@
 
         // Form submission handlers
         function handleFileUpload(event) {
-            console.log('=== FORM SUBMIT: File Upload ===');
             event.preventDefault();
             event.stopPropagation();
             
             const dbName = '{{ db_name }}';
-            console.log(`Database: ${dbName}`);
-            
             uploadManager.uploadFile(event.target, dbName);
             return false;
         }
 
         function handleSheetsUpload(event) {
-            console.log('=== FORM SUBMIT: Sheets Upload ===');
             event.preventDefault();
             event.stopPropagation();
             
             const dbName = '{{ db_name }}';
-            console.log(`Database: ${dbName}`);
-            
             uploadManager.uploadSheets(event.target, dbName);
             return false;
         }
 
         function handleUrlUpload(event) {
-            console.log('=== FORM SUBMIT: URL Upload ===');
             event.preventDefault();
             event.stopPropagation();
             
             const dbName = '{{ db_name }}';
-            console.log(`Database: ${dbName}`);
-            
             uploadManager.uploadUrl(event.target, dbName);
             return false;
         }
@@ -1240,22 +1320,69 @@
 
         // Event listeners
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('=== DOM LOADED - Setting up form handlers ===');
-            
             showUploadTab('file');
             
-            // Cancel upload handler
-            document.getElementById('cancel-upload-btn').addEventListener('click', () => {
-                console.log('Cancel button clicked');
-                uploadManager.cancelUpload();
+            // Clear any stuck progress dialogs on page load
+            const overlay = document.getElementById('upload-progress-overlay');
+            if (overlay && !overlay.classList.contains('hidden')) {
+                console.log('Clearing stuck progress dialog on page load');
+                uploadManager.hideProgress();
+            }
+            
+            // Single, improved cancel button handler
+            const cancelButton = document.getElementById('cancel-upload-btn');
+            if (cancelButton) {
+                cancelButton.addEventListener('click', (event) => {
+                    // Prevent multiple clicks
+                    event.preventDefault();
+                    event.stopPropagation();
+                    
+                    console.log('Cancel button clicked');
+                    
+                    // Check if already cancelling
+                    if (uploadManager.isCancelling || uploadManager.cancelRequested) {
+                        console.log('Already cancelling, ignoring click');
+                        return;
+                    }
+                    
+                    // Check if actually uploading
+                    if (!uploadManager.isUploading || !uploadManager.currentUploadId) {
+                        console.log('No active upload to cancel');
+                        return;
+                    }
+                    
+                    // Immediately disable button to prevent multiple clicks
+                    cancelButton.disabled = true;
+                    cancelButton.style.pointerEvents = 'none';
+                    
+                    // Call cancellation
+                    uploadManager.cancelUpload();
+                });
+            }
+            
+            // Prevent form submissions if cancelling
+            document.addEventListener('submit', function(event) {
+                if (uploadManager.isCancelling || uploadManager.cancelRequested) {
+                    event.preventDefault();
+                    console.log('Prevented form submission during cancellation');
+                }
             });
             
-            // DEBUG: Log when forms are submitted
-            const forms = document.querySelectorAll('form');
-            forms.forEach((form, index) => {
-                form.addEventListener('submit', (e) => {
-                    console.log(`Form ${index} submitted:`, form.id || 'unnamed');
-                });
+            // Add keyboard support for cancellation (ESC key)
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape' && uploadManager.isUploading && !uploadManager.isCancelling) {
+                    console.log('ESC key pressed - cancelling upload');
+                    uploadManager.cancelUpload();
+                }
+            });
+            
+            // Prevent page unload during upload
+            window.addEventListener('beforeunload', function(event) {
+                if (uploadManager.isUploading && !uploadManager.isCancelling) {
+                    event.preventDefault();
+                    event.returnValue = 'Upload in progress. Are you sure you want to leave?';
+                    return 'Upload in progress. Are you sure you want to leave?';
+                }
             });
         });
     </script>
@@ -1272,37 +1399,9 @@
             animation: spin 1s linear infinite;
         }
         
-        .animate-pulse {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        
-        .animate-bounce {
-            animation: bounce 1s infinite;
-        }
-        
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        @keyframes bounce {
-            0%, 20%, 53%, 80%, 100% {
-                transform: translate3d(0,0,0);
-            }
-            40%, 43% {
-                transform: translate3d(0,-30px,0);
-            }
-            70% {
-                transform: translate3d(0,-15px,0);
-            }
-            90% {
-                transform: translate3d(0,-4px,0);
-            }
         }
 
         button:disabled {
