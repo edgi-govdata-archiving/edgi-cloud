@@ -1504,7 +1504,7 @@ async def get_database_tables_with_visibility(datasette, db_id, db_name):
                         logger.error(f"Error creating database_tables record for {table_name}: {create_error}")
             
             # Sort by visibility first (visible=True first), then by display_order DESC
-            tables.sort(key=lambda x: (not x['show_in_homepage'], -x['display_order']))
+            tables.sort(key=lambda x: (not bool(x.get('show_in_homepage', True)), -x.get('display_order', 100)))
                     
     except Exception as db_error:
         logger.error(f"Error accessing database {db_name}: {db_error}")
