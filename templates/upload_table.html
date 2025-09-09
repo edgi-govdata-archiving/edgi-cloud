@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.9">
-    <title>Upload Data - Enhanced | EDGI Portal</title>
+    <title>My Databases - {{ content.title.content | default("Resette Portal") }}</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="/static/js/tailwind.config.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.ico">
     <style>
         .upload-tab.active {
             border-bottom: 2px solid #3b82f6;
@@ -50,8 +53,25 @@
     </style>
 </head>
 <body class="bg-gray-50">
-    <!-- Enhanced Upload Progress Overlay -->
-    <div id="upload-progress-overlay" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
+        <div class="container mx-auto px-4 h-20 flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="w-10 h-10 flex items-center justify-center mr-3">
+                    <i class="ri-upload-cloud-line text-white ri-2x" aria-hidden="true"></i>
+                </div>
+                <div class="text-xl font-semibold">Upload Data to {{ db_name.replace('_', ' ').title() }}</div>
+            </div>
+            <div>
+                <a href="/manage-databases" class="text-white hover:text-accent mr-4">
+                    <i class="ri-arrow-left-line mr-1"></i>Back to Databases
+                </a>
+                <a href="/logout" class="text-white hover:text-accent">Logout</a>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Progress overlay (z-60) -->
+    <div id="upload-progress-overlay" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-60">
         <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-2xl">
             <div class="text-center">
                 <!-- Status Icon -->
@@ -63,22 +83,17 @@
                 <h3 class="text-lg font-semibold mb-2" id="progress-title">Processing Upload...</h3>
                 <p class="text-gray-600 text-sm mb-4" id="progress-message">Please wait while your data is being processed.</p>
                 
-                <!-- Progress Section -->
+                <!-- Simple Progress Spinner -->
                 <div class="mb-4" id="progress-section">
-                    <div class="flex justify-between text-xs text-gray-600 mb-1">
-                        <span id="progress-percentage">0%</span>
-                        <span id="progress-speed"></span>
-                    </div>
                     <div class="w-full bg-gray-200 rounded-full h-3">
-                        <div id="progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                        <div id="progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out progress-pulse" style="width: 100%"></div>
                     </div>
-                    <div class="flex justify-between text-xs text-gray-500 mt-1">
-                        <span id="progress-transferred">0 MB / 0 MB</span>
+                    <div class="text-xs text-gray-500 mt-2">
                         <span id="progress-time">Elapsed: 0s</span>
                     </div>
                 </div>
                 
-                <!-- Upload Details -->
+                <!-- Upload Details (only for file uploads) -->
                 <div id="upload-details" class="text-xs text-gray-600 mb-4 hidden">
                     <div class="flex justify-between">
                         <span>File:</span>
@@ -87,10 +102,6 @@
                     <div class="flex justify-between">
                         <span>Size:</span>
                         <span id="upload-filesize"></span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span>ETA:</span>
-                        <span id="upload-eta">Calculating...</span>
                     </div>
                 </div>
                 
@@ -101,7 +112,7 @@
                     </button>
                 </div>
                 
-                <!-- Enhanced Result Display -->
+                <!-- Result Display -->
                 <div id="upload-result" class="hidden mt-4">
                     <div id="upload-result-content" class="p-4 rounded-lg"></div>
                     <div id="result-actions" class="mt-3 space-y-2">
@@ -115,286 +126,287 @@
     </div>
 
     <!-- Main Content -->
-    <div class="container mx-auto px-4 py-8">
-        <div class="max-w-4xl mx-auto">
-            <!-- Header -->
-            <div class="text-center mb-8">
-                <h1 class="text-3xl font-bold text-gray-800 mb-4">Upload Data</h1>
-                <p class="text-gray-600">Add data to your database from multiple sources</p>
-                <!-- File Size Limit Display -->
-                <div class="mt-2 text-sm text-blue-600">
-                    <i class="ri-information-line mr-1"></i>
-                    Maximum file size: {{ (system_settings.max_file_size // (1024*1024)) }}MB
-                </div>
-            </div>
-
-            <!-- Enhanced Error/Success Messages -->
-            <div id="message-container" class="mb-6">
-                <!-- Dynamic messages will be inserted here -->
-            </div>
-
-            <!-- Upload Tabs -->
-            <div class="bg-white rounded-lg border border-gray-200 shadow-sm mb-6">
-                <div class="border-b border-gray-200">
-                    <nav class="flex">
-                        <button onclick="switchUploadTab('file')" id="file-tab" 
-                                class="upload-tab active px-6 py-4 font-medium text-blue-600 border-b-2 border-blue-600">
-                            <i class="ri-file-upload-line mr-2"></i>Upload File
-                        </button>
-                        <button onclick="switchUploadTab('sheets')" id="sheets-tab" 
-                                class="upload-tab px-6 py-4 font-medium text-gray-500 hover:text-blue-600">
-                            <i class="ri-table-line mr-2"></i>Google Sheets
-                        </button>
-                        <button onclick="switchUploadTab('url')" id="url-tab" 
-                                class="upload-tab px-6 py-4 font-medium text-gray-500 hover:text-blue-600">
-                            <i class="ri-global-line mr-2"></i>Web CSV
-                        </button>
-                    </nav>
+    <main class="flex-grow pt-20 pb-6">
+        <section class="container mx-auto px-4 mt-6">
+            <div class="max-w-4xl mx-auto">
+                <!-- Header -->
+                <div class="text-center mb-8">
+                    <h1 class="text-3xl font-bold text-primary mb-4">Upload Data</h1>
+                    <p class="text-gray-600">Add table to your {{ db_name.replace('_', ' ').title() }} database from multiple sources</p>
                 </div>
 
-                <!-- File Upload Panel -->
-                <div id="file-panel" class="upload-panel p-6">
-                    <form id="file-upload-form" onsubmit="return handleFileUpload(event)">
-                        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                        <input type="hidden" name="source_type" value="file">
-                        
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <!-- File Selection with Enhanced Validation -->
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Select File
-                                </label>
-                                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition"
-                                     ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
-                                    <input type="file" name="file" id="file-input" 
-                                        accept=".csv,.txt,.tsv,.xlsx,.xls" 
-                                        class="hidden" onchange="handleFileSelect(this)">
-                                    <label for="file-input" class="cursor-pointer">
-                                        <i class="ri-upload-cloud-2-line text-4xl text-gray-400 mb-2 block"></i>
-                                        <p class="text-gray-600">Click to select file or drag & drop</p>
-                                        <p class="text-xs text-gray-500 mt-1">Supports CSV, TSV, TXT, Excel (.xlsx, .xls) files up to {{ (system_settings.max_file_size // (1024*1024)) }}MB</p>
-                                    </label>
-                                </div>
-
-                                <!-- Enhanced File Info Display -->
-                                <div id="file-info" class="hidden mt-4">
-                                    <div id="file-details" class="p-3 bg-blue-50 rounded border"></div>
-                                    <div id="file-warnings" class="hidden mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                                        <div class="text-sm text-yellow-800"></div>
-                                    </div>
-                                    <div id="file-errors" class="hidden mt-2 p-3 bg-red-50 border border-red-200 rounded">
-                                        <div class="text-sm text-red-800"></div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Upload Options -->
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Table Name (Optional)
-                                </label>
-                                <input type="text" name="table_name" id="table-name" 
-                                    class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Auto-generated from filename">
-                                <p class="text-xs text-gray-500 mt-1">Leave blank to use filename. Must be unique in database.</p>
-
-                                <div class="mt-4">
-                                    <label class="flex items-center">
-                                        <input type="checkbox" name="replace_existing" class="mr-2">
-                                        <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
-                                    </label>
-                                </div>
-
-                                <div class="mt-6">
-                                    <button type="submit" id="file-upload-btn"
-                                            class="w-full bg-blue-600 text-white py-3 px-4 rounded hover:bg-blue-700 transition font-medium disabled:bg-gray-400"
-                                            disabled>
-                                        <i class="ri-upload-line mr-2" id="file-upload-icon"></i>
-                                        <span id="file-upload-text">Select a file to upload</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </form>
+                <!-- Enhanced Error/Success Messages -->
+                <div id="message-container" class="mb-6">
+                    <!-- Dynamic messages will be inserted here -->
                 </div>
 
-                <!-- Google Sheets Panel -->
-                <div id="sheets-panel" class="upload-panel p-6 hidden">
-                    <form id="sheets-upload-form" onsubmit="return handleSheetsUpload(event)">
-                        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                        <input type="hidden" name="source_type" value="sheets">
-                        
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <!-- Google Sheets URL -->
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Google Sheets URL
-                                </label>
-                                <input type="url" name="sheets_url" id="sheets-url" 
-                                    class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="https://docs.google.com/spreadsheets/d/..."
-                                    onblur="validateSheetsUrl()">
-                                
-                                <div class="text-xs text-gray-500 mt-1">
-                                    <p><strong>Important:</strong> The sheet must be publicly accessible.</p>
-                                    <details class="mt-2">
-                                        <summary class="cursor-pointer text-blue-600 hover:text-blue-800">How to share your sheet</summary>
-                                        <ol class="list-decimal list-inside mt-1 space-y-1">
-                                            <li>Open your Google Sheet</li>
-                                            <li>Click "Share" (top right)</li>
-                                            <li>Change to "Anyone with the link can view"</li>
-                                            <li>Copy the link and paste it here</li>
-                                        </ol>
-                                    </details>
-                                </div>
+                <!-- Upload Tabs -->
+                <div class="bg-white rounded-lg border border-gray-200 shadow-sm mb-6">
+                    <div class="border-b border-gray-200">
+                        <nav class="flex">
+                            <button onclick="switchUploadTab('file')" id="file-tab" 
+                                    class="upload-tab active px-6 py-4 font-medium text-blue-600 border-b-2 border-blue-600">
+                                <i class="ri-file-upload-line mr-2"></i>Upload File
+                            </button>
+                            <button onclick="switchUploadTab('sheets')" id="sheets-tab" 
+                                    class="upload-tab px-6 py-4 font-medium text-gray-500 hover:text-blue-600">
+                                <i class="ri-table-line mr-2"></i>Google Sheets
+                            </button>
+                            <button onclick="switchUploadTab('url')" id="url-tab" 
+                                    class="upload-tab px-6 py-4 font-medium text-gray-500 hover:text-blue-600">
+                                <i class="ri-global-line mr-2"></i>Web CSV
+                            </button>
+                        </nav>
+                    </div>
 
-                                <!-- Sheet Validation -->
-                                <div id="sheets-validation" class="hidden mt-3">
-                                    <div id="sheets-validation-content" class="p-3 rounded border"></div>
-                                </div>
-                            </div>
-
-                            <!-- Import Options -->
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Table Name (Optional)
-                                </label>
-                                <input type="text" name="table_name" id="sheets-table-name" 
-                                    class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Auto-generated from sheet name">
-
-                                <div class="mt-4">
-                                    <label class="flex items-center">
-                                        <input type="checkbox" name="first_row_headers" checked class="mr-2">
-                                        <span class="text-sm text-gray-700">First row contains headers</span>
-                                    </label>
-                                </div>
-
-                                <div class="mt-2">
-                                    <label class="flex items-center">
-                                        <input type="checkbox" name="replace_existing" class="mr-2">
-                                        <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
-                                    </label>
-                                </div>
-
-                                <div class="mt-6">
-                                    <button type="submit" id="sheets-upload-btn"
-                                            class="w-full bg-blue-600 text-white py-3 px-4 rounded hover:bg-blue-700 transition font-medium">
-                                        <i class="ri-download-cloud-line mr-2" id="sheets-upload-icon"></i>
-                                        <span id="sheets-upload-text">Import from Google Sheets</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-
-                <!-- Web CSV Panel -->
-                <div id="url-panel" class="upload-panel p-6 hidden">
-                    <form id="url-upload-form" onsubmit="return handleUrlUpload(event)">
-                        <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
-                        <input type="hidden" name="source_type" value="url">
-                        
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <!-- URL Input -->
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    CSV File URL
-                                </label>
-                                <input type="url" name="csv_url" id="csv-url" 
-                                    class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="https://example.com/data.csv"
-                                    onblur="validateCsvUrl()">
-                                
-                                <div class="text-xs text-gray-500 mt-1">
-                                    <p><strong>Supported:</strong> Most domains are allowed unless blocked by admin.</p>
-                                    <p class="mt-1">URL must point directly to a CSV file. Raw URLs work best.</p>
-                                </div>
-
-                                <!-- URL Validation -->
-                                <div id="url-validation" class="hidden mt-3">
-                                    <div id="url-validation-content" class="p-3 rounded border"></div>
-                                </div>
-                            </div>
-
-                            <!-- Import Options -->
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    Table Name (Optional)
-                                </label>
-                                <input type="text" name="table_name" id="url-table-name" 
-                                    class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Auto-generated from URL">
-
-                                <div class="mt-4">
+                    <!-- File Upload Panel -->
+                    <div id="file-panel" class="upload-panel p-6">
+                        <form id="file-upload-form" onsubmit="return handleFileUpload(event)">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="source_type" value="file">
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <!-- File Selection with Enhanced Validation -->
+                                <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
-                                        Encoding
+                                        Select File
                                     </label>
-                                    <select name="encoding" class="w-full p-3 border border-gray-300 rounded">
-                                        <option value="auto">Auto-detect</option>
-                                        <option value="utf-8">UTF-8</option>
-                                        <option value="latin-1">Latin-1</option>
-                                        <option value="ascii">ASCII</option>
-                                    </select>
+                                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition"
+                                        ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+                                        <input type="file" name="file" id="file-input" 
+                                            accept=".csv,.txt,.tsv,.xlsx,.xls" 
+                                            class="hidden" onchange="handleFileSelect(this)">
+                                        <label for="file-input" class="cursor-pointer">
+                                            <i class="ri-upload-cloud-2-line text-4xl text-gray-400 mb-2 block"></i>
+                                            <p class="text-gray-600">Click to select file or drag & drop</p>
+                                            <p class="text-xs text-gray-500 mt-1">Supports CSV, TSV, TXT, Excel (.xlsx, .xls) files up to {{ (system_settings.max_file_size // (1024*1024)) }}MB</p>
+                                        </label>
+                                    </div>
+
+                                    <!-- Enhanced File Info Display -->
+                                    <div id="file-info" class="hidden mt-4">
+                                        <div id="file-details" class="p-3 bg-blue-50 rounded border"></div>
+                                        <div id="file-warnings" class="hidden mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                                            <div class="text-sm text-yellow-800"></div>
+                                        </div>
+                                        <div id="file-errors" class="hidden mt-2 p-3 bg-red-50 border border-red-200 rounded">
+                                            <div class="text-sm text-red-800"></div>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <div class="mt-4">
-                                    <label class="flex items-center">
-                                        <input type="checkbox" name="replace_existing" class="mr-2">
-                                        <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
+                                <!-- Upload Options -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Table Name (Optional)
                                     </label>
-                                </div>
+                                    <input type="text" name="table_name" id="table-name" 
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Auto-generated from filename">
+                                    <p class="text-xs text-gray-500 mt-1">Leave blank to use filename. Must be unique in database.</p>
 
-                                <div class="mt-6">
-                                    <button type="submit" id="url-upload-btn"
-                                            class="w-full bg-blue-600 text-white py-3 px-4 rounded hover:bg-blue-700 transition font-medium">
-                                        <i class="ri-download-line mr-2" id="url-upload-icon"></i>
-                                        <span id="url-upload-text">Import from URL</span>
-                                    </button>
+                                    <div class="mt-4">
+                                        <label class="flex items-center">
+                                            <input type="checkbox" name="replace_existing" class="mr-2">
+                                            <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-6">
+                                        <button type="submit" id="file-upload-btn"
+                                                class="w-full bg-blue-600 text-white py-3 px-4 rounded hover:bg-blue-700 transition font-medium disabled:bg-gray-400"
+                                                disabled>
+                                            <i class="ri-upload-line mr-2" id="file-upload-icon"></i>
+                                            <span id="file-upload-text">Select a file to upload</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </form>
-                </div>
-            </div>
+                        </form>
+                    </div>
 
-            <!-- Enhanced Help Section -->
-            <div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                <h3 class="text-lg font-semibold text-blue-800 mb-4">
-                    <i class="ri-information-line mr-2"></i>Upload Guidelines & Tips
-                </h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-blue-700">
-                    <div>
-                        <div class="font-semibold text-blue-800 mb-2">File Uploads</div>
-                        <ul class="space-y-1">
-                            <li>• Maximum size: {{ (system_settings.max_file_size // (1024*1024)) }}MB</li>
-                            <li>• Formats: CSV, TSV, TXT, Excel</li>
-                            <li>• UTF-8 encoding recommended</li>
-                            <li>• First row should contain headers</li>
-                        </ul>
+                    <!-- Google Sheets Panel -->
+                    <div id="sheets-panel" class="upload-panel p-6 hidden">
+                        <form id="sheets-upload-form" onsubmit="return handleSheetsUpload(event)">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="source_type" value="sheets">
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <!-- Google Sheets URL -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Google Sheets URL
+                                    </label>
+                                    <input type="url" name="sheets_url" id="sheets-url" 
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                                        onblur="validateSheetsUrl()">
+                                    
+                                    <div class="text-xs text-gray-500 mt-1">
+                                        <p><strong>Important:</strong> The sheet must be publicly accessible.</p>
+                                        <details class="mt-2">
+                                            <summary class="cursor-pointer text-blue-600 hover:text-blue-800">How to share your sheet</summary>
+                                            <ol class="list-decimal list-inside mt-1 space-y-1">
+                                                <li>Open your Google Sheet</li>
+                                                <li>Click "Share" (top right)</li>
+                                                <li>Change to "Anyone with the link can view"</li>
+                                                <li>Copy the link and paste it here</li>
+                                            </ol>
+                                        </details>
+                                    </div>
+
+                                    <!-- Sheet Validation -->
+                                    <div id="sheets-validation" class="hidden mt-3">
+                                        <div id="sheets-validation-content" class="p-3 rounded border"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Import Options -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Table Name (Optional)
+                                    </label>
+                                    <input type="text" name="table_name" id="sheets-table-name" 
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Auto-generated from sheet name">
+
+                                    <div class="mt-4">
+                                        <label class="flex items-center">
+                                            <input type="checkbox" name="first_row_headers" checked class="mr-2">
+                                            <span class="text-sm text-gray-700">First row contains headers</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-2">
+                                        <label class="flex items-center">
+                                            <input type="checkbox" name="replace_existing" class="mr-2">
+                                            <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-6">
+                                        <button type="submit" id="sheets-upload-btn"
+                                                class="w-full bg-blue-600 text-white py-3 px-4 rounded hover:bg-blue-700 transition font-medium">
+                                            <i class="ri-download-cloud-line mr-2" id="sheets-upload-icon"></i>
+                                            <span id="sheets-upload-text">Import from Google Sheets</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
                     </div>
-                    <div>
-                        <div class="font-semibold text-blue-800 mb-2">Google Sheets</div>
-                        <ul class="space-y-1">
-                            <li>• Must be publicly accessible</li>
-                            <li>• Use "Anyone with link" sharing</li>
-                            <li>• Supports multiple sheets</li>
-                            <li>• No size limits</li>
-                        </ul>
+
+                    <!-- Web CSV Panel -->
+                    <div id="url-panel" class="upload-panel p-6 hidden">
+                        <form id="url-upload-form" onsubmit="return handleUrlUpload(event)">
+                            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+                            <input type="hidden" name="source_type" value="url">
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <!-- URL Input -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        CSV File URL
+                                    </label>
+                                    <input type="url" name="csv_url" id="csv-url" 
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="https://example.com/data.csv"
+                                        onblur="validateCsvUrl()">
+                                    
+                                    <div class="text-xs text-gray-500 mt-1">
+                                        <p><strong>Supported:</strong> Most domains are allowed unless blocked by admin.</p>
+                                        <p class="mt-1">URL must point directly to a CSV file. Raw URLs work best.</p>
+                                        <p class="mt-1">Contact admin if your domain is blocked.</p>
+                                    </div>
+
+                                    <!-- URL Validation -->
+                                    <div id="url-validation" class="hidden mt-3">
+                                        <div id="url-validation-content" class="p-3 rounded border"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Import Options -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Table Name (Optional)
+                                    </label>
+                                    <input type="text" name="table_name" id="url-table-name" 
+                                        class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Auto-generated from URL">
+
+                                    <div class="mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Encoding
+                                        </label>
+                                        <select name="encoding" class="w-full p-3 border border-gray-300 rounded">
+                                            <option value="auto">Auto-detect</option>
+                                            <option value="utf-8">UTF-8</option>
+                                            <option value="latin-1">Latin-1</option>
+                                            <option value="ascii">ASCII</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="mt-4">
+                                        <label class="flex items-center">
+                                            <input type="checkbox" name="replace_existing" class="mr-2">
+                                            <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="mt-6">
+                                        <button type="submit" id="url-upload-btn"
+                                                class="w-full bg-blue-600 text-white py-3 px-4 rounded hover:bg-blue-700 transition font-medium">
+                                            <i class="ri-download-line mr-2" id="url-upload-icon"></i>
+                                            <span id="url-upload-text">Import from URL</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
                     </div>
-                    <div>
-                        <div class="font-semibold text-blue-800 mb-2">Web CSV</div>
-                        <ul class="space-y-1">
-                            <li>• Most domains supported</li>
-                            <li>• Must point to CSV file</li>
-                            <li>• Raw URLs work best</li>
-                            <li>• Check domain restrictions</li>
-                        </ul>
+                </div>
+
+                <!-- Enhanced Help Section -->
+                <div class="bg-blue-50 border border-blue-200 rounded-card p-6 mt-6">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-4">
+                        <i class="ri-information-line mr-2"></i>Upload Guidelines & Troubleshooting
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-blue-700">
+                        <div>
+                            <div class="font-semibold text-blue-800 mb-2">File Uploads</div>
+                            <ul class="space-y-1">
+                                <li>• Supported formats: CSV, TSV, TXT</li>
+                                <li>• Excel files: .xlsx, .xls</li>
+                                <li>• UTF-8 encoding recommended</li>
+                                <li>• First row should contain headers</li>
+                                <li>• Maximum size: {{ (system_settings.max_file_size // (1024*1024)) }}MB</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-blue-800 mb-2">Google Sheets</div>
+                            <ul class="space-y-1">
+                                <li>• Sheet must be publicly accessible</li>
+                                <li>• Use "Anyone with link sharin"</li>
+                                <li>• Automatically detects data ranges</li>
+                                <li>• First sheet only will be imported</li>
+                                <li>• Maximum size: {{ (system_settings.max_file_size // (1024*1024)) }}MB</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-blue-800 mb-2">Web CSV</div>
+                            <ul class="space-y-1">
+                                <li>• Most domains are supported</li>
+                                <li>• Must point directly to CSV file</li>
+                                <li>• Raw URLs work best</li>
+                                <li>• Some domains may be blocked by admin</li>
+                                <li>• Maximum size: {{ (system_settings.max_file_size // (1024*1024)) }}MB</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
+        </section>
+    </main>
 
     <script>
         // Enhanced Upload Manager with Server-Driven Configuration
@@ -616,75 +628,52 @@
 
             resetProgress() {
                 const progressBar = document.getElementById('progress-bar');
-                progressBar.style.width = '0%';
-                progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out';
+                const progressTime = document.getElementById('progress-time');
                 
-                document.getElementById('progress-percentage').textContent = '0%';
-                document.getElementById('progress-transferred').textContent = '0 MB / 0 MB';
-                document.getElementById('progress-speed').textContent = '';
-                document.getElementById('upload-eta').textContent = 'Calculating...';
+                if (progressBar) {
+                    progressBar.style.width = '100%';
+                    progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out progress-pulse';
+                }
+                
+                if (progressTime) {
+                    progressTime.textContent = 'Elapsed: 0s';
+                }
             }
 
             showIndeterminateProgress() {
                 const progressBar = document.getElementById('progress-bar');
-                const progressPercentage = document.getElementById('progress-percentage');
-                const progressTransferred = document.getElementById('progress-transferred');
-                const progressSpeed = document.getElementById('progress-speed');
-                const uploadEta = document.getElementById('upload-eta');
                 
-                // Update text for indeterminate progress
-                progressPercentage.textContent = '';
-                progressTransferred.textContent = 'Processing...';
-                progressSpeed.textContent = '';
-                uploadEta.textContent = 'Please wait...';
-                
-                // Show pulsing animation
-                progressBar.style.width = '100%';
-                progressBar.className = 'progress-pulse h-3 rounded-full';
+                if (progressBar) {
+                    progressBar.style.width = '100%';
+                    progressBar.className = 'progress-pulse h-3 rounded-full';
+                }
             }
 
             updateProgress(loaded, total) {
+                // Only show real progress for file uploads with actual progress data
                 if (!this.isUploading || this.isCancelling) return;
                 if (!loaded || !total || loaded === 0 || total === 0) return;
 
                 const percentage = Math.round((loaded / total) * 100);
-                const loadedMB = (loaded / 1024 / 1024).toFixed(1);
-                const totalMB = (total / 1024 / 1024).toFixed(1);
+                const progressBar = document.getElementById('progress-bar');
                 
-                // Throttle progress updates to avoid excessive DOM updates
-                const now = Date.now();
-                if (now - this.lastProgressUpdate < 100) return; // Update max every 100ms
-                this.lastProgressUpdate = now;
-                
-                // Update progress bar
-                document.getElementById('progress-bar').style.width = percentage + '%';
-                document.getElementById('progress-percentage').textContent = percentage + '%';
-                document.getElementById('progress-transferred').textContent = `${loadedMB} MB / ${totalMB} MB`;
-                
-                // Calculate speed and ETA
-                const elapsed = (now - this.startTime) / 1000;
-                const speed = loaded / elapsed; // bytes per second
-                const speedMBs = (speed / 1024 / 1024).toFixed(1);
-                const remaining = (total - loaded) / speed;
-                
-                document.getElementById('progress-speed').textContent = `${speedMBs} MB/s`;
-                
-                if (remaining > 0 && remaining < Infinity) {
-                    const eta = remaining < 60 ? `${Math.round(remaining)}s` : 
-                            remaining < 3600 ? `${Math.round(remaining/60)}m` : 
-                            `${Math.round(remaining/3600)}h`;
-                    document.getElementById('upload-eta').textContent = eta;
+                if (progressBar) {
+                    // Only show percentage-based progress for file uploads
+                    progressBar.style.width = percentage + '%';
+                    progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out';
                 }
             }
-
+            
             startTimer() {
                 const progressTime = document.getElementById('progress-time');
-                this.progressTimer = setInterval(() => {
-                    if (this.startTime) {
-                        const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-                        progressTime.textContent = `Elapsed: ${elapsed}s`;
-                    }
-                }, 1000);
+                if (progressTime) {
+                    this.progressTimer = setInterval(() => {
+                        if (this.startTime) {
+                            const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                            progressTime.textContent = `Elapsed: ${elapsed}s`;
+                        }
+                    }, 1000);
+                }
             }
 
             cancelUpload() {
@@ -748,6 +737,7 @@
                 const resultContent = document.getElementById('upload-result-content');
                 const actionButtons = document.getElementById('action-buttons');
                 const progressSection = document.getElementById('progress-section');
+                const resultActions = document.getElementById('result-actions');
                 
                 // Update result content
                 const colors = {
@@ -762,11 +752,29 @@
                     warning: 'ri-alert-line text-yellow-600'
                 };
                 
+                // Enhanced error message display
+                let displayMessage = message;
+                if (type === 'error' && message.includes('exceeds')) {
+                    const maxSizeMB = Math.floor(this.maxFileSize / (1024 * 1024));
+                    displayMessage = `
+                        <div class="mb-2 font-medium">${message}</div>
+                        <div class="text-sm">
+                            <strong>What you can try:</strong>
+                            <ul class="list-disc list-inside mt-1 space-y-1">
+                                <li>Reduce the number of rows in your file</li>
+                                <li>Remove unnecessary columns</li>
+                                <li>Split the data into smaller files</li>
+                                <li>Contact your administrator to request a higher limit</li>
+                            </ul>
+                        </div>
+                    `;
+                }
+                
                 resultContent.innerHTML = `
                     <div class="${colors[type]} rounded-lg p-4">
-                        <div class="flex items-center">
-                            <i class="${icons[type]} text-lg mr-2"></i>
-                            <div class="font-medium">${message}</div>
+                        <div class="flex items-start">
+                            <i class="${icons[type]} text-lg mr-2 mt-0.5 flex-shrink-0"></i>
+                            <div class="flex-1">${displayMessage}</div>
                         </div>
                     </div>
                 `;
@@ -790,8 +798,9 @@
                 progressSection.classList.add('hidden');
                 actionButtons.classList.add('hidden');
                 
-                // Show result
+                // Show result and make close button visible
                 uploadResult.classList.remove('hidden');
+                resultActions.classList.remove('hidden');
             }
 
             // Upload Methods
@@ -836,6 +845,11 @@
                     return;
                 }
 
+                // Validate Google Sheets size limit
+                if (!this.validateGoogleSheetsSize(sheetsUrl)) {
+                    return;
+                }
+
                 // Ensure CSRF token is included
                 const csrfToken = this.getCsrfToken();
                 if (csrfToken) {
@@ -845,7 +859,7 @@
                 this.currentUploadId = this.generateUploadId('sheets');
                 formData.append('upload_id', this.currentUploadId);
 
-                this.showProgress('Importing Google Sheets', 'Fetching data from Google Sheets...', 'sheets');
+                this.showProgress('Importing Google Sheets', 'Fetching data from Google Sheets (first sheet only)...', 'sheets');
                 this.showIndeterminateProgress();
 
                 try {
@@ -855,6 +869,28 @@
                 } catch (error) {
                     this.handleUploadError(error);
                 }
+            }
+
+            validateGoogleSheetsSize(url) {
+                // Note: We can't pre-validate Google Sheets size without downloading,
+                // but we inform user about the limit and handle it during processing
+                const maxSizeMB = Math.floor(this.maxFileSize / (1024 * 1024));
+                
+                this.showMessage(
+                    `Google Sheets Import Notice`,
+                    'info',
+                    `
+                    <strong>Important:</strong>
+                    <ul class="list-disc list-inside mt-1 space-y-1">
+                        <li>Only the first sheet will be imported as a table</li>
+                        <li>Maximum data size limit: ${maxSizeMB}MB</li>
+                        <li>If your sheet exceeds this limit, the import will be cancelled</li>
+                        <li>Large sheets may take several minutes to process</li>
+                    </ul>
+                    `
+                );
+                
+                return true; // Continue with import
             }
 
             async uploadUrl(formElement) {
@@ -960,33 +996,72 @@
                 console.error('Upload error:', error);
                 
                 let errorMessage = 'Upload failed';
+                let isCleanupNeeded = false;
                 
                 if (error.message) {
                     const msg = error.message.toLowerCase();
                     
                     if (msg.includes('cancelled')) {
-                        errorMessage = 'Upload was cancelled';
+                        errorMessage = 'Upload was cancelled by user';
+                        isCleanupNeeded = true;
                     } else if (msg.includes('access denied') || msg.includes('permissions')) {
                         errorMessage = 'Access denied. Please check your permissions or refresh the page.';
                     } else if (msg.includes('authentication required')) {
                         errorMessage = 'Session expired. Please refresh the page and log in again.';
-                    } else if (msg.includes('too large') || msg.includes('size')) {
-                        errorMessage = 'File is too large for upload';
+                    } else if (msg.includes('too large') || msg.includes('size') || msg.includes('exceeded')) {
+                        const maxSizeMB = Math.floor(this.maxFileSize / (1024 * 1024));
+                        errorMessage = `File size exceeds the ${maxSizeMB}MB limit set by your administrator`;
+                        isCleanupNeeded = true;
                     } else if (msg.includes('network') || msg.includes('connection')) {
-                        errorMessage = 'Network connection failed';
+                        errorMessage = 'Network connection failed. Please check your internet connection and try again.';
                     } else if (msg.includes('format') || msg.includes('csv')) {
-                        errorMessage = 'File format is not supported';
+                        errorMessage = 'File format is not supported. Please use CSV, TSV, TXT, or Excel files.';
                     } else {
                         errorMessage = error.message;
                     }
                 }
                 
-                this.showResult(errorMessage, 'error');
+                if (isCleanupNeeded) {
+                    this.showCleanupProcess(errorMessage);
+                } else {
+                    this.showResult(errorMessage, 'error');
+                }
+                
                 this.isUploading = false;
                 this.currentUploadId = null;
             }
-        }
 
+            showCleanupProcess(errorMessage) {
+                // Update UI to show cleanup in progress
+                document.getElementById('progress-title').textContent = 'Cleaning Up...';
+                document.getElementById('progress-message').textContent = 'Stopping upload and cleaning temporary files...';
+                
+                // Show indeterminate progress
+                this.showIndeterminateProgress();
+                
+                // Hide cancel button during cleanup
+                const cancelButton = document.getElementById('cancel-upload-btn');
+                const resultActions = document.getElementById('result-actions');
+                
+                if (cancelButton) {
+                    cancelButton.classList.add('hidden');
+                }
+                
+                // Hide close button during cleanup
+                if (resultActions) {
+                    resultActions.classList.add('hidden');
+                }
+                
+                // Show cleanup progress for 2-3 seconds, then show final result
+                setTimeout(() => {
+                    // Re-enable close button after cleanup
+                    if (resultActions) {
+                        resultActions.classList.remove('hidden');
+                    }
+                    this.showResult(errorMessage, 'error');
+                }, 2500);
+            }
+        }
         // Initialize upload manager
         const uploadManager = new EnhancedUploadManager();
 

@@ -1545,31 +1545,13 @@ async def validate_csv_url(datasette, url):
         raise ValueError(f"Invalid URL: {str(e)}")
 
 def get_google_sheet_name_from_url(url, sheet_index=0):
-    """Try to extract a meaningful name from Google Sheets URL"""
+    """Try to extract a meaningful name from Google Sheets URL - FIRST SHEET ONLY"""
     from datetime import datetime
     import re
     
-    if '#' in url:
-        fragment = url.split('#')[1]
-        if 'range=' in fragment:
-            range_part = fragment.split('range=')[1].split('&')[0]
-            if range_part and not range_part[0].isdigit():
-                clean_name = sanitize_filename_for_table(range_part)
-                if clean_name and len(clean_name) >= 3:
-                    return clean_name
-    
-    if '?' in url:
-        query_part = url.split('?')[1]
-        for param in query_part.split('&'):
-            if 'sheet=' in param.lower() or 'name=' in param.lower():
-                value = param.split('=')[1] if '=' in param else ''
-                if value and len(value) >= 3:
-                    clean_name = sanitize_filename_for_table(value)
-                    if clean_name:
-                        return clean_name
-    
+    # REMOVED: Complex sheet detection logic since we only use first sheet
     timestamp = datetime.now().strftime('%m%d_%H%M')
-    return f"google_sheet_{timestamp}"
+    return f"google_sheet_first_{timestamp}"
 
 def get_csv_name_from_url(url):
     """Extract a meaningful table name from CSV URL"""
@@ -1633,8 +1615,8 @@ def get_csv_name_from_url(url):
 
 # ============= FETCH FUNCTIONS =============
 
-async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_session=None):
-    """Google Sheets fetching with proper cancellation during download"""
+async def fetch_sheet_data(sheet_url, datasette=None, upload_session=None):
+    """Google Sheets fetching with proper cancellation - FIRST SHEET ONLY"""
     try:
         sheet_url = sheet_url.rstrip('/')
         
@@ -1660,23 +1642,16 @@ async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_sess
         
         logger.info(f"Extracted sheet ID: {sheet_id}")
         
+        # ALWAYS use first sheet (gid=0) - ignore any gid in URL
         gid = 0
-        if '#gid=' in sheet_url:
-            try:
-                gid = int(sheet_url.split('#gid=')[1].split('&')[0])
-                logger.info(f"Using GID from URL: {gid}")
-            except (ValueError, IndexError):
-                gid = sheet_index
-        else:
-            gid = sheet_index
+        logger.info("Using first sheet only (gid=0)")
         
+        # REMOVED: Multiple export URL attempts - use only first sheet
         export_urls = [
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}",
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0",
             f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv",
-            f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?output=csv&gid={gid}",
-            f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?output=csv",
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&gid={gid}",
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
+            f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?output=csv&gid=0",
+            f"https://docs.google.com/spreadsheets/d/e/{sheet_id}/pub?output=csv"
         ]
         
         headers = {
@@ -1689,10 +1664,8 @@ async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_sess
         
         if datasette:
             max_file_size = await get_max_file_size(datasette)
-            max_size_mb = max_file_size / (1024 * 1024)
         else:
             max_file_size = 500 * 1024 * 1024
-            max_size_mb = 500
         
         last_error = None
         
@@ -1711,7 +1684,7 @@ async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_sess
                         last_error = "Google Sheet access denied - make sure the sheet is publicly accessible"
                         continue
                     elif response.status_code == 400:
-                        last_error = "Google Sheet access denied - sheet may be private or GID invalid"
+                        last_error = "Google Sheet access denied - sheet may be private"
                         continue
                     elif response.status_code == 404:
                         last_error = f"Google Sheet not found with this URL format (method {i+1})"
@@ -1742,8 +1715,15 @@ async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_sess
                         last_error = f"Google Sheet doesn't contain valid CSV data (method {i+1})"
                         continue
                     
-                    final_size_mb = len(csv_content.encode('utf-8')) / (1024 * 1024)
-                    logger.info(f"Successfully retrieved CSV data using export method {i+1} ({final_size_mb:.1f}MB)")
+                    # CHECK FILE SIZE LIMIT
+                    content_size = len(csv_content.encode('utf-8'))
+                    if content_size > max_file_size:
+                        size_mb = content_size / (1024 * 1024)
+                        max_mb = max_file_size / (1024 * 1024)
+                        raise ValueError(f"Google Sheets data ({size_mb:.1f}MB) exceeds maximum file size limit ({max_mb:.0f}MB)")
+                    
+                    final_size_mb = content_size / (1024 * 1024)
+                    logger.info(f"Successfully retrieved first sheet CSV data using export method {i+1} ({final_size_mb:.1f}MB)")
                     
                     if upload_session:
                         upload_session.update_progress(phase="processing")
@@ -1763,8 +1743,8 @@ async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_sess
             except CancellationError:
                 raise
             except ValueError as val_error:
-                if "too large" in str(val_error) or "exceeds size limit" in str(val_error):
-                    raise
+                if "exceeds maximum file size" in str(val_error):
+                    raise  # Re-raise size limit errors
                 last_error = f"Export method {i+1} failed: {str(val_error)}"
                 continue
             except Exception as method_error:
@@ -1777,10 +1757,10 @@ async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_sess
                     "Google Sheet is not publicly accessible. "
                     "Please make it public by clicking Share > Anyone with the link can view."
                 )
-            elif "too large" in last_error.lower():
+            elif "exceeds maximum file size" in last_error.lower():
                 raise ValueError(last_error)
             else:
-                raise ValueError(f"Unable to import from Google Sheet: {last_error}")
+                raise ValueError(f"Unable to import from Google Sheet (first sheet): {last_error}")
         else:
             raise ValueError("Unable to export data from Google Sheet using any method")
             
@@ -1790,7 +1770,7 @@ async def fetch_sheet_data(sheet_url, sheet_index=0, datasette=None, upload_sess
     except Exception as e:
         logger.error(f"Google Sheets fetch error: {str(e)}")
         raise ValueError(f"Google Sheets import failed: {str(e)}")
-            
+                
 async def fetch_csv_from_url_subprocess(datasette, csv_url, encoding='auto', upload_session=None):
     """Download CSV using subprocess - truly cancellable"""
     try:
@@ -2193,7 +2173,7 @@ async def ajax_file_upload_handler(datasette, request):
         return Response.json({"success": False, "error": error_context["user_message"]}, status=500)
 
 async def ajax_sheets_upload_handler(datasette, request):
-    """Enhanced AJAX Google Sheets upload handler with full cancellation support"""
+    """Enhanced AJAX Google Sheets upload handler - FIRST SHEET ONLY"""
     try:
         actor = get_actor_from_request(request)
         if not actor:
@@ -2214,12 +2194,12 @@ async def ajax_sheets_upload_handler(datasette, request):
         forms, files = parse_multipart_form_data_from_ajax(body, content_type)
         
         sheets_url = forms.get('sheets_url', '').strip()
-        sheet_index = int(forms.get('sheet_index', '0') or '0')
+        # REMOVED: sheet_index = int(forms.get('sheet_index', '0') or '0')  # Always use first sheet
         custom_table_name = forms.get('table_name', '').strip()
         replace_existing = forms.get('replace_existing') == 'on'
         upload_id = forms.get('upload_id')
         
-        logger.debug(f"Google Sheets params: url='{sheets_url}', sheet_index={sheet_index}, "
+        logger.debug(f"Google Sheets params: url='{sheets_url}', "
                     f"table_name='{custom_table_name}', replace={replace_existing}, upload_id={upload_id}")
         
         is_valid, cleaned_url, validation_result = validate_google_sheets_url(sheets_url)
@@ -2233,8 +2213,6 @@ async def ajax_sheets_upload_handler(datasette, request):
         if isinstance(validation_result, dict):
             logger.info(f"Google Sheets validated: {validation_result['message']}, "
                     f"Sheet ID: {validation_result['sheet_id']}")
-            if validation_result.get('gid', 0) > 0:
-                sheet_index = validation_result['gid']
         
         # Create upload session for cancellation support
         upload_session = None
@@ -2247,8 +2225,8 @@ async def ajax_sheets_upload_handler(datasette, request):
             if upload_session and upload_session.is_cancelled:
                 raise CancellationError("Import cancelled before fetching sheet data")
             
-            # Pass upload_session to fetch_sheet_data for cancellation support
-            csv_content = await fetch_sheet_data(cleaned_url, sheet_index, datasette, upload_session)
+            # UPDATED: Always use first sheet, no sheet_index parameter
+            csv_content = await fetch_sheet_data(cleaned_url, datasette, upload_session)
             
             # Check cancellation after fetch
             if upload_session and upload_session.is_cancelled:
@@ -2269,6 +2247,7 @@ async def ajax_sheets_upload_handler(datasette, request):
             error_context = await categorize_upload_error(str(fetch_error), "google_sheets", datasette)
             return Response.json({"success": False, "error": error_context["user_message"]}, status=400)
         
+        # Validate CSV structure
         is_valid, error_msg, csv_metadata = validate_csv_structure_enhanced(csv_content)
         if not is_valid:
             if upload_session:
@@ -2278,6 +2257,7 @@ async def ajax_sheets_upload_handler(datasette, request):
                 "error": f"Google Sheets data validation failed: {error_msg}"
             }, status=400)
         
+        # Generate table name
         if custom_table_name:
             is_valid, validation_error = validate_table_name_enhanced(custom_table_name)
             if not is_valid:
@@ -2287,7 +2267,8 @@ async def ajax_sheets_upload_handler(datasette, request):
             else:
                 base_table_name = custom_table_name
         else:
-            base_table_name = get_google_sheet_name_from_url(cleaned_url, sheet_index)
+            # UPDATED: Use "first_sheet" instead of sheet index
+            base_table_name = get_google_sheet_name_from_url(cleaned_url, 0)  # Always first sheet
         
         if replace_existing and custom_table_name:
             table_name = base_table_name
@@ -2300,6 +2281,7 @@ async def ajax_sheets_upload_handler(datasette, request):
         if upload_session:
             upload_session.table_name = table_name
         
+        # Get database and process
         portal_db = datasette.get_database('portal')
         result = await portal_db.execute(
             "SELECT file_path FROM databases WHERE db_name = ? AND user_id = ?",
@@ -2367,19 +2349,19 @@ async def ajax_sheets_upload_handler(datasette, request):
         await log_upload_activity_enhanced(
             datasette, 
             actor.get("id"), 
-            "ajax_sheets_upload", 
-            f"AJAX: Imported {upload_result['rows_inserted']:,} rows from Google Sheets",
+            "ajax_sheets_upload_first_sheet", 
+            f"AJAX: Imported {upload_result['rows_inserted']:,} rows from Google Sheets (first sheet only)",
             {
-                "source_type": "google_sheets_ajax",
+                "source_type": "google_sheets_first_sheet_only",
                 "table_name": table_name,
                 "sheets_url": cleaned_url,
-                "sheet_index": sheet_index,
+                "sheet_index": 0,  # Always first sheet
                 "record_count": upload_result['rows_inserted'],
                 "replace_existing": replace_existing and custom_table_name
             }
         )
         
-        success_msg = f"Successfully imported {upload_result['rows_inserted']:,} rows from Google Sheets to table '{table_name}'"
+        success_msg = f"Successfully imported {upload_result['rows_inserted']:,} rows from Google Sheets (first sheet) to table '{table_name}'"
         
         return Response.json({
             "success": True,
@@ -2395,6 +2377,7 @@ async def ajax_sheets_upload_handler(datasette, request):
             "success": False, 
             "error": error_context["user_message"]
         }, status=500)
+
 
 async def ajax_url_upload_handler(datasette, request):
     """AJAX URL upload handler with comprehensive error handling and user-friendly messages"""
