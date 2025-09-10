@@ -87,23 +87,23 @@ The EDGI Cloud Portal serves the critical mission of **democratizing environment
 The system extends Datasette through eight specialized plugins (200KB+ total codebase):
 
 #### Core Data Processing
-- **upload_table.py** (131KB) - Multi-source upload engine with advanced null handling
-- **common_utils.py** (67KB) - Security, validation, authentication, and shared utilities
-- **manage_databases.py** (82KB) - Complete database lifecycle management
+- **upload_table.py** - Multi-source upload engine with advanced null handling
+- **common_utils.py** - Security, validation, authentication, and shared utilities
+- **manage_databases.py** - Complete database lifecycle management
 
 #### Administrative Functions
-- **admin_panel.py** (66KB) - System administration and user management
-- **create_database.py** (33KB) - Database creation workflows and import processing
-- **delete_db.py** (49KB) - Safe deletion with trash system and recovery options
+- **admin_panel.py** - System administration and user management
+- **create_database.py** - Database creation workflows and import processing
+- **delete_db.py** - Safe deletion with trash system and recovery options
 
 #### User Experience
-- **user_profile.py** (24KB) - Account management and user preferences
-- **render_links.py** (15KB) - Custom link processing and content rendering
+- **user_profile.py** - Account management and user preferences
+- **render_links.py** - Custom link processing and content rendering
 
 #### Template System (467KB+ total)
 19 comprehensive templates covering every aspect of the portal:
-- **User Interfaces**: Upload (72KB), Management (66KB), Creation (27KB)
-- **Administrative Tools**: System Admin (70KB), Content Editor (20KB)
+- **User Interfaces**: Upload, Management, Creation
+- **Administrative Tools**: System Admin, Content Editor
 - **Security Features**: Authentication, confirmations, password verification
 - **Data Management**: Trash system, deletion workflows, table operations
 
@@ -111,8 +111,8 @@ The system extends Datasette through eight specialized plugins (200KB+ total cod
 
 ```
 edgi-cloud/
-├── 📄 README.md                    # This comprehensive documentation
-├── 📄 requirements.txt             # Python dependencies
+├── 📄 README.md                   # This comprehensive documentation
+├── 📄 requirements.txt            # Python dependencies
 ├── 📄 metadata.json               # Datasette configuration
 ├── 📄 Dockerfile                  # Container configuration
 ├── 📄 fly.toml                    # Fly.io deployment config
@@ -121,29 +121,29 @@ edgi-cloud/
 ├── 📄 generate_metadata.py        # Dynamic metadata generation
 │
 ├── 📁 plugins/                    # Datasette plugins (8 core modules)
-│   ├── 📄 upload_table.py         # Enhanced upload system (131KB) - Multi-source with null handling
-│   ├── 📄 common_utils.py         # Shared utilities (67KB) - Security, validation, data management
-│   ├── 📄 manage_databases.py     # Database management (82KB) - User database administration
-│   ├── 📄 admin_panel.py          # Administrative interface (66KB) - System admin functionality
-│   ├── 📄 create_database.py      # Database creation (33KB) - Creation and import workflows
-│   ├── 📄 delete_db.py            # Deletion management (49KB) - Safe deletion with trash system
-│   ├── 📄 user_profile.py         # User management (24KB) - Profile and account management
-│   └── 📄 render_links.py         # Link rendering (15KB) - Custom link processing
+│   ├── 📄 upload_table.py         # Enhanced upload system - Multi-source with null handling
+│   ├── 📄 common_utils.py         # Shared utilities - Security, validation, data management
+│   ├── 📄 manage_databases.py     # Database management - User database administration
+│   ├── 📄 admin_panel.py          # Administrative interface - System admin functionality
+│   ├── 📄 create_database.py      # Database creation - Creation and import workflows
+│   ├── 📄 delete_db.py            # Deletion management - Safe deletion with trash system
+│   ├── 📄 user_profile.py         # User management - Profile and account management
+│   └── 📄 render_links.py         # Link rendering - Custom link processing
 │
 ├── 📁 templates/                  # Jinja2 HTML templates (19 comprehensive interfaces)
 │   ├── 📄 index.html              # Portal homepage - Public-facing landing page
-│   ├── 📄 upload_table.html       # Enhanced upload interface (72KB) - Multi-source data import
-│   ├── 📄 manage_databases.html   # User database management (66KB) - Complete database lifecycle
-│   ├── 📄 system_admin.html       # System administration (70KB) - Admin control panel
-│   ├── 📄 database_homepage.html  # Database-specific pages (24KB) - Custom database portals
-│   ├── 📄 create_import_database.html # Database creation (27KB) - Import and creation workflows
-│   ├── 📄 template.html           # Database customization (27KB) - Branding and content editor
+│   ├── 📄 upload_table.html       # Enhanced upload interface - Multi-source data import
+│   ├── 📄 manage_databases.html   # User database management - Complete database lifecycle
+│   ├── 📄 system_admin.html       # System administration - Admin control panel
+│   ├── 📄 database_homepage.html  # Database-specific pages - Custom database portals
+│   ├── 📄 create_import_database.html # Database creation - Import and creation workflows
+│   ├── 📄 template.html           # Database customization - Branding and content editor
 │   ├── 📄 profile.html            # User profiles (28KB) - Account management interface
-│   ├── 📄 portal_homepage_editor.html # Portal customization (20KB) - Homepage content editor
+│   ├── 📄 portal_homepage_editor.html # Portal customization - Homepage content editor
 │   ├── 📄 login.html              # Authentication interface - Secure login system
 │   ├── 📄 register.html           # User registration - Account creation
 │   ├── 📄 all_databases.html      # Public database listing - Discovery interface
-│   ├── 📄 system_trash_bin.html   # Trash management (25KB) - Soft delete recovery
+│   ├── 📄 system_trash_bin.html   # Trash management - Soft delete recovery
 │   ├── 📄 permanent_delete.html   # Hard deletion confirmation - Data destruction safeguards
 │   ├── 📄 force_delete.html       # Administrative deletion - Emergency cleanup tools
 │   ├── 📄 trash_confirm.html      # Deletion confirmation - User confirmation workflows
@@ -364,82 +364,6 @@ INSERT INTO system_settings VALUES
 - **Security**: CSRF protection, input validation, role-based access control
 - **Monitoring**: Comprehensive activity logging and user action tracking
 - **Content Management**: Markdown support with custom portal branding
-
-## 📊 Database Schema
-
-### Portal Database (`portal.db`)
-
-```sql
--- User management with enhanced security
-CREATE TABLE users (
-    user_id TEXT PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    role TEXT DEFAULT 'user',
-    email TEXT,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    last_login TEXT,
-    is_active INTEGER DEFAULT 1
-);
-
--- Database registry with lifecycle management
-CREATE TABLE databases (
-    db_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    db_name TEXT UNIQUE NOT NULL,
-    website_url TEXT,
-    status TEXT DEFAULT 'draft',
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    file_path TEXT,
-    deleted_at TEXT,
-    FOREIGN KEY (user_id) REFERENCES users (user_id)
-);
-
--- Runtime system configuration
-CREATE TABLE system_settings (
-    setting_key TEXT PRIMARY KEY,
-    setting_value TEXT NOT NULL,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT,
-    FOREIGN KEY (updated_by) REFERENCES users (user_id)
-);
-
--- Comprehensive activity tracking
-CREATE TABLE activity_logs (
-    log_id TEXT PRIMARY KEY,
-    user_id TEXT,
-    action TEXT NOT NULL,
-    details TEXT,
-    metadata TEXT,  -- JSON for structured data
-    ip_address TEXT,
-    user_agent TEXT,
-    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (user_id)
-);
-
--- Content management system
-CREATE TABLE admin_content (
-    db_id TEXT,
-    section TEXT,
-    content TEXT,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT,
-    PRIMARY KEY (db_id, section),
-    FOREIGN KEY (updated_by) REFERENCES users (user_id)
-);
-
--- Table-level metadata and management
-CREATE TABLE table_metadata (
-    table_id TEXT PRIMARY KEY,
-    db_id TEXT NOT NULL,
-    table_name TEXT NOT NULL,
-    row_count INTEGER,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (db_id) REFERENCES databases (db_id)
-);
-```
 
 ## 🧪 Testing & Quality Assurance
 
