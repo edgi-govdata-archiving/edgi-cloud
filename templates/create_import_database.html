@@ -32,6 +32,60 @@
         </div>
     </header>
     
+    <!-- Upload Progress Overlay -->
+    <div id="upload-progress-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div class="text-center">
+                <div class="mb-4">
+                    <i id="progress-icon" class="ri-database-line text-5xl text-blue-500"></i>
+                </div>
+                <h3 class="text-lg font-semibold mb-2" id="progress-title">Importing Database...</h3>
+                <p class="text-gray-600 text-sm mb-4" id="progress-message">Please wait while your database is being processed.</p>
+                
+                <!-- Real Progress Bar -->
+                <div class="mb-4">
+                    <div class="flex justify-between text-xs text-gray-600 mb-1">
+                        <span id="progress-percentage">0%</span>
+                        <span id="progress-speed"></span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div id="progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                        <span id="progress-transferred">0 MB / 0 MB</span>
+                        <span id="progress-time">Elapsed: 0s</span>
+                    </div>
+                </div>
+                
+                <!-- Upload Details -->
+                <div id="upload-details" class="text-xs text-gray-600 mb-4 hidden">
+                    <div class="flex justify-between">
+                        <span>File:</span>
+                        <span id="upload-filename"></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Size:</span>
+                        <span id="upload-filesize"></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Status:</span>
+                        <span id="upload-status">Uploading...</span>
+                    </div>
+                </div>
+                
+                <!-- Cancel Button -->
+                <button id="cancel-upload-btn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition text-sm">
+                    <i class="ri-close-line mr-1"></i>Cancel Import
+                </button>
+                
+                <!-- Success/Error Display -->
+                <div id="upload-result" class="hidden mt-4 p-3 rounded">
+                    <div id="upload-result-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <main class="flex-grow pt-20 pb-6">
         <section class="container mx-auto px-4 mt-8">
             <div class="bg-card rounded-card p-6 border border-border max-w-2xl mx-auto">
@@ -49,18 +103,18 @@
                     </div>
                 {% endif %}
 
-                <form action="/create-import-database" method="post" enctype="multipart/form-data">
+                <form id="import-form" onsubmit="return handleImportSubmit(event)">
                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     
                     <div class="mb-6">
                         <label class="block text-text mb-2 font-medium">Database Name:</label>
                         <div class="relative">
-                            <input type="text" name="db_name" id="db_name" class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" required placeholder="e.g., environmental_data" pattern="^[a-z0-9_]+$">
+                            <input type="text" name="db_name" id="db_name" class="w-full p-3 pl-10 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" required placeholder="e.g., environmental_data" pattern="^[a-z0-9_-]+$">
                             <i class="ri-database-line absolute left-3 top-3 text-textlight"></i>
                         </div>
                         <p class="text-sm text-textlight mt-2">
                             <i class="ri-information-line mr-1"></i>
-                            Use lowercase letters, numbers, and underscores only.
+                            Use lowercase letters, numbers, underscores, and hyphens only.
                         </p>
                         <div id="url-preview" class="text-xs text-blue-600 mt-1 opacity-0 transition-opacity">
                             Your database will be available at: <span class="font-mono bg-blue-50 px-1 rounded"></span>
@@ -161,6 +215,233 @@
     </footer>
 
     <script>
+        class ImportManager {
+            constructor() {
+                this.currentXHR = null;
+                this.startTime = null;
+                this.progressTimer = null;
+                this.isImporting = false;
+            }
+
+            showProgress(filename, filesize) {
+                const overlay = document.getElementById('upload-progress-overlay');
+                const progressTitle = document.getElementById('progress-title');
+                const progressMessage = document.getElementById('progress-message');
+                const uploadDetails = document.getElementById('upload-details');
+                const uploadFilename = document.getElementById('upload-filename');
+                const uploadFilesize = document.getElementById('upload-filesize');
+                const uploadResult = document.getElementById('upload-result');
+                const uploadStatus = document.getElementById('upload-status');
+
+                progressTitle.textContent = 'Importing Database';
+                progressMessage.textContent = 'Processing your SQLite database file...';
+                
+                uploadFilename.textContent = filename;
+                uploadFilesize.textContent = filesize;
+                uploadStatus.textContent = 'Uploading...';
+                uploadDetails.classList.remove('hidden');
+                
+                this.resetProgress();
+                uploadResult.classList.add('hidden');
+                
+                overlay.classList.remove('hidden');
+                this.isImporting = true;
+                this.startTime = Date.now();
+                this.startTimer();
+            }
+
+            resetProgress() {
+                document.getElementById('progress-bar').style.width = '0%';
+                document.getElementById('progress-percentage').textContent = '0%';
+                document.getElementById('progress-transferred').textContent = '0 MB / 0 MB';
+                document.getElementById('progress-speed').textContent = '';
+            }
+
+            updateProgress(loaded, total) {
+                if (!this.isImporting) return;
+
+                const percentage = Math.round((loaded / total) * 100);
+                const loadedMB = (loaded / 1024 / 1024).toFixed(1);
+                const totalMB = (total / 1024 / 1024).toFixed(1);
+                
+                document.getElementById('progress-bar').style.width = percentage + '%';
+                document.getElementById('progress-percentage').textContent = percentage + '%';
+                document.getElementById('progress-transferred').textContent = `${loadedMB} MB / ${totalMB} MB`;
+                
+                const elapsed = (Date.now() - this.startTime) / 1000;
+                const speed = loaded / elapsed;
+                const speedMBs = (speed / 1024 / 1024).toFixed(1);
+                
+                document.getElementById('progress-speed').textContent = `${speedMBs} MB/s`;
+                
+                if (percentage === 100) {
+                    document.getElementById('upload-status').textContent = 'Processing...';
+                }
+            }
+
+            startTimer() {
+                const progressTime = document.getElementById('progress-time');
+                this.progressTimer = setInterval(() => {
+                    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                    progressTime.textContent = `Elapsed: ${elapsed}s`;
+                }, 1000);
+            }
+
+            hideProgress() {
+                document.getElementById('upload-progress-overlay').classList.add('hidden');
+                
+                if (this.progressTimer) {
+                    clearInterval(this.progressTimer);
+                    this.progressTimer = null;
+                }
+                
+                this.isImporting = false;
+                this.currentXHR = null;
+            }
+
+            cancelImport() {
+                if (this.currentXHR) {
+                    this.currentXHR.abort();
+                    this.currentXHR = null;
+                }
+                this.showResult('Import cancelled by user', 'error');
+                setTimeout(() => this.hideProgress(), 2000);
+            }
+
+            showResult(message, type) {
+                const uploadResult = document.getElementById('upload-result');
+                const resultContent = document.getElementById('upload-result-content');
+                
+                resultContent.innerHTML = message;
+                uploadResult.className = type === 'error' ? 
+                    'mt-4 p-3 rounded bg-red-100 border border-red-400 text-red-700' :
+                    'mt-4 p-3 rounded bg-green-100 border border-green-400 text-green-700';
+                uploadResult.classList.remove('hidden');
+            }
+
+            async importDatabase(formElement) {
+                const formData = new FormData(formElement);
+                const fileInput = formElement.querySelector('input[type="file"]');
+                const file = fileInput.files[0];
+                
+                if (!file) {
+                    alert('Please select a database file');
+                    return;
+                }
+
+                if (!this.validateFile(file)) {
+                    return;
+                }
+
+                const fileSize = (file.size / 1024 / 1024).toFixed(1) + ' MB';
+                this.showProgress(file.name, fileSize);
+
+                try {
+                    const response = await this.sendAjaxRequest('/ajax-import-database', formData);
+                    this.handleImportSuccess(response);
+                } catch (error) {
+                    this.handleImportError(error);
+                }
+            }
+
+            validateFile(file) {
+                const maxSize = {{ system_settings.max_file_size }};
+                if (file.size > maxSize) {
+                    const maxMB = Math.floor(maxSize / (1024 * 1024));
+                    alert(`File size must be less than ${maxMB}MB`);
+                    return false;
+                }
+
+                const fileName = file.name.toLowerCase();
+                const validExtensions = ['.db', '.sqlite', '.sqlite3'];
+                const isValidFile = validExtensions.some(ext => fileName.endsWith(ext));
+                
+                if (!isValidFile) {
+                    alert('Please select a valid SQLite database file (.db, .sqlite, .sqlite3)');
+                    return false;
+                }
+
+                return true;
+            }
+
+            sendAjaxRequest(url, formData) {
+                return new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    this.currentXHR = xhr;
+
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (e.lengthComputable) {
+                            this.updateProgress(e.loaded, e.total);
+                        }
+                    });
+
+                    xhr.addEventListener('load', () => {
+                        if (xhr.status === 200) {
+                            try {
+                                const response = JSON.parse(xhr.responseText);
+                                resolve(response);
+                            } catch (e) {
+                                reject(new Error('Invalid response format'));
+                            }
+                        } else {
+                            reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+                        }
+                    });
+
+                    xhr.addEventListener('error', () => {
+                        reject(new Error('Network error occurred'));
+                    });
+
+                    xhr.addEventListener('abort', () => {
+                        reject(new Error('Import cancelled'));
+                    });
+
+                    xhr.open('POST', url);
+                    xhr.send(formData);
+                });
+            }
+
+            handleImportSuccess(response) {
+                if (response.success) {
+                    const message = `
+                        <div class="flex items-center">
+                            <i class="ri-check-circle-line text-green-600 text-lg mr-2"></i>
+                            <div>
+                                <div class="font-medium">${response.message}</div>
+                                ${response.stats ? `<div class="text-xs mt-1">${response.stats}</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                    this.showResult(message, 'success');
+                    
+                    setTimeout(() => {
+                        window.location.href = response.redirect_url || '/manage-databases';
+                    }, 2000);
+                } else {
+                    this.showResult(response.error || 'Import failed', 'error');
+                    setTimeout(() => this.hideProgress(), 3000);
+                }
+            }
+
+            handleImportError(error) {
+                this.showResult(`Import failed: ${error.message}`, 'error');
+                setTimeout(() => this.hideProgress(), 3000);
+            }
+        }
+
+        const importManager = new ImportManager();
+
+        function handleImportSubmit(event) {
+            event.preventDefault();
+            importManager.importDatabase(event.target);
+            return false;
+        }
+
+        // Cancel import handler
+        document.getElementById('cancel-upload-btn').addEventListener('click', () => {
+            importManager.cancelImport();
+        });
+
         // Real-time URL preview
         const dbNameInput = document.getElementById('db_name');
         const urlPreview = document.getElementById('url-preview');
@@ -170,7 +451,7 @@
             const dbName = this.value;
             if (dbName) {
                 const baseUrl = window.location.protocol + '//' + window.location.host;
-                urlSpan.textContent = `${baseUrl}/${dbName}/`;
+                urlSpan.textContent = `${baseUrl}/db/${dbName}/homepage`;
                 urlPreview.classList.remove('opacity-0');
             } else {
                 urlPreview.classList.add('opacity-0');
@@ -180,10 +461,10 @@
         // Validate database name format
         dbNameInput.addEventListener('input', function() {
             const value = this.value;
-            const isValid = /^[a-z0-9_]*$/.test(value);
+            const isValid = /^[a-z0-9_-]*$/.test(value);
             
             if (value && !isValid) {
-                this.setCustomValidity('Database name can only contain lowercase letters, numbers, and underscores');
+                this.setCustomValidity('Database name can only contain lowercase letters, numbers, underscores, and hyphens');
                 this.classList.add('border-red-500');
             } else {
                 this.setCustomValidity('');
@@ -207,7 +488,7 @@
                 fileSize.textContent = `(${sizeInMB} MB)`;
                 fileInfo.classList.remove('opacity-0');
                 
-                // Check file size (50MB limit)
+                // Check file size
                 if (file.size > {{ system_settings.max_file_size }}) {
                     fileSize.textContent = `(${sizeInMB} MB - TOO LARGE!)`;
                     fileSize.classList.add('text-red-500');
@@ -248,13 +529,6 @@
                 submitBtn.disabled = false;
                 submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             }
-        });
-
-        // Form submission handler
-        document.querySelector('form').addEventListener('submit', function() {
-            const btn = document.getElementById('submit-btn');
-            btn.innerHTML = '<i class="ri-loader-4-line animate-spin mr-2"></i>Importing...';
-            btn.disabled = true;
         });
     </script>
 </body>

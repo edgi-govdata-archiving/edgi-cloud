@@ -1352,7 +1352,7 @@ async def log_startup_success_startup(datasette, registered_count, failed_count,
         
         await log_database_action(
             datasette, "system", "startup", 
-            f"EDGI Database Management Module started: {startup_details}",
+            f"Resette Database Management Module started: {startup_details}",
             {
                 "registered_databases": registered_count,
                 "failed_databases": failed_count,
@@ -1413,7 +1413,8 @@ async def update_table_display_order(datasette, request):
         return Response.json({"error": str(e)}, status=500)
 
 async def get_database_tables_with_visibility(datasette, db_id, db_name):
-    """Get database tables with visibility information, properly ordered - HIDE SYSTEM TABLES."""
+    """Auto-create missing database_tables records during retrieval
+    """
     portal_db = datasette.get_database('portal')
     
     # Get visibility settings from database_tables
@@ -1431,6 +1432,8 @@ async def get_database_tables_with_visibility(datasette, db_id, db_name):
     
     # Get actual tables from the database
     tables = []
+    missing_records = []  # Track tables that need database_tables records
+    
     try:
         target_db = datasette.get_database(db_name)
         if target_db:
@@ -1450,8 +1453,14 @@ async def get_database_tables_with_visibility(datasette, db_id, db_name):
                     columns_result = await target_db.execute(f"PRAGMA table_info([{table_name}])")
                     column_count = len(columns_result.rows)
                     
-                    # Merge with visibility settings
+                    # Check if table has database_tables record
                     visibility = visibility_settings.get(table_name, {})
+                    
+                    if not visibility:
+                        # Missing database_tables record - track for creation
+                        missing_records.append(table_name)
+                        # Use defaults
+                        visibility = {'show_in_homepage': True, 'display_order': 100}
                     
                     tables.append({
                         'name': table_name,
@@ -1459,16 +1468,43 @@ async def get_database_tables_with_visibility(datasette, db_id, db_name):
                         'record_count': record_count,
                         'columns': column_count,
                         'size': record_count * 0.001,  # Estimate
-                        'show_in_homepage': visibility.get('show_in_homepage', True),  # Default visible
-                        'display_order': visibility.get('display_order', 100)  # Default high number (bottom)
+                        'show_in_homepage': visibility.get('show_in_homepage', True),
+                        'display_order': visibility.get('display_order', 100)
                     })
                     
                 except Exception as table_error:
                     logger.error(f"Error processing table {table_name}: {table_error}")
                     continue
             
+            # Auto-create missing database_tables records
+            if missing_records:
+                logger.warning(f"Found {len(missing_records)} tables without database_tables records: {missing_records}")
+                current_time = datetime.utcnow().isoformat()
+                
+                for table_name in missing_records:
+                    try:
+                        table_id = f"{db_id}_{table_name}"
+                        
+                        # Get next display order
+                        count_result = await portal_db.execute(
+                            "SELECT COUNT(*) as count FROM database_tables WHERE db_id = ?", [db_id]
+                        )
+                        table_count = count_result.first()['count'] if count_result.first() else 0
+                        display_order = table_count + 100
+                        
+                        await portal_db.execute_write("""
+                            INSERT OR IGNORE INTO database_tables 
+                            (table_id, db_id, table_name, show_in_homepage, display_order, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, [table_id, db_id, table_name, True, display_order, current_time, current_time])
+                        
+                        logger.info(f"Auto-created database_tables record: {table_name}")
+                        
+                    except Exception as create_error:
+                        logger.error(f"Error creating database_tables record for {table_name}: {create_error}")
+            
             # Sort by visibility first (visible=True first), then by display_order DESC
-            tables.sort(key=lambda x: (not x['show_in_homepage'], -x['display_order']))
+            tables.sort(key=lambda x: (not bool(x.get('show_in_homepage', True)), -x.get('display_order', 100)))
                     
     except Exception as db_error:
         logger.error(f"Error accessing database {db_name}: {db_error}")
@@ -1645,6 +1681,44 @@ async def rename_table_api(datasette, request):
         logger.error(f"Error renaming table: {e}")
         return Response.json({"error": str(e)}, status=500)
     
+async def fix_missing_display_orders_startup():
+    """Fix existing database_tables records that are missing display_order"""
+    try:
+        query_db = datasette.get_database('portal')
+        
+        # Find records missing display_order
+        missing_order_result = await query_db.execute(
+            "SELECT table_id, db_id, table_name FROM database_tables WHERE display_order IS NULL OR display_order = 0"
+        )
+        
+        missing_records = missing_order_result.rows
+        if missing_records:
+            logger.warning(f"Found {len(missing_records)} table records missing display_order")
+            
+            current_time = datetime.utcnow().isoformat()
+            
+            for record in missing_records:
+                table_id = record['table_id']
+                db_id = record['db_id']
+                table_name = record['table_name']
+                
+                # Get next available order for this database
+                count_result = await query_db.execute(
+                    "SELECT COALESCE(MAX(display_order), 99) + 1 as next_order FROM database_tables WHERE db_id = ?", [db_id]
+                )
+                next_order = count_result.first()['next_order']
+                
+                # Update the record
+                await query_db.execute_write(
+                    "UPDATE database_tables SET display_order = ?, updated_at = ? WHERE table_id = ?",
+                    [next_order, current_time, table_id]
+                )
+                
+                logger.info(f"Fixed missing display_order for {table_name}: {next_order}")
+        
+    except Exception as e:
+        logger.error(f"Error fixing missing display orders: {e}")
+
 
 @hookimpl
 def register_routes():
@@ -1678,7 +1752,7 @@ def startup(datasette):
     
     async def inner():
         try:
-            logger.info("Starting EDGI Datasette Database Management Module...")
+            logger.info("Starting Resette Database Management Module...")
             
             # Ensure directories exist
             ensure_data_directories()

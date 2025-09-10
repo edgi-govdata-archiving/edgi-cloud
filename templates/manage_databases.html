@@ -403,18 +403,17 @@
                                                         <!-- Sort Options with Visibility + Display Order as default -->
                                                         <select id="sort-tables-{{ db.db_id }}" onchange="sortTables('{{ db.db_id }}')" 
                                                                 class="px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-accent">
-                                                            <option value="visibility-order">Sort by Visibility + Order</option>
+                                                            <option value="visibility" selected>Sort by Visibility</option>
                                                             <option value="order">Sort by Display Order</option>
                                                             <option value="name">Sort by Name</option>
                                                             <option value="records">Sort by Records</option>
-                                                            <option value="visibility">Sort by Visibility</option>
                                                         </select>
                                                     </div>
                                                 </div>
 
                                                 <!-- Tables List with Descending Order (Higher Numbers at Top) -->
                                                 <div id="tables-container-{{ db.db_id }}" class="space-y-3 max-h-80 overflow-y-auto">
-                                                    {% for table in db.tables|sort(attribute='show_in_homepage', reverse=true)|sort(attribute='display_order', reverse=true) %}
+                                                    {% for table in db.tables %}
                                                         <div class="table-item flex items-center p-3 bg-gray-50 rounded"
                                                             data-table-name="{{ table.name }}" 
                                                             data-records="{{ table.record_count|default(0) }}" 
@@ -767,8 +766,8 @@
                 const dbId = container.id.replace('tables-container-', '');
                 const sortSelect = document.getElementById(`sort-tables-${dbId}`);
                 if (sortSelect) {
-                    sortSelect.value = 'visibility-order';
-                    sortTables(dbId);
+                    sortSelect.value = 'visibility'; // Set the dropdown value
+                    sortTables(dbId); // Apply the sorting
                 }
             });
         });
@@ -786,21 +785,11 @@
                         return a.dataset.tableName.localeCompare(b.dataset.tableName);
                     case 'records':
                         return parseInt(b.dataset.records) - parseInt(a.dataset.records);
-                    case 'visibility':
-                        return b.dataset.visible.localeCompare(a.dataset.visible);
                     case 'order':
                         return parseInt(b.dataset.order) - parseInt(a.dataset.order);
-                    case 'visibility-order':
+                    case 'visibility':
                     default:
-                        // First sort by visibility (visible tables first), then by display order DESC
-                        const aVisible = a.dataset.visible === 'true';
-                        const bVisible = b.dataset.visible === 'true';
-                        
-                        if (aVisible !== bVisible) {
-                            return bVisible - aVisible; // Visible (true) comes first
-                        }
-                        // If same visibility, sort by display order DESC
-                        return parseInt(b.dataset.order) - parseInt(a.dataset.order);
+                        return b.dataset.visible.localeCompare(a.dataset.visible);
                 }
             });
             

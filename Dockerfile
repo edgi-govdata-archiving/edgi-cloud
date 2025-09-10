@@ -30,7 +30,7 @@ EXPOSE 8001
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting EDGI Cloud Portal..."\n\
-echo "📁 Data directory: $EDGI_DATA_DIR"\n\
+echo "📁 Data directory: $RESETTE_DATA_DIR"\n\
 echo "🗄 Portal DB path: $PORTAL_DB_PATH"\n\
 \n\
 # Initialize database if needed\n\
@@ -70,7 +70,7 @@ exec datasette serve "$PORTAL_DB_PATH" \\\n\
   --static static:static \\\n\
   --plugins-dir plugins \\\n\
   --setting max_returned_rows 3000000 \\\n\
-  --setting sql_time_limit_ms 120000 \\\n\
+  --setting sql_time_limit_ms 360000 \\\n\
   --setting allow_download on\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
