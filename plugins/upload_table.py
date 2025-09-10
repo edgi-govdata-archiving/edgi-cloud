@@ -97,6 +97,73 @@ except ImportError:
     CHARDET_AVAILABLE = False
     logger.warning("chardet not available - using basic encoding detection")
 
+def normalize_null_values(value, null_handling='empty_string'):
+    """
+    Normalize various null representations to Python None or empty string
+    
+    Args:
+        value: The cell value to normalize
+        null_handling: 'empty_string', 'preserve', or 'remove'
+    
+    Returns:
+        Normalized value (None, empty string, or original value)
+    """
+    if value is None:
+        return None if null_handling == 'preserve' else ''
+    
+    if isinstance(value, str):
+        # Strip whitespace first
+        cleaned = value.strip()
+        
+        # Common null representations (case insensitive)
+        null_values = {
+            '', 'null', 'none', 'na', 'n/a', '#n/a', 'nan', 
+            'nil', '-', '--', '?', 'missing', 'unknown',
+            '#null!', '#na', 'n.a.', 'not available', 'not applicable'
+        }
+        
+        if cleaned.lower() in null_values:
+            return None if null_handling == 'preserve' else ''
+    
+    # Handle pandas/numpy NaN and similar
+    if hasattr(value, '__str__'):
+        str_val = str(value).lower()
+        if str_val in ['nan', 'nat', '<na>', 'none']:
+            return None if null_handling == 'preserve' else ''
+    
+    # Return the original value if it's not null
+    return str(value) if value is not None else (None if null_handling == 'preserve' else '')
+
+def analyze_column_emptiness(data_rows, headers, max_sample_rows=1000):
+    """
+    Analyze columns for emptiness patterns
+    
+    Returns:
+        Dict with column statistics
+    """
+    empty_stats = {}
+    sample_size = min(len(data_rows), max_sample_rows)
+    
+    for col_idx, header in enumerate(headers):
+        empty_count = 0
+        total_count = 0
+        
+        for row_idx, row in enumerate(data_rows[:sample_size]):
+            if col_idx < len(row):
+                total_count += 1
+                cell_value = normalize_null_values(row[col_idx])
+                if cell_value is None or cell_value == '':
+                    empty_count += 1
+        
+        empty_percentage = empty_count / total_count if total_count > 0 else 0
+        empty_stats[header] = {
+            'empty_count': empty_count,
+            'total_count': total_count,
+            'empty_percentage': empty_percentage
+        }
+    
+    return empty_stats
+
 def check_excel_engine_availability(file_extension):
     """Check if appropriate Excel engine is available for file type"""
     if not PANDAS_AVAILABLE:
@@ -463,8 +530,12 @@ class ThreadedDownloader:
                         
                         # Check size limit on every chunk
                         if bytes_downloaded > self.max_file_size:
-                            logger.error(f"Size limit exceeded: {bytes_downloaded / (1024*1024):.1f}MB")
-                            self.stop_event.set()  # Signal to stop
+                            size_mb = bytes_downloaded / (1024*1024)
+                            max_mb = self.max_file_size / (1024*1024)
+                            error_msg = f"File size ({size_mb:.1f}MB) exceeds the maximum file size {max_mb:.0f}MB limit set by your administrator"
+                            logger.error(f"Size limit exceeded: {size_mb:.1f}MB")
+                            content_chunks.append(('SIZE_ERROR', error_msg))
+                            self.stop_event.set()
                             break  # Exit immediately
                         
                         if self.upload_session:
@@ -497,11 +568,17 @@ class ThreadedDownloader:
                 raise CancellationError("Download cancelled by user")
         
         # Check results
-        if content_chunks and isinstance(content_chunks[-1], tuple) and content_chunks[-1][0] == 'ERROR':
-            raise Exception(content_chunks[-1][1])
+        if content_chunks and isinstance(content_chunks[-1], tuple):
+            error_type, error_msg = content_chunks[-1]
+            if error_type == 'SIZE_ERROR':
+                # Don't wrap size errors in "cancelled" message
+                raise Exception(error_msg)  # This preserves the size limit message
+            elif error_type == 'ERROR':
+                raise Exception(error_msg)
         
         if self.stop_event.is_set():
-            raise CancellationError("Download cancelled by user")
+            if not any(isinstance(chunk, tuple) and chunk[0] == 'SIZE_ERROR' for chunk in content_chunks):
+                raise CancellationError("Download cancelled by user")
         
         # Combine chunks
         full_content = b''.join(chunk for chunk in content_chunks if isinstance(chunk, bytes))
@@ -756,7 +833,16 @@ def validate_google_sheets_url(url):
     }
 
 def validate_csv_structure_enhanced(csv_content, max_sample_rows=100):
-    """Enhanced CSV validation with better error detection and user-friendly messages"""
+    """
+    Enhanced CSV validation with null analysis and data quality reporting
+    
+    Args:
+        csv_content: Raw CSV content as string
+        max_sample_rows: Number of rows to sample for analysis
+    
+    Returns:
+        Tuple: (is_valid, error_message_or_warning, metadata_dict)
+    """
     if not csv_content:
         return False, "CSV file is empty", None
     
@@ -775,6 +861,7 @@ def validate_csv_structure_enhanced(csv_content, max_sample_rows=100):
     
     first_line = non_empty_lines[0]
     
+    # Delimiter detection
     delimiters = [',', '\t', ';', '|']
     delimiter_counts = {}
     
@@ -795,6 +882,7 @@ def validate_csv_structure_enhanced(csv_content, max_sample_rows=100):
     
     logger.info(f"Detected delimiter: '{delimiter}' with {expected_columns} expected columns")
     
+    # Parse CSV with detected delimiter
     try:
         csv_reader = csv.reader(io.StringIO(csv_content), delimiter=delimiter)
         rows = list(csv_reader)
@@ -808,6 +896,7 @@ def validate_csv_structure_enhanced(csv_content, max_sample_rows=100):
     if not headers:
         return False, "CSV file has no headers", None
     
+    # Validate headers
     empty_headers = sum(1 for h in headers if not str(h).strip())
     if empty_headers > len(headers) * 0.5:
         return False, (
@@ -815,6 +904,7 @@ def validate_csv_structure_enhanced(csv_content, max_sample_rows=100):
             f"Please ensure all columns have names."
         ), None
     
+    # Check for duplicate headers
     header_counts = {}
     for h in headers:
         clean_h = str(h).strip().lower()
@@ -834,28 +924,74 @@ def validate_csv_structure_enhanced(csv_content, max_sample_rows=100):
             "Please ensure your file contains actual data."
         ), None
     
+    # Enhanced analysis with null detection
+    data_rows = rows[1:]
+    sample_size = min(max_sample_rows, len(data_rows))
+    sampled_rows = data_rows[:sample_size]
+    
     inconsistent_rows = []
     empty_rows = 0
-    sampled_rows = min(max_sample_rows, len(rows) - 1)
     
-    for i in range(1, sampled_rows + 1):
-        if i >= len(rows):
-            break
-            
-        row = rows[i]
-        
+    # Column-wise analysis with null detection
+    column_analysis = {}
+    for col_idx, header in enumerate(headers):
+        column_analysis[header] = {
+            'total_cells': 0,
+            'empty_cells': 0,
+            'null_like_cells': 0,
+            'valid_data_cells': 0
+        }
+    
+    for row_idx, row in enumerate(sampled_rows):
+        # Check for completely empty rows
         if not any(str(cell).strip() for cell in row):
             empty_rows += 1
             continue
         
+        # Check for inconsistent column counts
         if len(row) != len(headers):
             inconsistent_rows.append({
-                'row_num': i + 1,
+                'row_num': row_idx + 2,  # +2 because row 1 is headers and we start from 0
                 'expected': len(headers),
                 'actual': len(row)
             })
+        
+        # Analyze each cell for null patterns
+        for col_idx, header in enumerate(headers):
+            stats = column_analysis[header]
+            stats['total_cells'] += 1
+            
+            if col_idx < len(row):
+                cell_value = str(row[col_idx]).strip()
+                
+                # Check if cell is empty
+                if not cell_value:
+                    stats['empty_cells'] += 1
+                # Check if cell contains null-like values
+                elif normalize_null_values(cell_value) in [None, '']:
+                    stats['null_like_cells'] += 1
+                else:
+                    stats['valid_data_cells'] += 1
+            else:
+                # Missing cell (row too short)
+                stats['empty_cells'] += 1
     
-    if len(inconsistent_rows) > sampled_rows * 0.2:
+    # Calculate percentages and identify problematic columns
+    problematic_columns = []
+    mostly_empty_columns = []
+    
+    for header, stats in column_analysis.items():
+        if stats['total_cells'] > 0:
+            empty_percentage = (stats['empty_cells'] + stats['null_like_cells']) / stats['total_cells']
+            stats['empty_percentage'] = empty_percentage
+            
+            if empty_percentage > 0.9:  # >90% empty
+                mostly_empty_columns.append(header)
+            elif empty_percentage > 0.7:  # >70% empty
+                problematic_columns.append(header)
+    
+    # Structure validation
+    if len(inconsistent_rows) > sample_size * 0.2:
         sample_errors = inconsistent_rows[:3]
         error_details = []
         for err in sample_errors:
@@ -865,29 +1001,101 @@ def validate_csv_structure_enhanced(csv_content, max_sample_rows=100):
         
         return False, (
             f"CSV structure is inconsistent. Found {len(inconsistent_rows)} "
-            f"problematic rows in first {sampled_rows} rows:\n" +
+            f"problematic rows in first {sample_size} rows:\n" +
             "\n".join(error_details) +
             "\n\nPlease ensure all rows have the same number of columns."
         ), None
     
-    if empty_rows > sampled_rows * 0.5:
+    if empty_rows > sample_size * 0.5:
         return False, (
-            f"Too many empty rows ({empty_rows} out of {sampled_rows} sampled). "
+            f"Too many empty rows ({empty_rows} out of {sample_size} sampled). "
             f"Please clean your data by removing empty rows."
         ), None
     
+    # Create comprehensive metadata
     metadata = {
         'delimiter': delimiter,
         'header_count': len(headers),
-        'headers': headers[:10],
+        'headers': headers[:10],  # First 10 headers for preview
         'total_rows': len(rows),
-        'data_rows': len(rows) - 1,
+        'data_rows': len(data_rows),
         'empty_rows': empty_rows,
         'inconsistent_rows': len(inconsistent_rows),
-        'sample_size': sampled_rows
+        'sample_size': sample_size,
+        'column_analysis': column_analysis,
+        'problematic_columns': problematic_columns,
+        'mostly_empty_columns': mostly_empty_columns,
+        'data_quality_score': _calculate_data_quality_score(column_analysis, empty_rows, sample_size)
     }
     
-    return True, None, metadata
+    # Generate warnings for data quality issues
+    warnings = []
+    
+    if mostly_empty_columns:
+        warnings.append(
+            f"Warning: {len(mostly_empty_columns)} columns are >90% empty: "
+            f"{', '.join(mostly_empty_columns[:3])}{'...' if len(mostly_empty_columns) > 3 else ''}"
+        )
+    
+    if problematic_columns:
+        warnings.append(
+            f"Notice: {len(problematic_columns)} columns are >70% empty: "
+            f"{', '.join(problematic_columns[:3])}{'...' if len(problematic_columns) > 3 else ''}"
+        )
+    
+    if empty_rows > sample_size * 0.1:
+        warnings.append(f"Notice: {empty_rows} empty rows will be skipped during import")
+    
+    # Determine if this is valid (with warnings) or invalid
+    critical_issues = len(mostly_empty_columns) > len(headers) * 0.5
+    
+    if critical_issues:
+        return False, (
+            f"Data quality issues detected: {len(mostly_empty_columns)} out of {len(headers)} "
+            f"columns are mostly empty. This may indicate formatting problems. "
+            f"Please review your data before uploading."
+        ), metadata
+    
+    # Valid with potential warnings
+    warning_message = None
+    if warnings:
+        warning_message = "Data quality notices:\n" + "\n".join(warnings)
+    
+    return True, warning_message, metadata
+
+def _calculate_data_quality_score(column_analysis, empty_rows, sample_size):
+    """
+    Calculate a simple data quality score (0-100)
+    
+    Args:
+        column_analysis: Dict with column statistics
+        empty_rows: Number of empty rows
+        sample_size: Total rows sampled
+    
+    Returns:
+        int: Quality score from 0-100
+    """
+    if not column_analysis:
+        return 0
+    
+    # Calculate average data density across columns
+    total_data_density = 0
+    column_count = len(column_analysis)
+    
+    for stats in column_analysis.values():
+        if stats['total_cells'] > 0:
+            data_density = stats['valid_data_cells'] / stats['total_cells']
+            total_data_density += data_density
+    
+    avg_data_density = total_data_density / column_count if column_count > 0 else 0
+    
+    # Penalize for empty rows
+    empty_row_penalty = (empty_rows / sample_size) * 0.2 if sample_size > 0 else 0
+    
+    # Calculate final score
+    quality_score = max(0, min(100, int((avg_data_density - empty_row_penalty) * 100)))
+    
+    return quality_score
 
 # ============= CONNECTION POOL =============
 
@@ -1046,8 +1254,8 @@ class PooledUltraOptimizedUploader:
             ultra_pragmas=self.ULTRA_PRAGMAS
         )
     
-    def process_excel_ultra_fast(self, file_content, table_name, sheet_name=None, replace_existing=False):
-        """Process Excel files with proper error handling and cancellation support"""
+    def process_excel_ultra_fast(self, file_content, table_name, sheet_name=None, replace_existing=False, null_handling='empty_string'):
+        """Process Excel files with enhanced null handling and data quality reporting"""
         if not PANDAS_AVAILABLE:
             raise ValueError("Excel processing not available. Install with: pip install pandas openpyxl")
         
@@ -1059,29 +1267,28 @@ class PooledUltraOptimizedUploader:
             if self.upload_session and self.upload_session.is_cancelled:
                 raise CancellationError("Excel processing cancelled")
             
-            logger.info(f"Processing Excel file for table '{table_name}'")
+            logger.info(f"Processing Excel file for table '{table_name}' with null_handling='{null_handling}'")
             
             # Determine file extension and check engine availability
             file_ext = '.xlsx'  # Default assumption
             engine_available, engine_error = check_excel_engine_availability(file_ext)
             if not engine_available:
-                # Try .xls engine
                 file_ext = '.xls'
                 engine_available, engine_error = check_excel_engine_availability(file_ext)
                 if not engine_available:
-                    raise ValueError("Excel processing requires openpyxl (for .xlsx) or xlrd (for .xls). Please install the appropriate package.")
+                    raise ValueError("Excel processing requires openpyxl (for .xlsx) or xlrd (for .xls)")
             
-            # Read Excel file
+            # Read Excel file with enhanced null handling
             try:
-                # Use openpyxl for .xlsx files for better compatibility
                 engine = 'openpyxl' if file_ext == '.xlsx' else 'xlrd'
                 
+                # Read with keep_default_na=False to preserve original values
                 df = pd.read_excel(
                     io.BytesIO(file_content),
                     engine=engine,
                     dtype=str,
-                    na_filter=False,
-                    keep_default_na=False
+                    na_filter=False,  # Don't convert to NaN automatically
+                    keep_default_na=False  # Keep original string values
                 )
                 
                 if df is None or df.empty:
@@ -1106,16 +1313,46 @@ class PooledUltraOptimizedUploader:
             df.columns = [self._clean_column_name(str(col)) for col in df.columns]
             df.columns = self._ensure_unique_column_names(df.columns.tolist())
             
-            # Remove empty rows
-            df = df.dropna(how='all')
-            if df.empty:
-                raise ValueError("No data found after removing empty rows")
+            # Enhanced null handling for each column
+            original_row_count = len(df)
+            logger.info(f"Processing {original_row_count} rows with enhanced null handling")
             
-            # Convert everything to strings and handle pandas-specific NaN values
             for col in df.columns:
-                df[col] = df[col].astype(str).replace(['nan', 'NaN', 'None', '<NA>'], '')
+                # Apply null normalization to each cell in the column
+                df[col] = df[col].apply(lambda x: normalize_null_values(x, null_handling))
             
-            logger.info(f"Excel data prepared: {len(df)} rows, {len(df.columns)} columns")
+            # Analyze data quality before cleanup
+            column_stats = {}
+            for col in df.columns:
+                null_count = df[col].isnull().sum() if null_handling == 'preserve' else (df[col] == '').sum()
+                total_count = len(df)
+                column_stats[col] = {
+                    'null_count': null_count,
+                    'total_count': total_count,
+                    'null_percentage': null_count / total_count if total_count > 0 else 0
+                }
+            
+            # Remove completely empty rows
+            if null_handling == 'preserve':
+                df = df.dropna(how='all')
+            else:
+                # Remove rows where all columns are empty strings
+                df = df[~(df == '').all(axis=1)]
+            
+            rows_after_cleanup = len(df)
+            rows_removed = original_row_count - rows_after_cleanup
+            
+            if df.empty:
+                raise ValueError("No data found after removing empty rows and normalizing null values")
+            
+            logger.info(f"Data quality analysis: {rows_removed} empty rows removed, "
+                    f"{rows_after_cleanup} rows remaining")
+            
+            # Log columns with high null percentages
+            high_null_cols = [col for col, stats in column_stats.items() 
+                            if stats['null_percentage'] > 0.5]
+            if high_null_cols:
+                logger.warning(f"Columns with >50% null values: {high_null_cols}")
             
             # Insert to database
             total_rows = len(df)
@@ -1147,15 +1384,25 @@ class PooledUltraOptimizedUploader:
                         end_idx = min(start_idx + batch_size, total_rows)
                         batch_df = df.iloc[start_idx:end_idx]
                         
-                        # Convert to tuples
-                        batch_data = [tuple(row) for row in batch_df.values]
+                        # Convert to tuples, handling None values properly
+                        batch_data = []
+                        for _, row in batch_df.iterrows():
+                            if null_handling == 'preserve':
+                                # Keep None values as None for NULL in database
+                                row_tuple = tuple(None if pd.isna(val) or val is None else str(val) for val in row)
+                            else:
+                                # Convert everything to strings
+                                row_tuple = tuple(str(val) if val is not None else '' for val in row)
+                            batch_data.append(row_tuple)
+                        
                         conn.executemany(insert_sql, batch_data)
                         inserted_rows += len(batch_data)
                         
                         if self.upload_session:
                             self.upload_session.update_progress(rows_processed=inserted_rows)
                         
-                        logger.info(f"Processed: {inserted_rows:,} / {total_rows:,} rows")
+                        if start_idx % (batch_size * 4) == 0:  # Log every 4 batches
+                            logger.info(f"Excel: Processed {inserted_rows:,} / {total_rows:,} rows")
                     
                     conn.execute("COMMIT")
                     
@@ -1169,16 +1416,23 @@ class PooledUltraOptimizedUploader:
             if self.upload_session:
                 self.upload_session.update_progress("completed", rows_processed=inserted_rows)
             
-            logger.info(f"EXCEL COMPLETE: {inserted_rows:,} rows in {elapsed_time:.2f}s")
+            logger.info(f"EXCEL COMPLETE: {inserted_rows:,} rows in {elapsed_time:.2f}s "
+                    f"({rows_removed} empty rows removed)")
             
             return {
                 'table_name': table_name,
                 'rows_inserted': inserted_rows,
+                'rows_removed': rows_removed,
                 'columns': len(df.columns),
                 'time_elapsed': elapsed_time,
                 'rows_per_second': rows_per_second,
-                'strategy': 'excel_ultra_fast',
-                'file_type': 'excel'
+                'strategy': 'excel_ultra_fast_enhanced',
+                'file_type': 'excel',
+                'null_handling': null_handling,
+                'data_quality': {
+                    'high_null_columns': high_null_cols,
+                    'column_stats': column_stats
+                }
             }
             
         except CancellationError:
@@ -1186,18 +1440,16 @@ class PooledUltraOptimizedUploader:
         except Exception as e:
             logger.error(f"Excel processing failed: {e}")
             raise Exception(f"Excel processing failed: {str(e)}")
-
-    def stream_csv_ultra_fast_pooled(self, response_or_content, table_name, replace_existing=False, max_file_size=None, upload_id=None):
-        """Ultra-fast CSV processing - simplified for subprocess approach"""
+        
+    def stream_csv_ultra_fast_pooled(self, response_or_content, table_name, replace_existing=False, max_file_size=None, upload_id=None, null_handling='empty_string'):
+        """Ultra-fast CSV processing with enhanced null handling"""
         
         if isinstance(response_or_content, str):
-            # Content string - use pooled batch processing (most common case now)
             return self._process_content_with_pool(
-                response_or_content, table_name, replace_existing
+                response_or_content, table_name, replace_existing, null_handling
             )
         elif hasattr(response_or_content, 'iter_content'):
-            # Legacy streaming response - convert to string first
-            logger.warning("Converting streaming response to string - consider using subprocess download")
+            logger.warning("Converting streaming response to string")
             content_chunks = []
             for chunk in response_or_content.iter_content(decode_unicode=True):
                 if self.upload_session and self.upload_session.is_cancelled:
@@ -1206,13 +1458,13 @@ class PooledUltraOptimizedUploader:
             
             csv_content = ''.join(content_chunks)
             return self._process_content_with_pool(
-                csv_content, table_name, replace_existing
+                csv_content, table_name, replace_existing, null_handling
             )
         else:
             raise ValueError(f"Unsupported input type: {type(response_or_content)}")
     
-    def _process_content_with_pool(self, csv_content, table_name, replace_existing):
-        """Process CSV content using connection pool with cancellation checks"""
+    def _process_content_with_pool(self, csv_content, table_name, replace_existing, null_handling='empty_string'):
+        """Enhanced CSV content processing with null handling"""
         start_time = time.time()
         
         # Handle different line ending formats
@@ -1257,9 +1509,12 @@ class PooledUltraOptimizedUploader:
         else:
             batch_size = 25000
         
-        logger.info(f"Processing {content_size_mb:.1f}MB file with batch size: {batch_size:,} (pooled)")
+        logger.info(f"Processing {content_size_mb:.1f}MB file with batch size: {batch_size:,} "
+                f"and null_handling='{null_handling}'")
         
         total_rows = 0
+        skipped_rows = 0
+        column_stats = {}
         
         with self.connection_pool.get_connection() as conn:
             try:
@@ -1276,21 +1531,20 @@ class PooledUltraOptimizedUploader:
                     conn.execute("BEGIN IMMEDIATE")
                     
                     try:
-                        total_rows = self._process_csv_data_robust(
-                            conn, csv_data, insert_sql, 
-                            headers, batch_size
+                        total_rows, skipped_rows, column_stats = self._process_csv_data_robust(
+                            conn, csv_data, insert_sql, headers, batch_size, null_handling
                         )
                         
                         conn.execute("COMMIT")
                         
                     except Exception as e:
                         conn.execute("ROLLBACK")
-                        raise Exception(f"Pooled insert failed: {str(e)}")
+                        raise Exception(f"Enhanced CSV insert failed: {str(e)}")
                 else:
                     logger.warning("No data rows found in CSV, only headers were processed")
                     
             except Exception as e:
-                raise Exception(f"Pooled processing failed: {str(e)}")
+                raise Exception(f"Enhanced CSV processing failed: {str(e)}")
         
         elapsed_time = time.time() - start_time
         rows_per_second = int(total_rows / elapsed_time) if elapsed_time > 0 and total_rows > 0 else 0
@@ -1298,33 +1552,50 @@ class PooledUltraOptimizedUploader:
         if self.upload_session:
             self.upload_session.update_progress("completed", rows_processed=total_rows)
         
-        logger.info(f"POOLED COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = {rows_per_second:,} rows/sec")
+        # Identify problematic columns
+        high_null_cols = [col for col, stats in column_stats.items() 
+                        if stats.get('empty_percentage', 0) > 0.5]
+        
+        logger.info(f"ENHANCED CSV COMPLETE: {total_rows:,} rows in {elapsed_time:.2f}s = "
+                f"{rows_per_second:,} rows/sec (skipped {skipped_rows} empty rows)")
         
         return {
             'table_name': table_name,
             'rows_inserted': total_rows,
+            'rows_skipped': skipped_rows,
             'columns': len(headers),
             'time_elapsed': elapsed_time,
             'rows_per_second': rows_per_second,
-            'strategy': 'pooled_ultra_streaming',
+            'strategy': 'enhanced_csv_with_null_handling',
             'batch_size': batch_size,
-            'file_size_mb': content_size_mb
+            'file_size_mb': content_size_mb,
+            'null_handling': null_handling,
+            'data_quality': {
+                'high_null_columns': high_null_cols,
+                'column_stats': column_stats
+            }
         }
-    
-    def _process_csv_data_robust(self, conn, csv_data, insert_sql, headers, batch_size):
-        """Robust CSV data processing with cancellation checks"""
+
+    def _process_csv_data_robust(self, conn, csv_data, insert_sql, headers, batch_size, null_handling='empty_string'):
+        """Enhanced CSV data processing with comprehensive null handling"""
         total_rows = 0
         batch_data = []
         num_columns = len(headers)
+        skipped_rows = 0
         
         csv_reader = csv.reader(io.StringIO(csv_data))
         
-        for row_data in csv_reader:
-            # Check cancellation frequently even for in-memory processing
+        # Track column quality
+        column_stats = {header: {'empty_count': 0, 'total_count': 0} for header in headers}
+        
+        for row_num, row_data in enumerate(csv_reader, 1):
+            # Check cancellation frequently
             if self.upload_session and self.upload_session.is_cancelled:
                 raise CancellationError("Upload cancelled during CSV processing")
             
-            if not any(cell.strip() for cell in row_data):
+            # Skip completely empty rows
+            if not any(cell.strip() for cell in row_data if cell):
+                skipped_rows += 1
                 continue
             
             # Normalize row length
@@ -1333,10 +1604,33 @@ class PooledUltraOptimizedUploader:
             elif len(row_data) > num_columns:
                 row_data = row_data[:num_columns]
             
-            batch_data.append(tuple(row_data))
+            # Process each cell with enhanced null handling
+            processed_row = []
+            row_is_mostly_empty = True
             
+            for col_idx, cell in enumerate(row_data):
+                normalized_cell = normalize_null_values(cell, null_handling)
+                processed_row.append(normalized_cell)
+                
+                # Update column statistics
+                header = headers[col_idx]
+                column_stats[header]['total_count'] += 1
+                if normalized_cell is None or normalized_cell == '':
+                    column_stats[header]['empty_count'] += 1
+                else:
+                    row_is_mostly_empty = False
+            
+            # Option to skip rows that are mostly empty (>80% empty cells)
+            if null_handling == 'skip_rows' and row_is_mostly_empty:
+                empty_cell_count = sum(1 for cell in processed_row if cell is None or cell == '')
+                if empty_cell_count > (num_columns * 0.8):
+                    skipped_rows += 1
+                    continue
+            
+            batch_data.append(tuple(processed_row))
+            
+            # Process batch when full
             if len(batch_data) >= batch_size:
-                # Check cancellation before batch insert
                 if self.upload_session and self.upload_session.is_cancelled:
                     raise CancellationError("Upload cancelled before batch insert")
                 
@@ -1348,8 +1642,9 @@ class PooledUltraOptimizedUploader:
                     self.upload_session.update_progress(rows_processed=total_rows)
                 
                 if total_rows % (batch_size * 2) == 0:
-                    logger.info(f"POOLED: Processed {total_rows:,} rows")
+                    logger.info(f"CSV: Processed {total_rows:,} rows (skipped {skipped_rows} empty rows)")
         
+        # Process final batch
         if batch_data:
             if self.upload_session and self.upload_session.is_cancelled:
                 raise CancellationError("Upload cancelled before final batch")
@@ -1357,8 +1652,25 @@ class PooledUltraOptimizedUploader:
             conn.executemany(insert_sql, batch_data)
             total_rows += len(batch_data)
         
-        return total_rows
-    
+        # Calculate column quality statistics
+        for header, stats in column_stats.items():
+            if stats['total_count'] > 0:
+                stats['empty_percentage'] = stats['empty_count'] / stats['total_count']
+            else:
+                stats['empty_percentage'] = 0
+        
+        # Log data quality summary
+        high_null_cols = [header for header, stats in column_stats.items() 
+                        if stats['empty_percentage'] > 0.5]
+        
+        if high_null_cols:
+            logger.warning(f"Columns with >50% empty values: {high_null_cols}")
+        
+        logger.info(f"CSV processing complete: {total_rows:,} rows processed, "
+                f"{skipped_rows} rows skipped, null_handling='{null_handling}'")
+        
+        return total_rows, skipped_rows, column_stats
+
     def _parse_csv_line(self, line):
         """Robust CSV line parsing"""
         try:
@@ -1931,7 +2243,8 @@ async def handle_file_upload_optimized(datasette, request, db_name, actor, max_f
                 return create_redirect_response(request, db_name, error_msg, is_error=True)
         
         forms, files = parse_multipart_form_data(body, boundary)
-        
+        null_handling = forms.get('null_handling', 'empty_string')
+
         if 'file' not in files:
             error_msg = "No file uploaded"
             if is_ajax:
@@ -2027,7 +2340,8 @@ async def handle_file_upload_optimized(datasette, request, db_name, actor, max_f
                     
                     # Process Excel file using the restored method
                     try:
-                        result = uploader.process_excel_ultra_fast(file_content, table_name, None, replace_existing)
+                        result = uploader.process_excel_ultra_fast(file_content, table_name, None, replace_existing, null_handling)
+
                     except Exception as excel_error:
                         logger.error(f"Excel processing failed: {excel_error}")
                         error_context = await categorize_upload_error(str(excel_error), "excel", datasette)
@@ -2073,7 +2387,7 @@ async def handle_file_upload_optimized(datasette, request, db_name, actor, max_f
                               f"delimiter: '{csv_metadata['delimiter']}'")
                     
                     # Process CSV file
-                    result = uploader.stream_csv_ultra_fast_pooled(csv_content, table_name, replace_existing)
+                    result = uploader.stream_csv_ultra_fast_pooled(csv_content, table_name, replace_existing, null_handling=null_handling)
                 
                 else:
                     raise ValueError(f"Unsupported file type: {file_ext}. Use CSV, TSV, TXT, or Excel files")
@@ -2192,9 +2506,10 @@ async def ajax_sheets_upload_handler(datasette, request):
         body = await request.post_body()
         
         forms, files = parse_multipart_form_data_from_ajax(body, content_type)
+        null_handling = forms.get('null_handling', 'empty_string')
+
         
         sheets_url = forms.get('sheets_url', '').strip()
-        # REMOVED: sheet_index = int(forms.get('sheet_index', '0') or '0')  # Always use first sheet
         custom_table_name = forms.get('table_name', '').strip()
         replace_existing = forms.get('replace_existing') == 'on'
         upload_id = forms.get('upload_id')
@@ -2311,7 +2626,8 @@ async def ajax_sheets_upload_handler(datasette, request):
                 csv_content, 
                 table_name, 
                 replace_existing=(replace_existing and custom_table_name),
-                upload_id=upload_id
+                upload_id=upload_id,
+                null_handling=null_handling
             )
         except CancellationError as ce:
             logger.info(f"Google Sheets processing cancelled: {ce}")
@@ -2422,6 +2738,8 @@ async def ajax_url_upload_handler(datasette, request):
         else:
             post_vars = await request.post_vars()
             forms = dict(post_vars)
+
+        null_handling = forms.get('null_handling', 'empty_string')
 
         csv_url = forms.get('csv_url', '').strip()
         custom_table_name = forms.get('table_name', '').strip()
@@ -2543,7 +2861,8 @@ async def ajax_url_upload_handler(datasette, request):
                 upload_result = uploader.stream_csv_ultra_fast_pooled(
                     csv_content,
                     table_name, 
-                    replace_existing=(replace_existing and custom_table_name)
+                    replace_existing=(replace_existing and custom_table_name),
+                    null_handling=null_handling     
                 )
                 
                 # Check cancellation one more time before commit

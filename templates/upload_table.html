@@ -183,6 +183,16 @@
                                         </label>
                                     </div>
 
+                                    <div class="text-xs text-gray-500 mt-2">
+                                        <div class="font-semibold text-blue-600 mt-4">Null Value Options</div>
+                                        <ul class="space-y-1">
+                                            <li>• Empty strings: Best for most uses</li>
+                                            <li>• Preserve NULLs: For advanced analysis</li>
+                                            <li>• Skip empty rows: Clean data import</li>
+                                            <li>• Handles: NULL, N/A, blank cells</li>
+                                        </ul>
+                                    </div>
+
                                     <!-- Enhanced File Info Display -->
                                     <div id="file-info" class="hidden mt-4">
                                         <div id="file-details" class="p-3 bg-blue-50 rounded border"></div>
@@ -210,6 +220,20 @@
                                             <input type="checkbox" name="replace_existing" class="mr-2">
                                             <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
                                         </label>
+                                    </div>
+
+                                    <div class="mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Null Value Handling
+                                        </label>
+                                        <select name="null_handling" class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            <option value="empty_string">Convert nulls to empty strings (recommended)</option>
+                                            <option value="preserve">Preserve as NULL values in database</option>
+                                            <option value="skip_rows">Skip rows with excessive nulls (>80%)</option>
+                                        </select>
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            How to handle empty cells, "NULL", "N/A", etc. in your data
+                                        </p>
                                     </div>
 
                                     <div class="mt-6">
@@ -253,8 +277,17 @@
                                                 <li>Copy the link and paste it here</li>
                                             </ol>
                                         </details>
+                                    
+                                        <div>
+                                            <div class="font-semibold text-blue-600 mt-4">Null Value Options</div>
+                                            <ul class="space-y-1">
+                                                <li>• Empty strings: Best for most uses</li>
+                                                <li>• Preserve NULLs: For advanced analysis</li>
+                                                <li>• Skip empty rows: Clean data import</li>
+                                                <li>• Handles: NULL, N/A, blank cells</li>
+                                            </ul>
+                                        </div>
                                     </div>
-
                                     <!-- Sheet Validation -->
                                     <div id="sheets-validation" class="hidden mt-3">
                                         <div id="sheets-validation-content" class="p-3 rounded border"></div>
@@ -282,6 +315,20 @@
                                             <input type="checkbox" name="replace_existing" class="mr-2">
                                             <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
                                         </label>
+                                    </div>
+
+                                    <div class="mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Null Value Handling
+                                        </label>
+                                        <select name="null_handling" class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            <option value="empty_string">Convert nulls to empty strings (recommended)</option>
+                                            <option value="preserve">Preserve as NULL values in database</option>
+                                            <option value="skip_rows">Skip rows with excessive nulls (>80%)</option>
+                                        </select>
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            How to handle empty cells and null values from Google Sheets
+                                        </p>
                                     </div>
 
                                     <div class="mt-6">
@@ -319,6 +366,15 @@
                                         <p class="mt-1">Contact admin if your domain is blocked.</p>
                                     </div>
 
+                                    <div class="text-xs text-gray-500 mt-2">
+                                        <div class="font-semibold text-blue-600 mt-4">Null Value Options</div>
+                                        <ul class="space-y-1">
+                                            <li>• Empty strings: Best for most uses</li>
+                                            <li>• Preserve NULLs: For advanced analysis</li>
+                                            <li>• Skip empty rows: Clean data import</li>
+                                            <li>• Handles: NULL, N/A, blank cells</li>
+                                        </ul>
+                                    </div>
                                     <!-- URL Validation -->
                                     <div id="url-validation" class="hidden mt-3">
                                         <div id="url-validation-content" class="p-3 rounded border"></div>
@@ -351,6 +407,20 @@
                                             <input type="checkbox" name="replace_existing" class="mr-2">
                                             <span class="text-sm text-gray-700">Replace existing table if name conflicts</span>
                                         </label>
+                                    </div>
+
+                                    <div class="mt-4">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Null Value Handling
+                                        </label>
+                                        <select name="null_handling" class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            <option value="empty_string">Convert nulls to empty strings (recommended)</option>
+                                            <option value="preserve">Preserve as NULL values in database</option>
+                                            <option value="skip_rows">Skip rows with excessive nulls (>80%)</option>
+                                        </select>
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            How to handle empty cells and null-like values in CSV data
+                                        </p>
                                     </div>
 
                                     <div class="mt-6">
@@ -1001,17 +1071,23 @@
                 if (error.message) {
                     const msg = error.message.toLowerCase();
                     
-                    if (msg.includes('cancelled')) {
+                    // CHECK SIZE ERRORS FIRST - this is the key fix
+                    if (msg.includes('too large') || msg.includes('size') || msg.includes('exceeded') || msg.includes('limit')) {
+                        // If backend sent a detailed size message, use it; otherwise create our own
+                        if (msg.includes('mb') || msg.includes('exceeds')) {
+                            errorMessage = error.message;
+                        } else {
+                            const maxSizeMB = Math.floor(this.maxFileSize / (1024 * 1024));
+                            errorMessage = `File size exceeds the ${maxSizeMB}MB limit set by your administrator`;
+                        }
+                        isCleanupNeeded = true;
+                    } else if (msg.includes('cancelled') && !msg.includes('size') && !msg.includes('limit') && !msg.includes('exceed')) {
                         errorMessage = 'Upload was cancelled by user';
                         isCleanupNeeded = true;
                     } else if (msg.includes('access denied') || msg.includes('permissions')) {
                         errorMessage = 'Access denied. Please check your permissions or refresh the page.';
                     } else if (msg.includes('authentication required')) {
                         errorMessage = 'Session expired. Please refresh the page and log in again.';
-                    } else if (msg.includes('too large') || msg.includes('size') || msg.includes('exceeded')) {
-                        const maxSizeMB = Math.floor(this.maxFileSize / (1024 * 1024));
-                        errorMessage = `File size exceeds the ${maxSizeMB}MB limit set by your administrator`;
-                        isCleanupNeeded = true;
                     } else if (msg.includes('network') || msg.includes('connection')) {
                         errorMessage = 'Network connection failed. Please check your internet connection and try again.';
                     } else if (msg.includes('format') || msg.includes('csv')) {

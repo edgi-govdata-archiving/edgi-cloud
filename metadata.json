@@ -1,8 +1,8 @@
 {
   "license": "ODbL",
   "license_url": "https://opendatacommons.org/licenses/odbl/",
-  "source": "EPA Risk Management Plan Search Tool",
-  "source_url": "https://cdxapps.epa.gov/olem-rmp-pds/",
+  "source": "EDGI Cloud Portal",
+  "source_url": "https://edgi-cloud.fly.dev/",
   "databases": {
     "risk_management_plans": {
       "tables": {
