@@ -1,10 +1,10 @@
-# EDGI Datasette Cloud Portal
+# EDGI Cloud Portal
 
 A comprehensive platform that empowers researchers, organizations, and environmental advocates to share critical environmental datasets as interactive, accessible websites. Built on Datasette with a custom administrative panel for seamless data publishing and portal customization.
 
 ## 🌍 Mission
 
-The EDGI Datasette Cloud Portal serves the critical mission of **democratizing environmental data access** and supporting evidence-based environmental policy. Every dataset shared brings us closer to a more informed, sustainable future.
+The EDGI Cloud Portal serves the critical mission of **democratizing environmental data access** and supporting evidence-based environmental policy. Every dataset shared brings us closer to a more informed, sustainable future.
 
 ## ⚡ Key Features
 
