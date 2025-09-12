@@ -85,23 +85,27 @@
                 
                 <!-- Simple Progress Spinner -->
                 <div class="mb-4" id="progress-section">
-                    <div class="w-full bg-gray-200 rounded-full h-3">
+                    <div class="w-full bg-gray-200 rounded-full h-3 mb-3">
                         <div id="progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out progress-pulse" style="width: 100%"></div>
                     </div>
-                    <div class="text-xs text-gray-500 mt-2">
-                        <span id="progress-time">Elapsed: 0s</span>
+                    
+                    <!-- Enhanced progress info that adapts to upload type -->
+                    <div id="progress-time" class="text-xs text-gray-500 text-center">
+                        Elapsed: 0s
                     </div>
                 </div>
                 
                 <!-- Upload Details (only for file uploads) -->
                 <div id="upload-details" class="text-xs text-gray-600 mb-4 hidden">
-                    <div class="flex justify-between">
-                        <span>File:</span>
-                        <span id="upload-filename"></span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span>Size:</span>
-                        <span id="upload-filesize"></span>
+                    <div class="bg-gray-50 rounded-lg p-3 space-y-2">
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium">File:</span>
+                            <span id="upload-filename" class="truncate max-w-40"></span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-medium">Size:</span>
+                            <span id="upload-filesize"></span>
+                        </div>
                     </div>
                 </div>
                 
@@ -172,14 +176,16 @@
                                         Select File
                                     </label>
                                     <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition"
-                                        ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+                                        ondragover="handleDragOver(event)"
+                                        ondrop="handleDrop(event)"
+                                        ondragleave="handleDragLeave(event)">
                                         <input type="file" name="file" id="file-input" 
-                                            accept=".csv,.txt,.tsv,.xlsx,.xls" 
+                                            accept="{{ system_settings.allowed_extensions }}" 
                                             class="hidden" onchange="handleFileSelect(this)">
                                         <label for="file-input" class="cursor-pointer">
                                             <i class="ri-upload-cloud-2-line text-4xl text-gray-400 mb-2 block"></i>
                                             <p class="text-gray-600">Click to select file or drag & drop</p>
-                                            <p class="text-xs text-gray-500 mt-1">Supports CSV, TSV, TXT, Excel (.xlsx, .xls) files up to {{ (system_settings.max_file_size // (1024*1024)) }}MB</p>
+                                            <p class="text-xs text-gray-500 mt-1">Supports: {{ system_settings.allowed_extensions.replace(',', ', ') }} up to {{ (system_settings.max_file_size // (1024*1024)) }}MB</p>
                                         </label>
                                     </div>
 
@@ -447,8 +453,10 @@
                             <ul class="space-y-1">
                                 <li>• Supported formats: CSV, TSV, TXT</li>
                                 <li>• Excel files: .xlsx, .xls</li>
+                                <li>• JSON Lines files: .jsonl, .json</li>
                                 <li>• UTF-8 encoding recommended</li>
-                                <li>• First row should contain headers</li>
+                                <li>• First row should contain headers (CSV/Excel)</li>
+                                <li>• One JSON object per line (JSONL)</li>
                                 <li>• Maximum size: {{ (system_settings.max_file_size // (1024*1024)) }}MB</li>
                             </ul>
                         </div>
@@ -492,6 +500,10 @@
                 this.cancelRequested = false;
                 this.maxFileSize = {{ system_settings.max_file_size }}; // Server-rendered value in bytes
                 this.lastProgressUpdate = 0;
+                this.uploadStartTime = null;
+                this.lastProgressTime = 0;
+                this.uploadSpeed = 0;
+                this.totalFileSize = 0;
             }
 
             getDbNameFromUrl() {
@@ -505,9 +517,9 @@
             }
 
             getCsrfToken() {
-                // Get CSRF token from form or meta tag
+                // Priority order: form input, then meta tag
                 const csrfInput = document.querySelector('input[name="csrftoken"]');
-                if (csrfInput) {
+                if (csrfInput && csrfInput.value) {
                     return csrfInput.value;
                 }
                 
@@ -516,6 +528,7 @@
                     return csrfMeta.getAttribute('content');
                 }
                 
+                console.warn('No CSRF token found');
                 return '';
             }
 
@@ -577,18 +590,22 @@
             }
 
             validateFileSize(file) {
-                if (file.size > this.maxFileSize) {
+                // Account for ~15% multipart encoding overhead
+                const multipartOverhead = file.size * 0.15;
+                const totalSize = file.size + multipartOverhead;
+                
+                if (totalSize > this.maxFileSize) {
                     const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
                     const maxSizeMB = Math.floor(this.maxFileSize / (1024 * 1024));
                     
-                    const errorMsg = `File size (${fileSizeMB}MB) exceeds the administrator-configured limit of ${maxSizeMB}MB`;
+                    const errorMsg = `File size (${fileSizeMB}MB) may exceed the ${maxSizeMB}MB limit after encoding`;
                     const details = `
                         <strong>What you can try:</strong>
                         <ul class="list-disc list-inside mt-1 space-y-1">
+                            <li>Use a file smaller than ${Math.floor(maxSizeMB * 0.85)}MB to be safe</li>
                             <li>Reduce the number of rows in your file</li>
                             <li>Remove unnecessary columns</li>
-                            <li>Split the data into smaller files</li>
-                            <li>Contact your administrator to request a higher limit</li>
+                            <li>For Excel files, save as CSV to reduce size</li>
                         </ul>
                     `;
                     
@@ -600,18 +617,22 @@
 
             validateFileType(file) {
                 const fileName = file.name.toLowerCase();
-                const validExtensions = ['.csv', '.txt', '.tsv', '.xlsx', '.xls'];
-                const isValid = validExtensions.some(ext => fileName.endsWith(ext));
+                const fileExt = '.' + fileName.split('.').pop().toLowerCase();
+                
+                const allowedExtensionsString = "{{ system_settings.allowed_extensions | e }}";
+                const allowedExtensions = allowedExtensionsString.split(',')
+                    .map(ext => ext.trim().toLowerCase())
+                    .map(ext => ext.startsWith('.') ? ext : '.' + ext); // Ensure all have dots
+                
+                const isValid = allowedExtensions.includes(fileExt);
                 
                 if (!isValid) {
-                    const errorMsg = 'Invalid file type selected';
+                    const allowedDisplay = allowedExtensions.map(ext => ext.toUpperCase());
+                    const errorMsg = `File type '${fileExt.toUpperCase()}' is not supported`;
                     const details = `
                         <strong>Supported file types:</strong>
                         <ul class="list-disc list-inside mt-1">
-                            <li>CSV files (.csv)</li>
-                            <li>Tab-separated files (.tsv)</li>
-                            <li>Text files (.txt)</li>
-                            <li>Excel files (.xlsx, .xls)</li>
+                            ${allowedDisplay.map(ext => `<li>${ext} files</li>`).join('')}
                         </ul>
                     `;
                     this.showMessage(errorMsg, 'error', details);
@@ -621,7 +642,7 @@
             }
 
             showProgress(title, message, type = 'file', filename = '', filesize = '') {
-                this.clearAllMessages(); // Clear any existing messages
+                this.clearAllMessages();
                 
                 const overlay = document.getElementById('upload-progress-overlay');
                 const progressTitle = document.getElementById('progress-title');
@@ -645,21 +666,27 @@
                 progressIcon.className = `${iconClass} text-5xl text-blue-500`;
                 
                 // Show file details for file uploads
-                if (filename && filesize) {
+                if (filename && filesize && type === 'file') {
                     uploadFilename.textContent = filename;
                     uploadFilesize.textContent = filesize;
                     uploadDetails.classList.remove('hidden');
+                    
+                    // Parse file size for progress calculations
+                    const sizeInBytes = this.parseFileSizeToBytes(filesize);
+                    this.totalFileSize = sizeInBytes;
                 } else {
                     uploadDetails.classList.add('hidden');
+                    this.totalFileSize = 0;
                 }
                 
                 // Reset states
-                this.resetProgress();
+                this.resetProgress(type);
                 uploadResult.classList.add('hidden');
                 actionButtons.classList.remove('hidden');
                 progressSection.classList.remove('hidden');
                 this.isCancelling = false;
                 this.cancelRequested = false;
+                this.uploadStartTime = Date.now();
                 
                 // Reset cancel button
                 if (cancelButton) {
@@ -694,58 +721,164 @@
                 this.currentUploadId = null;
                 this.abortController = null;
                 this.startTime = null;
+                this.uploadStartTime = null;
+                this.lastProgressTime = 0;
+                this.uploadSpeed = 0;
+                this.totalFileSize = 0;
             }
-
-            resetProgress() {
+            
+            // Enhanced progress reset with different behavior for file uploads
+            resetProgress(type = 'file') {
                 const progressBar = document.getElementById('progress-bar');
                 const progressTime = document.getElementById('progress-time');
                 
                 if (progressBar) {
-                    progressBar.style.width = '100%';
-                    progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out progress-pulse';
+                    if (type === 'file') {
+                        // For file uploads, start at 0% and show actual progress
+                        progressBar.style.width = '0%';
+                        progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out';
+                    } else {
+                        // For sheets/URL, use indeterminate progress
+                        progressBar.style.width = '100%';
+                        progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out progress-pulse';
+                    }
                 }
                 
                 if (progressTime) {
                     progressTime.textContent = 'Elapsed: 0s';
                 }
             }
+            
+            // Enhanced progress update with detailed file upload information
+            updateProgress(loaded, total) {
+                if (!this.isUploading || this.isCancelling) return;
+                
+                // Only show detailed progress for file uploads with actual progress data
+                if (!loaded || !total || loaded === 0 || total === 0) {
+                    return;
+                }
 
+                const now = Date.now();
+                const percentage = Math.round((loaded / total) * 100);
+                const progressBar = document.getElementById('progress-bar');
+                const progressTime = document.getElementById('progress-time');
+                
+                // Update progress bar
+                if (progressBar) {
+                    progressBar.style.width = percentage + '%';
+                    progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out';
+                }
+                
+                // Calculate upload speed and ETA (update every 2 seconds to avoid flickering)
+                if (now - this.lastProgressTime > 2000) {
+                    const timeElapsed = (now - this.uploadStartTime) / 1000; // seconds
+                    const uploadedMB = loaded / (1024 * 1024);
+                    const totalMB = total / (1024 * 1024);
+                    const remainingMB = totalMB - uploadedMB;
+                    
+                    // Calculate current speed (MB/s)
+                    if (timeElapsed > 0) {
+                        this.uploadSpeed = uploadedMB / timeElapsed;
+                    }
+                    
+                    // Calculate ETA
+                    let etaText = '';
+                    if (this.uploadSpeed > 0 && remainingMB > 0) {
+                        const etaSeconds = remainingMB / this.uploadSpeed;
+                        etaText = this.formatTime(etaSeconds);
+                    }
+                    
+                    // Update progress text with detailed information
+                    if (progressTime) {
+                        const elapsed = Math.floor(timeElapsed);
+                        const speedText = this.uploadSpeed > 0 ? ` • ${this.uploadSpeed.toFixed(1)} MB/s` : '';
+                        const etaDisplay = etaText ? ` • ETA: ${etaText}` : '';
+                        
+                        progressTime.innerHTML = `
+                            <div class="flex justify-between text-xs">
+                                <span>Uploaded: ${uploadedMB.toFixed(1)} / ${totalMB.toFixed(1)} MB</span>
+                                <span>${percentage}%</span>
+                            </div>
+                            <div class="text-center mt-1">
+                                Elapsed: ${elapsed}s${speedText}${etaDisplay}
+                            </div>
+                        `;
+                    }
+                    
+                    this.lastProgressTime = now;
+                }
+            }
+            
+            // Helper function to parse file size string to bytes
+            parseFileSizeToBytes(sizeString) {
+                const match = sizeString.match(/^([\d.]+)\s*(MB|KB|GB)$/i);
+                if (!match) return 0;
+                
+                const value = parseFloat(match[1]);
+                const unit = match[2].toUpperCase();
+                
+                switch (unit) {
+                    case 'KB':
+                        return value * 1024;
+                    case 'MB':
+                        return value * 1024 * 1024;
+                    case 'GB':
+                        return value * 1024 * 1024 * 1024;
+                    default:
+                        return value;
+                }
+            }
+
+            // Helper function to format time duration
+            formatTime(seconds) {
+                if (seconds < 60) {
+                    return `${Math.round(seconds)}s`;
+                } else if (seconds < 3600) {
+                    const minutes = Math.floor(seconds / 60);
+                    const secs = Math.round(seconds % 60);
+                    return `${minutes}m ${secs}s`;
+                } else {
+                    const hours = Math.floor(seconds / 3600);
+                    const minutes = Math.floor((seconds % 3600) / 60);
+                    return `${hours}h ${minutes}m`;
+                }
+            }
+
+            // Keep indeterminate progress for non-file uploads
             showIndeterminateProgress() {
                 const progressBar = document.getElementById('progress-bar');
+                const progressTime = document.getElementById('progress-time');
                 
                 if (progressBar) {
                     progressBar.style.width = '100%';
                     progressBar.className = 'progress-pulse h-3 rounded-full';
                 }
-            }
-
-            updateProgress(loaded, total) {
-                // Only show real progress for file uploads with actual progress data
-                if (!this.isUploading || this.isCancelling) return;
-                if (!loaded || !total || loaded === 0 || total === 0) return;
-
-                const percentage = Math.round((loaded / total) * 100);
-                const progressBar = document.getElementById('progress-bar');
                 
-                if (progressBar) {
-                    // Only show percentage-based progress for file uploads
-                    progressBar.style.width = percentage + '%';
-                    progressBar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-300 ease-out';
+                // For non-file uploads, show simpler progress info
+                if (progressTime && this.startTime) {
+                    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                    progressTime.innerHTML = `
+                        <div class="text-center">
+                            Elapsed: ${elapsed}s
+                        </div>
+                    `;
                 }
             }
-            
+
+            // Enhanced timer that differentiates between file and non-file uploads
             startTimer() {
                 const progressTime = document.getElementById('progress-time');
                 if (progressTime) {
                     this.progressTimer = setInterval(() => {
-                        if (this.startTime) {
+                        if (this.startTime && !this.totalFileSize) { // Non-file upload
                             const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-                            progressTime.textContent = `Elapsed: ${elapsed}s`;
+                            progressTime.innerHTML = `<div class="text-center">Elapsed: ${elapsed}s</div>`;
                         }
+                        // For file uploads, progress is updated in updateProgress()
                     }, 1000);
                 }
             }
-
+            
             cancelUpload() {
                 if (this.isCancelling || this.cancelRequested) return;
                 
@@ -873,7 +1006,7 @@
                 resultActions.classList.remove('hidden');
             }
 
-            // Upload Methods
+            // Modified upload methods to use enhanced progress
             async uploadFile(formElement) {
                 const formData = new FormData(formElement);
                 const fileInput = formElement.querySelector('input[type="file"]');
@@ -884,16 +1017,14 @@
                     return;
                 }
 
-                // Validate file before upload
                 if (!this.validateFileType(file) || !this.validateFileSize(file)) {
                     return;
                 }
 
-                // Generate upload ID
                 this.currentUploadId = this.generateUploadId('file');
                 formData.append('upload_id', this.currentUploadId);
 
-                // Show progress
+                // Show enhanced progress for files
                 const fileSize = (file.size / 1024 / 1024).toFixed(1) + ' MB';
                 this.showProgress('Uploading File', `Processing ${file.name}...`, 'file', file.name, fileSize);
 
@@ -1066,43 +1197,37 @@
                 console.error('Upload error:', error);
                 
                 let errorMessage = 'Upload failed';
-                let isCleanupNeeded = false;
+                let errorType = 'error';
                 
                 if (error.message) {
                     const msg = error.message.toLowerCase();
                     
-                    // CHECK SIZE ERRORS FIRST - this is the key fix
+                    // Match backend error categorization
                     if (msg.includes('too large') || msg.includes('size') || msg.includes('exceeded') || msg.includes('limit')) {
-                        // If backend sent a detailed size message, use it; otherwise create our own
-                        if (msg.includes('mb') || msg.includes('exceeds')) {
-                            errorMessage = error.message;
-                        } else {
-                            const maxSizeMB = Math.floor(this.maxFileSize / (1024 * 1024));
-                            errorMessage = `File size exceeds the ${maxSizeMB}MB limit set by your administrator`;
-                        }
-                        isCleanupNeeded = true;
-                    } else if (msg.includes('cancelled') && !msg.includes('size') && !msg.includes('limit') && !msg.includes('exceed')) {
+                        errorMessage = error.message;
+                        errorType = 'error';
+                    } else if (msg.includes('cancelled')) {
                         errorMessage = 'Upload was cancelled by user';
-                        isCleanupNeeded = true;
-                    } else if (msg.includes('access denied') || msg.includes('permissions')) {
-                        errorMessage = 'Access denied. Please check your permissions or refresh the page.';
-                    } else if (msg.includes('authentication required')) {
+                        errorType = 'warning';
+                    } else if (msg.includes('access denied') || msg.includes('permission')) {
+                        errorMessage = 'Access denied. Please refresh the page and try again.';
+                        errorType = 'error';
+                    } else if (msg.includes('authentication') || msg.includes('session')) {
                         errorMessage = 'Session expired. Please refresh the page and log in again.';
+                        errorType = 'error';
                     } else if (msg.includes('network') || msg.includes('connection')) {
                         errorMessage = 'Network connection failed. Please check your internet connection and try again.';
-                    } else if (msg.includes('format') || msg.includes('csv')) {
-                        errorMessage = 'File format is not supported. Please use CSV, TSV, TXT, or Excel files.';
+                        errorType = 'error';
+                    } else if (msg.includes('format') || msg.includes('csv') || msg.includes('excel') || msg.includes('invalid')) {
+                        errorMessage = error.message; // Use backend's detailed format error
+                        errorType = 'error';
                     } else {
                         errorMessage = error.message;
+                        errorType = 'error';
                     }
                 }
                 
-                if (isCleanupNeeded) {
-                    this.showCleanupProcess(errorMessage);
-                } else {
-                    this.showResult(errorMessage, 'error');
-                }
-                
+                this.showResult(errorMessage, errorType);
                 this.isUploading = false;
                 this.currentUploadId = null;
             }
@@ -1157,7 +1282,9 @@
             uploadManager.clearAllMessages();
 
             if (file) {
-                // Validate file
+                console.log('Selected file:', file.name, 'Size:', file.size, 'Type:', file.type);
+                
+                // Validate file - this will show user-friendly error messages
                 const isValidType = uploadManager.validateFileType(file);
                 const isValidSize = uploadManager.validateFileSize(file);
                 
@@ -1171,6 +1298,7 @@
                 // Show file details
                 const sizeInMB = (file.size / 1024 / 1024).toFixed(2);
                 const fileType = file.name.split('.').pop().toUpperCase();
+                const extension = '.' + file.name.split('.').pop().toLowerCase();
                 
                 fileDetails.innerHTML = `
                     <div class="flex items-center">
@@ -1190,6 +1318,20 @@
                     fileWarnings.querySelector('div').innerHTML = `
                         <i class="ri-alert-line mr-1"></i>
                         <strong>Large file detected:</strong> Upload may take several minutes to complete.
+                    `;
+                }
+                // FIX: Moved extension-based warnings to separate condition and defined extension variable
+                else if (['.xlsx', '.xls'].includes(extension)) {
+                    fileWarnings.classList.remove('hidden');
+                    fileWarnings.querySelector('div').innerHTML = `
+                        <i class="ri-information-line mr-1"></i>
+                        <strong>Excel file:</strong> Only the first sheet will be imported. For multiple sheets, save each as a separate CSV file.
+                    `;
+                } else if (['.jsonl', '.json'].includes(extension)) {
+                    fileWarnings.classList.remove('hidden');
+                    fileWarnings.querySelector('div').innerHTML = `
+                        <i class="ri-information-line mr-1"></i>
+                        <strong>JSON file:</strong> Expected format is one JSON object per line (JSONL). Regular JSON arrays will be processed if possible.
                     `;
                 }
                 
@@ -1225,6 +1367,11 @@
                 document.getElementById('file-input').files = files;
                 handleFileSelect(document.getElementById('file-input'));
             }
+        }
+
+        function handleDragLeave(event) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('border-blue-400', 'bg-blue-50');
         }
 
         function validateSheetsUrl() {

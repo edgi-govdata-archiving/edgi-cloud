@@ -171,11 +171,11 @@ async def get_allowed_extensions(datasette):
     """
     try:
         settings = await get_system_settings(datasette)
-        return settings.get('allowed_extensions', '.jpg,.png,.csv,.xls,.xlsx,.txt')
+        return settings.get('allowed_extensions', '.jpg,.png,.csv,.xls,.xlsx,.txt,.jsonl,.json')
     except Exception as e:
         logger.error(f"Error getting allowed extensions: {e}")
-        return '.jpg,.png,.csv,.xls,.xlsx,.txt'
-
+        return '.jpg,.png,.csv,.xls,.xlsx,.txt,.jsonl,.json'
+    
 async def get_blocked_domains(datasette):
     """
     Get list of blocked domains for URL uploads.
@@ -1017,6 +1017,21 @@ def validate_password(password):
         return False, "Password must be at least 6 characters long"
     
     return True, None
+
+async def validate_file_extension(file_ext, datasette):
+    """Validate file extension using get_allowed_extensions()"""
+    try:
+        allowed_extensions = await get_allowed_extensions(datasette)
+        allowed_list = [ext.strip().lower() for ext in allowed_extensions.split(',')]
+        
+        if file_ext.lower() in allowed_list:
+            return True, None
+        else:
+            return False, f"File type '{file_ext}' not allowed. Allowed types: {', '.join(allowed_list)}"
+            
+    except Exception as e:
+        logger.error(f"Error validating file extension: {e}")
+        return False, f"Could not validate file type: {str(e)}"
 
 async def update_database_timestamp(datasette, db_name):
     """
