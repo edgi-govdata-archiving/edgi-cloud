@@ -77,6 +77,7 @@ from common_utils import (
     validate_table_name_enhanced,
     auto_fix_table_name,
     get_system_settings,
+    validate_file_extension,
 )
 
 logger = logging.getLogger(__name__)
@@ -1253,7 +1254,204 @@ class PooledUltraOptimizedUploader:
             max_connections=max_connections,
             ultra_pragmas=self.ULTRA_PRAGMAS
         )
-    
+    def process_jsonl_ultra_fast(self, file_content, table_name, replace_existing=False, null_handling='empty_string'):
+        """Process JSONL files with enhanced null handling"""
+        start_time = time.time()
+        
+        try:
+            if self.upload_session and self.upload_session.is_cancelled:
+                raise CancellationError("JSONL processing cancelled")
+            
+            logger.info(f"Processing JSONL file for table '{table_name}' with null_handling='{null_handling}'")
+            
+            # Decode content if it's bytes
+            if isinstance(file_content, bytes):
+                try:
+                    jsonl_content = file_content.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        jsonl_content = file_content.decode('utf-8-sig')
+                    except UnicodeDecodeError:
+                        jsonl_content = file_content.decode('latin-1')
+            else:
+                jsonl_content = file_content
+            
+            # Parse JSONL content
+            json_objects = []
+            line_number = 0
+            errors = []
+            
+            for line in jsonl_content.strip().split('\n'):
+                line_number += 1
+                line = line.strip()
+                
+                if not line:  # Skip empty lines
+                    continue
+                    
+                try:
+                    json_obj = json.loads(line)
+                    if not isinstance(json_obj, dict):
+                        errors.append(f"Line {line_number}: Expected JSON object, got {type(json_obj).__name__}")
+                        continue
+                    json_objects.append(json_obj)
+                except json.JSONDecodeError as e:
+                    errors.append(f"Line {line_number}: {str(e)}")
+                    if len(errors) > 50:  # Limit error collection
+                        errors.append("... (additional errors truncated)")
+                        break
+            
+            if not json_objects:
+                if errors:
+                    raise ValueError(f"No valid JSON objects found. Sample errors: {'; '.join(errors[:3])}")
+                else:
+                    raise ValueError("JSONL file is empty or contains no valid JSON objects")
+            
+            if errors and len(errors) > len(json_objects) * 0.2:  # More than 20% errors
+                raise ValueError(f"Too many parsing errors ({len(errors)} errors in {line_number} lines). "
+                            f"Sample errors: {'; '.join(errors[:3])}")
+            
+            logger.info(f"Parsed {len(json_objects)} JSON objects from {line_number} lines")
+            
+            # Extract all unique keys from all objects to create columns
+            all_keys = set()
+            for obj in json_objects:
+                all_keys.update(obj.keys())
+            
+            if not all_keys:
+                raise ValueError("No valid JSON object keys found")
+            
+            # Sort keys for consistent column ordering
+            columns = sorted(list(all_keys))
+            logger.info(f"Detected {len(columns)} unique columns")
+            
+            # Clean column names using existing methods
+            clean_columns = [self._clean_column_name(str(col)) for col in columns]
+            clean_columns = self._ensure_unique_column_names(clean_columns)
+            
+            # Create column mapping
+            column_mapping = dict(zip(columns, clean_columns))
+            
+            # Process data with null handling
+            processed_data = []
+            rows_with_issues = 0
+            
+            for obj in json_objects:
+                if self.upload_session and self.upload_session.is_cancelled:
+                    raise CancellationError("Cancelled during JSONL processing")
+                
+                row = []
+                row_has_issues = False
+                
+                for original_col in columns:
+                    value = obj.get(original_col)
+                    
+                    # Handle nested objects and arrays
+                    if isinstance(value, (dict, list)):
+                        value = json.dumps(value)  # Convert complex types to JSON strings
+                    
+                    # Apply null handling using existing function
+                    normalized_value = normalize_null_values(value, null_handling)
+                    row.append(normalized_value)
+                    
+                    if normalized_value is None or normalized_value == '':
+                        row_has_issues = True
+                
+                if row_has_issues:
+                    rows_with_issues += 1
+                
+                processed_data.append(tuple(row))
+            
+            # Calculate batch size using your existing logic
+            content_size = len(jsonl_content.encode('utf-8'))
+            content_size_mb = content_size / (1024 * 1024)
+            
+            # Use your existing batch size logic
+            if content_size_mb > 200:
+                batch_size = 100000
+            elif content_size_mb > 50:
+                batch_size = 50000
+            else:
+                batch_size = 25000
+            
+            # Adjust for JSONL complexity
+            if len(columns) > 50:
+                batch_size = max(2000, batch_size // 4)
+            elif len(columns) > 20:
+                batch_size = max(5000, batch_size // 2)
+            
+            logger.info(f"Using batch size {batch_size:,} for {len(processed_data):,} JSONL rows")
+            
+            # Insert to database using existing connection pool
+            total_rows = len(processed_data)
+            inserted_rows = 0
+            
+            with self.connection_pool.get_connection() as conn:
+                if self.upload_session and self.upload_session.is_cancelled:
+                    raise CancellationError("Cancelled before database operations")
+                
+                if replace_existing:
+                    conn.execute(f"DROP TABLE IF EXISTS [{table_name}]")
+                
+                # Create table
+                columns_sql = ', '.join([f'[{col}] TEXT' for col in clean_columns])
+                conn.execute(f"CREATE TABLE IF NOT EXISTS [{table_name}] ({columns_sql})")
+                
+                # Insert data in batches
+                conn.execute("BEGIN IMMEDIATE")
+                
+                try:
+                    placeholders = ','.join(['?' for _ in clean_columns])
+                    insert_sql = f"INSERT INTO [{table_name}] VALUES ({placeholders})"
+                    
+                    for start_idx in range(0, total_rows, batch_size):
+                        if self.upload_session and self.upload_session.is_cancelled:
+                            raise CancellationError("Cancelled during processing")
+                        
+                        end_idx = min(start_idx + batch_size, total_rows)
+                        batch_data = processed_data[start_idx:end_idx]
+                        
+                        conn.executemany(insert_sql, batch_data)
+                        inserted_rows += len(batch_data)
+                        
+                        if self.upload_session:
+                            self.upload_session.update_progress(rows_processed=inserted_rows)
+                        
+                        if start_idx % (batch_size * 2) == 0:
+                            logger.info(f"JSONL: Processed {inserted_rows:,} / {total_rows:,} rows")
+                    
+                    conn.execute("COMMIT")
+                    
+                except Exception as insert_error:
+                    conn.execute("ROLLBACK")
+                    raise Exception(f"Database insert failed: {str(insert_error)}")
+            
+            elapsed_time = time.time() - start_time
+            rows_per_second = int(inserted_rows / elapsed_time) if elapsed_time > 0 else 0
+            
+            if self.upload_session:
+                self.upload_session.update_progress("completed", rows_processed=inserted_rows)
+            
+            logger.info(f"JSONL COMPLETE: {inserted_rows:,} rows in {elapsed_time:.2f}s")
+            
+            return {
+                'table_name': table_name,
+                'rows_inserted': inserted_rows,
+                'columns': len(clean_columns),
+                'time_elapsed': elapsed_time,
+                'rows_per_second': rows_per_second,
+                'strategy': 'jsonl_ultra_fast',
+                'file_type': 'jsonl',
+                'null_handling': null_handling,
+                'parsing_errors': len(errors),
+                'rows_with_nulls': rows_with_issues
+            }
+            
+        except CancellationError:
+            raise
+        except Exception as e:
+            logger.error(f"JSONL processing failed: {e}")
+            raise Exception(f"JSONL processing failed: {str(e)}")
+        
     def process_excel_ultra_fast(self, file_content, table_name, sheet_name=None, replace_existing=False, null_handling='empty_string'):
         """Process Excel files with enhanced null handling and data quality reporting"""
         if not PANDAS_AVAILABLE:
@@ -2256,6 +2454,14 @@ async def handle_file_upload_optimized(datasette, request, db_name, actor, max_f
         filename = file_info['filename']
         file_content = file_info['content']
         
+        file_ext = os.path.splitext(filename)[1].lower()
+        is_valid, error_msg = await validate_file_extension(file_ext, datasette)
+        if not is_valid:
+            if is_ajax:
+                return Response.json({"success": False, "error": error_msg}, status=400)
+            else:
+                return create_redirect_response(request, db_name, error_msg, is_error=True)
+
         custom_table_name = forms.get('table_name', '').strip()
         replace_existing = forms.get('replace_existing') == 'on' or 'replace_existing' in forms
         upload_id = forms.get('upload_id')
@@ -2312,8 +2518,23 @@ async def handle_file_upload_optimized(datasette, request, db_name, actor, max_f
             uploader = get_optimal_uploader(file_size, file_path, use_ultra_mode, upload_session)
             
             try:
-                # COMPLETE Excel processing
-                if file_ext in ['.xlsx', '.xls']:
+                # JSONL processing
+
+                if file_ext in ['.jsonl', '.json']:
+                    logger.info(f"Processing JSONL file: {filename}")
+                    
+                    try:
+                        result = uploader.process_jsonl_ultra_fast(file_content, table_name, replace_existing, null_handling)
+                    except Exception as jsonl_error:
+                        logger.error(f"JSONL processing failed: {jsonl_error}")
+                        error_context = await categorize_upload_error(str(jsonl_error), "jsonl", datasette)
+                        if is_ajax:
+                            return create_error_response(error_context, is_ajax=True)
+                        else:
+                            return create_redirect_response(request, db_name, error_context["user_message"], is_error=True)
+                        
+                # Excel processing
+                elif file_ext in ['.xlsx', '.xls']:
                     logger.info(f"Processing Excel file: {filename}")
                     
                     # Enhanced Excel validation
@@ -2390,7 +2611,7 @@ async def handle_file_upload_optimized(datasette, request, db_name, actor, max_f
                     result = uploader.stream_csv_ultra_fast_pooled(csv_content, table_name, replace_existing, null_handling=null_handling)
                 
                 else:
-                    raise ValueError(f"Unsupported file type: {file_ext}. Use CSV, TSV, TXT, or Excel files")
+                    raise ValueError(f"Unsupported file type: {file_ext}. Use CSV, TSV, TXT, Excel or JSONL files")
             
             finally:
                 uploader.close_pool()
