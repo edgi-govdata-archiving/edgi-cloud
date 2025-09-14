@@ -31,8 +31,8 @@
             {% endif %}
         </div>
     </header>
-    
-    <!-- Upload Progress Overlay -->
+
+    <!-- Enhanced Progress Overlay -->
     <div id="upload-progress-overlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <div class="text-center">
@@ -40,7 +40,7 @@
                     <i id="progress-icon" class="ri-database-line text-5xl text-blue-500"></i>
                 </div>
                 <h3 class="text-lg font-semibold mb-2" id="progress-title">Importing Database...</h3>
-                <p class="text-gray-600 text-sm mb-4" id="progress-message">Please wait while your database is being processed.</p>
+                <p class="text-gray-600 text-sm mb-4" id="progress-message">Processing your SQLite database file...</p>
                 
                 <!-- Real Progress Bar -->
                 <div class="mb-4">
@@ -103,6 +103,7 @@
                     </div>
                 {% endif %}
 
+                <!-- HYBRID APPROACH: Use AJAX for better UX -->
                 <form id="import-form" onsubmit="return handleImportSubmit(event)">
                     <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
                     
@@ -116,6 +117,9 @@
                             <i class="ri-information-line mr-1"></i>
                             Use lowercase letters, numbers, underscores, and hyphens only.
                         </p>
+                        <div id="name-validation" class="text-xs mt-1 hidden">
+                            <div id="name-status"></div>
+                        </div>
                         <div id="url-preview" class="text-xs text-blue-600 mt-1 opacity-0 transition-opacity">
                             Your database will be available at: <span class="font-mono bg-blue-50 px-1 rounded"></span>
                         </div>
@@ -136,6 +140,12 @@
                         </div>
                     </div>
 
+                    <!-- Name Suggestions Area -->
+                    <div id="name-suggestions" class="hidden mb-6 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                        <p class="text-sm text-yellow-800 mb-2"><i class="ri-lightbulb-line mr-1"></i>Try these available names:</p>
+                        <div id="suggestions-list" class="flex flex-wrap gap-2"></div>
+                    </div>
+
                     <div class="bg-blue-50 border border-blue-200 rounded-button p-4 mb-6">
                         <h3 class="font-medium text-blue-800 mb-3">
                             <i class="ri-lightbulb-line mr-2"></i>Import Process
@@ -143,7 +153,11 @@
                         <div class="space-y-2 text-sm text-blue-700">
                             <div class="flex items-start">
                                 <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
-                                <span>File validated and tables analyzed</span>
+                                <span>Database name validated before upload</span>
+                            </div>
+                            <div class="flex items-start">
+                                <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
+                                <span>File uploaded and tables analyzed</span>
                             </div>
                             <div class="flex items-start">
                                 <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
@@ -153,31 +167,6 @@
                                 <i class="ri-arrow-right-s-line mt-0.5 mr-1"></i>
                                 <span>Customize homepage and <strong>publish</strong> when ready</span>
                             </div>
-                        </div>
-                    </div>
-
-                    <div class="bg-yellow-50 border border-yellow-200 rounded-button p-4 mb-6">
-                        <h3 class="font-medium text-yellow-800 mb-2">
-                            <i class="ri-shield-check-line mr-2"></i>File Requirements
-                        </h3>
-                        <div class="text-sm text-yellow-700 space-y-1">
-                            <div>📁 Valid SQLite database (.db, .sqlite, .sqlite3)</div>
-                            <div>📏 Maximum file size: {{ (system_settings.max_file_size // (1024*1024)) }}MB</div>
-                            <div>📊 Must contain at least one table</div>
-                            <div>⚠️ Database name must be unique</div>
-                        </div>
-                    </div>
-
-                    <div class="bg-green-50 border border-green-200 rounded-button p-4 mb-6">
-                        <h3 class="font-medium text-green-800 mb-2">
-                            <i class="ri-magic-line mr-2"></i>Powered by Datasette
-                        </h3>
-                        <div class="text-sm text-green-700 space-y-1">
-                            <div>✨ Automatic search and filtering for all data</div>
-                            <div>📊 Interactive charts and visualizations</div>
-                            <div>🔗 Instant API endpoints for tables</div>
-                            <div>💾 Export data in CSV, JSON, and other formats</div>
-                            <div>🔍 Advanced SQL query interface</div>
                         </div>
                     </div>
                     
@@ -202,7 +191,7 @@
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
                     <p class="text-primary">
-                        Made with <span class="text-red-500" aria-label="love">❤</span> by 
+                        Made with <span class="text-red-500" aria-label="love">♥</span> by 
                         <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 
                         <a href="https://screening-tools.com/" rel="nofollow" class="text-accent hover:text-primary">Public Environmental Data Partners</a>.
                     </p>
@@ -215,6 +204,95 @@
     </footer>
 
     <script>
+        // Global validation functions (outside of class for accessibility)
+        async function validateDatabaseNameBeforeUpload(dbName) {
+            if (!dbName || !dbName.trim()) {
+                return { valid: false, error: "Database name is required." };
+            }
+            
+            // Format validation
+            const namePattern = /^[a-z0-9_-]+$/;
+            if (!namePattern.test(dbName)) {
+                return { valid: false, error: "Database name can only contain lowercase letters, numbers, underscores, and hyphens." };
+            }
+            
+            try {
+                // GET CSRF TOKEN from the form
+                const csrfToken = document.querySelector('input[name="csrftoken"]').value;
+                
+                const response = await fetch('/ajax-check-database-name', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken  // ADD CSRF TOKEN
+                    },
+                    body: JSON.stringify({ db_name: dbName })
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok || !result.success) {
+                    // Show suggestions if available
+                    if (result.suggestions && result.suggestions.length > 0) {
+                        showNameSuggestions(result.suggestions);
+                    }
+                    return { valid: false, error: result.error || 'Name validation failed' };
+                }
+                
+                hideNameSuggestions();
+                return { valid: true };
+                
+            } catch (error) {
+                console.error('Name validation error:', error);
+                return { valid: false, error: 'Unable to verify database name. Please try again.' };
+            }
+        }
+
+        function showNameSuggestions(suggestions) {
+            const container = document.getElementById('name-suggestions');
+            const list = document.getElementById('suggestions-list');
+            
+            list.innerHTML = '';
+            suggestions.forEach(name => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded text-sm transition';
+                btn.textContent = name;
+                btn.onclick = () => useSuggestedName(name);
+                list.appendChild(btn);
+            });
+            
+            container.classList.remove('hidden');
+        }
+
+        function hideNameSuggestions() {
+            document.getElementById('name-suggestions').classList.add('hidden');
+        }
+
+        function useSuggestedName(name) {
+            const dbNameInput = document.getElementById('db_name');
+            const fileInput = document.getElementById('database_file');
+            
+            // Check if file is still selected
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('The file selection was lost. Please select your database file again, then choose a suggested name.');
+                hideNameSuggestions();
+                fileInput.focus();
+                return;
+            }
+            
+            // Set the suggested name
+            dbNameInput.value = name;
+            hideNameSuggestions();
+            
+            // Trigger validation
+            dbNameInput.dispatchEvent(new Event('blur'));
+            
+            // Update visual feedback
+            showNameStatus('available', `✓ "${name}" is available`);
+        }
+
+        // ImportManager class for handling uploads
         class ImportManager {
             constructor() {
                 this.currentXHR = null;
@@ -319,20 +397,32 @@
                 uploadResult.classList.remove('hidden');
             }
 
+            // Enhanced import with early validation
             async importDatabase(formElement) {
                 const formData = new FormData(formElement);
                 const fileInput = formElement.querySelector('input[type="file"]');
                 const file = fileInput.files[0];
+                const dbName = formElement.querySelector('#db_name').value.trim().toLowerCase();
                 
                 if (!file) {
                     alert('Please select a database file');
                     return;
                 }
 
+                // STEP 1: VALIDATE DATABASE NAME FIRST - BEFORE ANY UPLOAD
+                console.log('Validating database name:', dbName);
+                const nameValidation = await validateDatabaseNameBeforeUpload(dbName);
+                if (!nameValidation.valid) {
+                    alert(nameValidation.error);
+                    return; // Stop here - no upload happens
+                }
+
+                // STEP 2: VALIDATE FILE
                 if (!this.validateFile(file)) {
                     return;
                 }
 
+                // STEP 3: PROCEED WITH UPLOAD
                 const fileSize = (file.size / 1024 / 1024).toFixed(1) + ' MB';
                 this.showProgress(file.name, fileSize);
 
@@ -376,15 +466,15 @@
                     });
 
                     xhr.addEventListener('load', () => {
-                        if (xhr.status === 200) {
-                            try {
-                                const response = JSON.parse(xhr.responseText);
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (xhr.status === 200 && response.success) {
                                 resolve(response);
-                            } catch (e) {
-                                reject(new Error('Invalid response format'));
+                            } else {
+                                reject(new Error(response.error || `HTTP ${xhr.status}: ${xhr.statusText}`));
                             }
-                        } else {
-                            reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+                        } catch (e) {
+                            reject(new Error('Invalid response format'));
                         }
                     });
 
@@ -424,16 +514,30 @@
             }
 
             handleImportError(error) {
-                this.showResult(`Import failed: ${error.message}`, 'error');
+                let errorMessage = error.message;
+                
+                // Handle different HTTP status codes with better messages
+                if (error.message.includes('HTTP 413')) {
+                    errorMessage = 'File too large for upload. Please choose a smaller database file.';
+                } else if (error.message.includes('HTTP 422')) {
+                    errorMessage = 'Validation error: Please check your input and try again.';
+                } else if (error.message.includes('HTTP 400')) {
+                    errorMessage = 'Invalid request. Please refresh the page and try again.';
+                } else if (error.message.includes('HTTP 500')) {
+                    errorMessage = 'Server error occurred. Please try again or contact support.';
+                }
+                
+                this.showResult(`Import failed: ${errorMessage}`, 'error');
                 setTimeout(() => this.hideProgress(), 3000);
             }
         }
 
         const importManager = new ImportManager();
 
-        function handleImportSubmit(event) {
+        // Main form submission handler
+        async function handleImportSubmit(event) {
             event.preventDefault();
-            importManager.importDatabase(event.target);
+            await importManager.importDatabase(event.target);
             return false;
         }
 
@@ -442,19 +546,35 @@
             importManager.cancelImport();
         });
 
-        // Real-time URL preview
+        // Real-time URL preview and name validation
         const dbNameInput = document.getElementById('db_name');
-        const urlPreview = document.getElementById('url-preview');
-        const urlSpan = urlPreview.querySelector('span');
+        let nameCheckTimeout;
         
         dbNameInput.addEventListener('input', function() {
-            const dbName = this.value;
+            const dbName = this.value.trim().toLowerCase();
+            const urlPreview = document.getElementById('url-preview');
+            const urlSpan = urlPreview.querySelector('span');
+            
+            // Update URL preview
             if (dbName) {
                 const baseUrl = window.location.protocol + '//' + window.location.host;
                 urlSpan.textContent = `${baseUrl}/db/${dbName}/homepage`;
                 urlPreview.classList.remove('opacity-0');
             } else {
                 urlPreview.classList.add('opacity-0');
+            }
+            
+            // Debounce name checking
+            clearTimeout(nameCheckTimeout);
+            if (dbName && /^[a-z0-9_-]+$/.test(dbName)) {
+                nameCheckTimeout = setTimeout(async () => {
+                    const validation = await validateDatabaseNameBeforeUpload(dbName);
+                    if (validation.valid) {
+                        showNameStatus('available', `✓ "${dbName}" is available`);
+                    } else {
+                        showNameStatus('taken', validation.error);
+                    }
+                }, 500);
             }
         });
 
@@ -466,20 +586,40 @@
             if (value && !isValid) {
                 this.setCustomValidity('Database name can only contain lowercase letters, numbers, underscores, and hyphens');
                 this.classList.add('border-red-500');
+                showNameStatus('invalid', 'Invalid characters in name');
             } else {
                 this.setCustomValidity('');
                 this.classList.remove('border-red-500');
+                document.getElementById('name-validation').classList.add('hidden');
             }
         });
 
+        function showNameStatus(status, message) {
+            const validation = document.getElementById('name-validation');
+            const statusDiv = document.getElementById('name-status');
+            
+            validation.classList.remove('hidden');
+            statusDiv.textContent = message;
+            
+            if (status === 'available') {
+                statusDiv.className = 'text-green-600';
+                dbNameInput.classList.remove('border-red-500');
+                dbNameInput.classList.add('border-green-500');
+            } else {
+                statusDiv.className = 'text-red-600';
+                dbNameInput.classList.remove('border-green-500');
+                dbNameInput.classList.add('border-red-500');
+            }
+        }
+
         // File selection handler
         const fileInput = document.getElementById('database_file');
-        const fileInfo = document.getElementById('file-info');
-        const fileName = document.getElementById('file-name');
-        const fileSize = document.getElementById('file-size');
-        const submitBtn = document.getElementById('submit-btn');
-        
         fileInput.addEventListener('change', function() {
+            const fileInfo = document.getElementById('file-info');
+            const fileName = document.getElementById('file-name');
+            const fileSize = document.getElementById('file-size');
+            const submitBtn = document.getElementById('submit-btn');
+            
             if (this.files && this.files.length > 0) {
                 const file = this.files[0];
                 const sizeInMB = (file.size / 1024 / 1024).toFixed(2);
@@ -488,41 +628,40 @@
                 fileSize.textContent = `(${sizeInMB} MB)`;
                 fileInfo.classList.remove('opacity-0');
                 
-                // Check file size
-                if (file.size > {{ system_settings.max_file_size }}) {
-                    fileSize.textContent = `(${sizeInMB} MB - TOO LARGE!)`;
-                    fileSize.classList.add('text-red-500');
-                    fileInfo.classList.remove('text-green-600');
-                    fileInfo.classList.add('text-red-600');
-                    submitBtn.disabled = true;
-                    submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                } else {
-                    fileSize.classList.remove('text-red-500');
-                    fileInfo.classList.remove('text-red-600');
-                    fileInfo.classList.add('text-green-600');
-                    submitBtn.disabled = false;
-                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                }
-                
-                // Check file extension
+                // Enhanced file validation
+                const maxSize = {{ system_settings.max_file_size }};
                 const validExtensions = ['.db', '.sqlite', '.sqlite3'];
                 const fileExt = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+                
+                let hasError = false;
+                
+                if (file.size > maxSize) {
+                    fileSize.textContent = `(${sizeInMB} MB - TOO LARGE!)`;
+                    fileSize.classList.add('text-red-500');
+                    hasError = true;
+                } else {
+                    fileSize.classList.remove('text-red-500');
+                }
                 
                 if (!validExtensions.includes(fileExt)) {
                     fileName.textContent = file.name + ' (Invalid file type!)';
                     fileName.classList.add('text-red-500');
+                    hasError = true;
+                } else {
+                    fileName.classList.remove('text-red-500');
+                }
+                
+                // Update submit button state
+                if (hasError) {
                     fileInfo.classList.remove('text-green-600');
                     fileInfo.classList.add('text-red-600');
                     submitBtn.disabled = true;
                     submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 } else {
-                    fileName.classList.remove('text-red-500');
-                    if (file.size <= {{ system_settings.max_file_size }}) {
-                        fileInfo.classList.remove('text-red-600');
-                        fileInfo.classList.add('text-green-600');
-                        submitBtn.disabled = false;
-                        submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                    }
+                    fileInfo.classList.remove('text-red-600');
+                    fileInfo.classList.add('text-green-600');
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                 }
             } else {
                 fileInfo.classList.add('opacity-0');

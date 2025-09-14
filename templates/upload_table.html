@@ -97,15 +97,17 @@
                 
                 <!-- Upload Details (only for file uploads) -->
                 <div id="upload-details" class="text-xs text-gray-600 mb-4 hidden">
-                    <div class="bg-gray-50 rounded-lg p-3 space-y-2">
-                        <div class="flex justify-between items-center">
-                            <span class="font-medium">File:</span>
-                            <span id="upload-filename" class="truncate max-w-40"></span>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="font-medium">Size:</span>
-                            <span id="upload-filesize"></span>
-                        </div>
+                    <div class="flex justify-between">
+                        <span>File:</span>
+                        <span id="upload-filename"></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Size:</span>
+                        <span id="upload-filesize"></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Status:</span>
+                        <span id="upload-status">Uploading...</span>
                     </div>
                 </div>
                 

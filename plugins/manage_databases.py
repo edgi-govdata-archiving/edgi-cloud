@@ -653,12 +653,28 @@ async def database_homepage(datasette, request):
         db_info = result.first()
         if not db_info:
             return Response.text("Database not found", status=404)
-        
+                
+        # First, get the actor to determine access level
         actor = get_actor_from_request(request)
+
+        if not actor:
+            # Guest user - only allow published databases
+            if db_info['status'] != 'Published':
+                return Response.text("Database not found or not published", status=404)
+        else:
+            # Authenticated user - check if they can access this database
+            is_owner = actor.get('id') == db_info['user_id']
+            is_admin = actor.get('role') == 'system_admin'
+            
+            if db_info['status'] != 'Published' and not (is_owner or is_admin):
+                # Unpublished database and user is not owner/admin
+                return Response.text("Database not found or not published", status=404)
+            
+            # If we get here, either:
+            # 1. Database is published (anyone can access)
+            # 2. Database is unpublished but user is owner/admin (preview access)
         
-        # Access control logic
-        if db_info['status'] == 'Trashed':
-            return Response.text("Database not found or not published", status=404)
+        # Database access is authorized then check registration and rendering
 
         # Check if database is registered correctly
         try:

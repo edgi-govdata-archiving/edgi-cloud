@@ -31,6 +31,11 @@ from common_utils import (
     ensure_data_directories,
     optimize_existing_header_images,
     DATA_DIR,
+    get_portal_content,
+    get_database_statistics,
+    create_feature_cards_from_databases,
+    create_statistics_data,
+    get_success_error_from_request,
 )
 
 import logging
@@ -1380,6 +1385,69 @@ async def export_system_logs(datasette, request, actor):
         logger.error(f"Error exporting logs: {e}")
         # If export fails, redirect to settings tab with error
         return Response.redirect(f"/system-admin?tab=settings&error=Export failed: {str(e)}")
+
+async def preview_portal_homepage(datasette, request):
+    """Preview portal homepage with current admin edits - System Admin only."""
+    logger.debug(f"Preview Portal Homepage request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor or actor.get("role") != "system_admin":
+        logger.warning(f"Unauthorized portal preview attempt: actor={actor}")
+        return Response.redirect("/login?error=System admin access required")
+
+    # Verify user session and admin role
+    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+    if not is_valid:
+        return redirect_response
+
+    if user_data["role"] != "system_admin":
+        logger.warning(f"Invalid role for portal preview: user_id={actor.get('id')}")
+        return Response.redirect("/login?error=Unauthorized access")
+
+    try:
+        # Get base content using common utility (same as index_page)
+        content = await get_portal_content(datasette)
+        
+        # Get statistics for preview homepage (same as index_page)
+        stats = await get_database_statistics(datasette)
+        
+        # Format featured databases as cards using common utility (same as index_page)
+        feature_cards = create_feature_cards_from_databases(stats['featured_databases'], limit=50)
+        
+        # Statistics for the cards section using common utility (same as index_page)
+        statistics_data = create_statistics_data(stats)
+        
+        # Add preview banner data to show this is a preview
+        preview_mode = True
+        
+        logger.debug(f"Rendering portal preview with statistics: {stats}")
+        
+        # Render the same template as the main homepage but with preview flag
+        return Response.html(
+            await datasette.render_template(
+                "index.html",
+                {
+                    "page_title": content['title'].get('content', "Resette"),
+                    "header_image": content['header_image'],
+                    "info": content['info'],
+                    "feature_cards": feature_cards,
+                    "total_published": stats['published_databases'],
+                    "statistics": statistics_data,
+                    "content": content,
+                    "actor": actor,
+                    "preview_mode": preview_mode,  # Flag to show preview banner
+                    "edit_url": "/edit-portal-homepage",  # Link back to editor
+                    **get_success_error_from_request(request)
+                },
+                request=request
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in portal preview: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return Response.text(f"Portal preview error: {str(e)}", status=500)
     
 @hookimpl
 def register_routes():
@@ -1392,9 +1460,11 @@ def register_routes():
         (r"^/edit-user-role$", edit_user_role),
         (r"^/delete-user$", delete_user),
         (r"^/edit-portal-homepage$", edit_portal_homepage),
+        (r"^/preview-portal-homepage$", preview_portal_homepage),
         (r"^/cleanup-expired-databases$", cleanup_expired_databases),
         (r"^/api/database-details/([^/]+)$", get_database_details_api),
     ]
+
 
 @hookimpl
 def startup(datasette):

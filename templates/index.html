@@ -163,16 +163,19 @@
                 <div class="text-xl font-semibold">{{ content.title.content | default("Resette") }}</div>
             </div>
             {% if actor %}
+                <!-- This section is only for preview mode since normal users get redirected -->
                 <div>
-                    <a href="/create-database" class="text-white hover:text-accent mr-4">Create Database</a>
-                    <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
-                    {% if actor.role == "system_admin" %}
-                        <a href="/system-admin" class="text-white hover:text-accent mr-4">Admin Panel</a>
+                    {% if preview_mode %}
+                        <!-- Preview mode: Show limited admin menu -->
+                        <a href="/manage-databases" class="text-white hover:text-accent mr-4">My Databases</a>
+                        {% if actor.role == "system_admin" %}
+                            <a href="/system-admin" class="text-white hover:text-accent mr-4">Admin Panel</a>
+                        {% endif %}
+                        <a href="/logout" class="text-white hover:text-accent">Logout</a>
                     {% endif %}
-                    <a href="/change-password" class="text-white hover:text-accent mr-4">Settings</a>
-                    <a href="/logout" class="text-white hover:text-accent">Logout</a>
                 </div>
             {% else %}
+                <!-- Guest users: Show login and contact -->
                 <div>
                     <a href="/login" class="text-white hover:text-accent mr-4">Login</a>
                     <a href="mailto:contact@envirodatagov.org?subject=Resette%20Portal%20Inquiry" class="inline-flex items-center bg-accent text-white px-6 py-3 rounded-button hover:bg-primary transition">
