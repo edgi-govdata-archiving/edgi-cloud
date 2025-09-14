@@ -47,6 +47,7 @@ from common_utils import (
     DATA_DIR,
     get_max_image_size,
     is_system_table,
+    enforce_password_change_check,
 )
 
 logging.basicConfig(level=logging.DEBUG)
@@ -149,6 +150,11 @@ async def manage_databases(datasette, request):
     """Manage databases with improved filtering and sorting by most recent."""
     logger.debug(f"Manage Databases request: method={request.method}")
 
+    # Check if user needs to change password first
+    password_redirect = await enforce_password_change_check(datasette, request)
+    if password_redirect:
+        return password_redirect
+    
     actor = get_actor_from_request(request)
     if not actor:
         logger.warning(f"Unauthorized manage databases attempt: actor=None")

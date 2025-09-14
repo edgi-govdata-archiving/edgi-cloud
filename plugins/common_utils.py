@@ -1810,3 +1810,38 @@ def parse_multipart_form_data_robust(body, content_type):
     except Exception as e:
         logger.error(f"Multipart parsing failed: {e}")
         return {}, {}
+    
+async def check_password_change_required(request, actor):
+    """
+    Check if user needs to change password and redirect if necessary.
+    Returns tuple: (should_redirect: bool, redirect_response: Response or None)
+    """
+    # Allow access to specific routes without password change check
+    allowed_paths = [
+        '/login', '/logout', '/force-change-password', '/static', 
+        '/forgot-password', '/reset-password', '/api'
+    ]
+    
+    # Check if current path is allowed
+    if any(request.path.startswith(path) for path in allowed_paths):
+        return False, None
+    
+    # If user is logged in but must change password, redirect them
+    if actor and actor.get("must_change_password", False):
+        from datasette.utils.asgi import Response
+        return True, Response.redirect("/force-change-password?reason=required")
+    
+    return False, None
+
+async def enforce_password_change_check(datasette, request):
+    """
+    Middleware-like function to enforce password change requirements.
+    Call this at the beginning of protected route handlers.
+    """
+    actor = get_actor_from_request(request)
+    should_redirect, redirect_response = await check_password_change_required(request, actor)
+    
+    if should_redirect:
+        return redirect_response
+    
+    return None  # Continue with normal flow

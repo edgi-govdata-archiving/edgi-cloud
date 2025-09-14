@@ -299,7 +299,8 @@
                                     <th class="text-left p-3 font-medium text-white bg-header">Username</th>
                                     <th class="text-left p-3 font-medium text-white bg-header">Email</th>
                                     <th class="text-left p-3 font-medium text-white bg-header">Role</th>
-                                    <th class="text-left p-3 font-medium text-white bg-header">Created</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Password Status</th>
+                                    <th class="text-left p-3 font-medium text-white bg-header">Registered</th>
                                     <th class="text-left p-3 font-medium text-white bg-header">Actions</th>
                                 </tr>
                             </thead>
@@ -324,6 +325,17 @@
                                                 {{ user.role.replace('_', ' ').title() }}
                                             </span>
                                         </td>
+                                        <td class="p-3">
+                                            {% if user.must_change_password %}
+                                                <span class="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                                    <i class="ri-key-2-line mr-1"></i>Must Change
+                                                </span>
+                                            {% else %}
+                                                <span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                    <i class="ri-shield-check-line mr-1"></i>Active
+                                                </span>
+                                            {% endif %}
+                                        </td>
                                         <td class="p-3 text-textlight">{{ user.created_at[:10] if user.created_at else 'N/A' }}</td>
                                         <td class="p-3">
                                             <div class="flex gap-2">
@@ -331,6 +343,12 @@
                                                 <button onclick="editUserRole('{{ user.user_id }}', '{{ user.username }}', '{{ user.role }}')" 
                                                         class="text-accent hover:text-primary text-sm px-2 py-1 rounded transition">
                                                     <i class="ri-edit-line mr-1"></i>Edit Role
+                                                </button>
+                                                
+                                                <!-- Reset Password Button -->
+                                                <button onclick="resetUserPassword('{{ user.user_id }}', '{{ user.username }}')" 
+                                                        class="text-orange-500 hover:text-orange-700 text-sm px-2 py-1 rounded transition">
+                                                    <i class="ri-key-2-line mr-1"></i>Reset Password
                                                 </button>
                                                 
                                                 <!-- Delete User Button (only if not current user) -->
@@ -678,6 +696,81 @@
         </div>
     </div>
 
+    <!-- Reset Password Modal -->
+    <div id="reset-password-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4 text-orange-800">
+                    <i class="ri-key-2-line mr-2"></i>Reset User Password
+                </h3>
+                
+                <div class="mb-6 p-4 bg-orange-50 border border-orange-200 rounded">
+                    <div class="flex items-start">
+                        <i class="ri-alert-line text-orange-600 mt-1 mr-3"></i>
+                        <div>
+                            <h4 class="text-orange-800 font-semibold mb-1">Password Reset Action</h4>
+                            <p class="text-orange-700 text-sm">
+                                This will reset the user's password and require them to change it on their next login.
+                                You will be asked to confirm with your administrator password.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- UPDATED: Remove form tags, just use div -->
+                <div id="reset-password-form" class="space-y-4">
+                    <input type="hidden" id="reset-user-id" value="">
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                        <input type="text" id="reset-username" readonly class="w-full p-2 border rounded bg-gray-100">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Temporary Password</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="temp-password" readonly 
+                                class="flex-1 p-2 border rounded bg-gray-100 font-mono text-sm">
+                            <button type="button" onclick="generateTempPassword()" 
+                                    class="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600 transition text-sm">
+                                <i class="ri-refresh-line mr-1"></i>Generate
+                            </button>
+                            <button type="button" onclick="copyTempPassword()" 
+                                    class="bg-gray-500 text-white px-3 py-2 rounded hover:bg-gray-600 transition text-sm">
+                                <i class="ri-file-copy-line mr-1"></i>Copy
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Click Generate to create a secure temporary password</p>
+                    </div>
+                    
+                    <div class="mb-6 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                        <h4 class="text-yellow-800 font-medium text-sm mb-2">
+                            <i class="ri-information-line mr-1"></i>Important Notes:
+                        </h4>
+                        <ul class="text-yellow-700 text-xs space-y-1">
+                            <li>• User will be forced to change password on next login</li>
+                            <li>• Make sure to securely share the temporary password with the user</li>
+                            <li>• The temporary password will expire after first use</li>
+                            <li>• This action will be logged and requires admin password confirmation</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="flex gap-3">
+                        <!-- UPDATED: Call confirmation function instead of form submit -->
+                        <button type="button" onclick="confirmResetPassword()" id="confirm-reset-btn" disabled
+                                class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
+                            <i class="ri-shield-check-line mr-1"></i>Confirm & Require Admin Password
+                        </button>
+                        <button type="button" onclick="closeResetModal()" 
+                                class="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 transition">
+                            <i class="ri-close-line mr-1"></i>Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- NEW: Admin Password Confirmation Modal -->
     <div id="admin-password-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -990,28 +1083,141 @@
             document.getElementById('edit-user-modal').classList.add('hidden');
         }
 
-        function deleteUser(userId, username) {
-            if (confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = '/delete-user';
+        function resetUserPassword(userId, username) {
+            // Show confirmation dialog first
+            const confirmMessage = `Reset password for user "${username}"?\n\nThis will:\n• Generate a temporary password\n• Force the user to change password on next login\n• Log this administrative action\n\nYou will be asked to confirm with your administrator password.`;
+            
+            if (confirm(confirmMessage)) {
+                // Open the reset password modal for password generation
+                document.getElementById('reset-user-id').value = userId;
+                document.getElementById('reset-username').value = username;
+                document.getElementById('temp-password').value = '';
+                document.getElementById('confirm-reset-btn').disabled = true;
+                document.getElementById('reset-password-modal').classList.remove('hidden');
                 
-                const csrfInput = document.createElement('input');
-                csrfInput.type = 'hidden';
-                csrfInput.name = 'csrftoken';
-                csrfInput.value = '{{ csrftoken() }}';
-                
-                const userIdInput = document.createElement('input');
-                userIdInput.type = 'hidden';
-                userIdInput.name = 'user_id';
-                userIdInput.value = userId;
-                
-                form.appendChild(csrfInput);
-                form.appendChild(userIdInput);
-                document.body.appendChild(form);
-                form.submit();
+                // Auto-generate a temporary password
+                generateTempPassword();
             }
         }
+
+        function confirmResetPassword() {
+            // This function is called when the reset password form is submitted
+            // Collect the form data and redirect to confirmation page
+            const userId = document.getElementById('reset-user-id').value;
+            const tempPassword = document.getElementById('temp-password').value;
+            const username = document.getElementById('reset-username').value;
+            
+            if (!tempPassword) {
+                alert('Please generate a temporary password first.');
+                return;
+            }
+            
+            // Close the modal
+            closeResetModal();
+            
+            // Redirect to confirmation page with form data
+            const params = new URLSearchParams();
+            params.append('operation', 'reset_user_password');
+            params.append('user_id', userId);
+            params.append('temp_password', tempPassword);
+            params.append('username', username);
+            
+            window.location.href = `/admin/confirm-password?${params.toString()}`;
+        }
+
+        function deleteUser(userId, username) {
+            // Enhanced confirmation dialog
+            const confirmMessage = `WARNING: Delete user account "${username}"?\n\nThis action will:\n• Permanently remove the user from the system\n• Remove their access to all databases\n• This action CANNOT be undone\n\nYou will be asked to confirm with your administrator password.\n\nAre you absolutely sure?`;
+            
+            if (confirm(confirmMessage)) {
+                // Redirect to confirmation page with delete user data
+                const params = new URLSearchParams();
+                params.append('operation', 'delete_user');
+                params.append('user_id', userId);
+                params.append('username', username);
+                
+                window.location.href = `/admin/confirm-password?${params.toString()}`;
+            }
+        }
+
+        // Update the existing modal functions
+        function closeResetModal() {
+            document.getElementById('reset-password-modal').classList.add('hidden');
+            document.getElementById('temp-password').value = '';
+            document.getElementById('confirm-reset-btn').disabled = true;
+        }
+
+        function generateTempPassword() {
+            // Generate a secure temporary password
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+            let tempPassword = '';
+            
+            // Ensure at least one of each type
+            tempPassword += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]; // lowercase
+            tempPassword += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]; // uppercase
+            tempPassword += '0123456789'[Math.floor(Math.random() * 10)]; // number
+            tempPassword += '!@#$%^&*'[Math.floor(Math.random() * 8)]; // special char
+            
+            // Fill the rest randomly
+            for (let i = 4; i < 12; i++) {
+                tempPassword += chars[Math.floor(Math.random() * chars.length)];
+            }
+            
+            // Shuffle the password
+            tempPassword = tempPassword.split('').sort(() => 0.5 - Math.random()).join('');
+            
+            document.getElementById('temp-password').value = tempPassword;
+            document.getElementById('confirm-reset-btn').disabled = false;
+        }
+
+        function copyTempPassword() {
+            const tempPasswordField = document.getElementById('temp-password');
+            const tempPassword = tempPasswordField.value;
+            
+            if (!tempPassword) {
+                alert('Please generate a temporary password first.');
+                return;
+            }
+            
+            // Copy to clipboard
+            navigator.clipboard.writeText(tempPassword).then(function() {
+                // Visual feedback
+                const button = event.target.closest('button');
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i class="ri-check-line mr-1"></i>Copied!';
+                button.classList.remove('bg-gray-500', 'hover:bg-gray-600');
+                button.classList.add('bg-green-500', 'hover:bg-green-600');
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.classList.remove('bg-green-500', 'hover:bg-green-600');
+                    button.classList.add('bg-gray-500', 'hover:bg-gray-600');
+                }, 2000);
+                
+                // Show success message
+                alert('Temporary password copied to clipboard!\n\nMake sure to securely share this with the user.');
+            }).catch(function(err) {
+                console.error('Failed to copy text: ', err);
+                // Fallback for older browsers
+                tempPasswordField.select();
+                tempPasswordField.setSelectionRange(0, 99999);
+                document.execCommand("copy");
+                alert('Temporary password copied to clipboard!');
+            });
+        }
+
+        // Close reset modal when clicking outside
+        document.addEventListener('DOMContentLoaded', function() {
+            const resetModal = document.getElementById('reset-password-modal');
+            if (resetModal) {
+                resetModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        closeResetModal();
+                    }
+                });
+            }
+        });
+
 
         // Initialize page
         document.addEventListener('DOMContentLoaded', function() {

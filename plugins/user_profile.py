@@ -86,7 +86,7 @@ async def get_user_statistics(datasette, user_id):
         return {'user_databases': 0, 'user_published': 0, 'user_trashed': 0}
 
 async def login_page(datasette, request):
-    """User login page and authentication."""
+    """User login page and authentication with forced password change check."""
     logger.debug(f"Login request: method={request.method}")
 
     # Get content for template
@@ -110,22 +110,73 @@ async def login_page(datasette, request):
         
         try:
             db = datasette.get_database("portal")
-            result = await db.execute("SELECT user_id, username, password_hash, role FROM users WHERE username = ?", [username])
-            user = result.first()
-            if user and bcrypt.checkpw(password.encode('utf-8'), user["password_hash"].encode('utf-8')):
-                redirect_url = "/system-admin" if user["role"] == "system_admin" else "/manage-databases"
-                actor_data = {"id": user["user_id"], "name": f"User {username}", "role": user["role"], "username": username}
+            
+            # Try to get user data - handle missing column gracefully
+            try:
+                result = await db.execute(
+                    "SELECT user_id, username, password_hash, role, COALESCE(must_change_password, 0) as must_change_password FROM users WHERE username = ?", 
+                    [username]
+                )
+                user_row = result.first()
+                
+                if user_row:
+                    # Access by column name (sqlite3.Row supports this)
+                    user_id = user_row["user_id"]
+                    username_db = user_row["username"]
+                    password_hash = user_row["password_hash"]
+                    role = user_row["role"]
+                    must_change_password = bool(user_row["must_change_password"])
+                else:
+                    user_row = None
+                    
+            except Exception as e:
+                # If must_change_password column doesn't exist, try without it
+                logger.warning(f"Column access failed, trying without must_change_password: {e}")
+                result = await db.execute(
+                    "SELECT user_id, username, password_hash, role FROM users WHERE username = ?", 
+                    [username]
+                )
+                user_row = result.first()
+                
+                if user_row:
+                    user_id = user_row["user_id"]
+                    username_db = user_row["username"]
+                    password_hash = user_row["password_hash"]
+                    role = user_row["role"]
+                    must_change_password = False  # Default if column doesn't exist
+                else:
+                    user_row = None
+            
+            if user_row and bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8')):
+                actor_data = {
+                    "id": user_id, 
+                    "name": f"User {username}", 
+                    "role": role, 
+                    "username": username,
+                    "must_change_password": must_change_password
+                }
                 
                 # Log successful login
                 await log_user_activity(
-                    datasette, user["user_id"], "login", 
+                    datasette, user_id, "login", 
                     f"User {username} logged in",
-                    {"username": username, "role": user["role"]}
+                    {"username": username, "role": role, "must_change_password": must_change_password}
                 )
                 
-                response = Response.redirect(redirect_url)
-                set_actor_cookie(response, datasette, actor_data)
-                return response
+                # Check if user must change password
+                if must_change_password:
+                    logger.debug(f"User {username} must change password, redirecting to force-change-password")
+                    # Set cookie and redirect to forced password change page
+                    response = Response.redirect("/force-change-password?reason=first_login")
+                    set_actor_cookie(response, datasette, actor_data)
+                    return response
+                else:
+                    # Normal login flow
+                    redirect_url = "/system-admin" if role == "system_admin" else "/manage-databases"
+                    logger.debug(f"User {username} normal login, redirecting to {redirect_url}")
+                    response = Response.redirect(redirect_url)
+                    set_actor_cookie(response, datasette, actor_data)
+                    return response
             else:
                 # Log failed login attempt
                 await log_user_activity(
@@ -144,6 +195,8 @@ async def login_page(datasette, request):
                 )
         except Exception as e:
             logger.error(f"Login error: {str(e)}")
+            import traceback
+            logger.error(f"Login traceback: {traceback.format_exc()}")
             return await handle_form_errors(
                 datasette, "login.html",
                 {
@@ -202,6 +255,8 @@ async def register_page(datasette, request):
         password = post_vars.get("password")
         email = post_vars.get("email")
         role = post_vars.get("role")
+        # NEW: Check if admin wants to require password change
+        require_password_change = bool(post_vars.get("require_password_change"))
         
         template_data = {
             "metadata": datasette.metadata(),
@@ -271,28 +326,36 @@ async def register_page(datasette, request):
             user_id = uuid.uuid4().hex[:20]
             logger.debug(f"Generated user_id: {user_id} for username: {username}")
             
+            # NEW: Set must_change_password flag - default to True for new users unless admin unchecks it
+            must_change_password = 1 if require_password_change else 0
+            
             await db.execute_write(
-                "INSERT INTO users (user_id, username, password_hash, role, email, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                [user_id, username, hashed_password, role, email, datetime.utcnow()]
+                "INSERT INTO users (user_id, username, password_hash, role, email, created_at, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [user_id, username, hashed_password, role, email, datetime.utcnow(), must_change_password]
             )
             
             await log_user_activity(
                 datasette, user_id, "register", 
                 f"User {username} registered with role {role}",
-                {"username": username, "role": role, "email": email}
+                {"username": username, "role": role, "email": email, "must_change_password": bool(must_change_password)}
             )
             
             # Log admin creation action
             await log_user_activity(
                 datasette, actor.get("id"), "create_user", 
                 f"Admin {actor.get('username')} created user {username} with role {role}",
-                {"created_username": username, "created_role": role}
+                {"created_username": username, "created_role": role, "require_password_change": bool(must_change_password)}
             )
             
-            logger.debug("User registered by admin: %s with role: %s, user_id: %s", username, role, user_id)
+            logger.debug("User registered by admin: %s with role: %s, user_id: %s, must_change_password: %s", 
+                        username, role, user_id, must_change_password)
+            
+            success_message = f"User account created successfully"
+            if must_change_password:
+                success_message += ". User will be required to change password on first login."
             
             # Always redirect to admin panel since only admins can access this
-            return Response.redirect("/system-admin?success=User account created successfully")
+            return Response.redirect(f"/system-admin?success={success_message}")
                 
         except Exception as e:
             logger.error(f"Registration error: {str(e)}")
@@ -538,6 +601,171 @@ async def forgot_password_page(datasette, request):
         )
     )
 
+async def force_change_password_page(datasette, request):
+    """Force password change page for users who must change their password."""
+    logger.debug(f"Force Change Password request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor:
+        logger.warning(f"Unauthorized force password change attempt: actor={actor}")
+        return Response.redirect("/login")
+
+    # Verify user session
+    is_valid, user_data, redirect_response = await verify_user_session(datasette, actor)
+    if not is_valid:
+        return redirect_response
+
+    # Check database directly for must_change_password status
+    db = datasette.get_database('portal')
+    try:
+        result = await db.execute(
+            "SELECT COALESCE(must_change_password, 0) as must_change_password FROM users WHERE user_id = ?",
+            [actor.get("id")]
+        )
+        db_user = result.first()
+        
+        if not db_user:
+            logger.error(f"User {actor.get('username')} not found in database")
+            return Response.redirect("/login")
+        
+        must_change_password = bool(db_user["must_change_password"])
+        logger.debug(f"Database check for user {actor.get('username')}: must_change_password = {must_change_password}")
+        
+        # Check if user actually needs to change password
+        if not must_change_password:
+            redirect_url = "/system-admin" if user_data["role"] == "system_admin" else "/manage-databases"
+            logger.debug(f"User {actor.get('username')} doesn't need password change, redirecting to {redirect_url}")
+            return Response.redirect(redirect_url)
+
+    except Exception as db_error:
+        logger.error(f"Error checking password change requirement: {db_error}")
+        must_change_password = True  # Assume true for security
+
+    content = await get_portal_content(datasette)
+    
+    # Get reason for password change
+    reason = request.args.get('reason', 'required')
+    reason_messages = {
+        'first_login': 'You must change your password before proceeding. This is required for all new accounts.',
+        'admin_required': 'An administrator has required you to change your password.',
+        'security': 'For security reasons, you must change your password.',
+        'required': 'You must change your password before continuing.'
+    }
+    reason_message = reason_messages.get(reason, reason_messages['required'])
+
+    if request.method == "POST":
+        post_vars = await request.post_vars()
+        
+        # FOLLOW YOUR EXISTING PATTERN - Let Datasette handle CSRF validation
+        # Your other forms (login, profile) don't manually validate CSRF tokens
+        # They just include the token in the template and rely on Datasette's handling
+        
+        current_password = post_vars.get("current_password")
+        new_password = post_vars.get("new_password")
+        confirm_password = post_vars.get("confirm_password")
+        
+        logger.debug(f"Password change POST request for user {actor.get('username')}")
+        
+        template_data = {
+            "metadata": datasette.metadata(),
+            "content": content,
+            "user": user_data,
+            "actor": actor,
+            "reason": reason,
+            "reason_message": reason_message,
+            "is_forced": True
+        }
+        
+        if not current_password or not new_password or new_password != confirm_password:
+            return await handle_form_errors(
+                datasette, "force_change_password.html", template_data,
+                request, "All fields are required and new passwords must match"
+            )
+        
+        # Validate new password strength
+        is_valid_password, password_error = validate_password(new_password)
+        if not is_valid_password:
+            return await handle_form_errors(
+                datasette, "force_change_password.html", template_data,
+                request, password_error
+            )
+        
+        # Ensure new password is different from current password
+        if current_password == new_password:
+            return await handle_form_errors(
+                datasette, "force_change_password.html", template_data,
+                request, "New password must be different from your current password"
+            )
+        
+        try:
+            # Get current password hash
+            password_result = await db.execute("SELECT password_hash FROM users WHERE user_id = ?", [actor.get("id")])
+            password_row = password_result.first()
+            
+            # Verify current password
+            if not password_row or not bcrypt.checkpw(current_password.encode('utf-8'), password_row["password_hash"].encode('utf-8')):
+                return await handle_form_errors(
+                    datasette, "force_change_password.html", template_data,
+                    request, "Current password is incorrect"
+                )
+            
+            # Update password and clear the must_change_password flag
+            hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            await db.execute_write(
+                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE user_id = ?",
+                [hashed_password, actor.get("id")]
+            )
+            
+            logger.debug(f"Password updated in database for user {actor.get('username')}, must_change_password set to 0")
+            
+            await log_user_activity(
+                datasette, actor.get("id"), "forced_password_change", 
+                f"User {actor.get('username')} completed forced password change",
+                {"reason": reason, "first_login": reason == 'first_login'}
+            )
+            
+            # Update actor cookie to clear must_change_password flag
+            updated_actor = actor.copy()
+            updated_actor["must_change_password"] = False
+            
+            # Redirect to appropriate destination
+            redirect_url = "/system-admin" if user_data["role"] == "system_admin" else "/manage-databases"
+            success_message = "Password changed successfully. Welcome to the portal!"
+            
+            logger.debug(f"Password change successful for {actor.get('username')}, redirecting to {redirect_url}")
+            
+            response = Response.redirect(f"{redirect_url}?success={success_message}")
+            set_actor_cookie(response, datasette, updated_actor)
+            return response
+            
+        except Exception as e:
+            logger.error(f"Force password change error: {str(e)}")
+            import traceback
+            logger.error(f"Password change traceback: {traceback.format_exc()}")
+            return await handle_form_errors(
+                datasette, "force_change_password.html", template_data,
+                request, f"Password change failed: {str(e)}"
+            )
+    
+    # GET request - show force password change form
+    logger.debug(f"Showing force password change form for {actor.get('username')}")
+    return Response.html(
+        await datasette.render_template(
+            "force_change_password.html",
+            {
+                "metadata": datasette.metadata(),
+                "content": content,
+                "user": user_data,
+                "actor": actor,
+                "reason": reason,
+                "reason_message": reason_message,
+                "is_forced": True,
+                **get_success_error_from_request(request)
+            },
+            request=request
+        )
+    )
+
 @hookimpl
 def register_routes():
     """Register user profile and authentication routes."""
@@ -548,6 +776,8 @@ def register_routes():
         (r"^/profile$", profile_page),
         (r"^/change-password$", change_password_page),
         (r"^/forgot-password$", forgot_password_page),
+        (r"^/force-change-password$", force_change_password_page),
+
     ]
 
 @hookimpl

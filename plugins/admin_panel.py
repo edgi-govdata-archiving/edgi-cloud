@@ -9,6 +9,7 @@ from datasette.utils.asgi import Response
 from datasette.database import Database
 from email.parser import BytesParser
 from email.policy import default
+import bcrypt
 
 import sys
 PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +37,7 @@ from common_utils import (
     create_feature_cards_from_databases,
     create_statistics_data,
     get_success_error_from_request,
+    enforce_password_change_check,
 )
 
 import logging
@@ -117,56 +119,16 @@ async def edit_user_role(datasette, request):
     return Response.redirect("/system-admin")
 
 async def delete_user(datasette, request):
-    """Admin function to delete users."""
+    """Redirect to admin password confirmation for user deletion."""
     logger.debug(f"Delete User request: method={request.method}")
 
     actor = get_actor_from_request(request)
     if not actor or actor.get("role") != "system_admin":
         return Response.redirect("/login?error=Admin access required")
 
-    if request.method == "POST":
-        post_vars = await request.post_vars()
-        user_id = post_vars.get("user_id")
-        
-        if not user_id:
-            return Response.redirect("/system-admin?error=Missing user ID")
-        
-        try:
-            query_db = datasette.get_database("portal")
-            
-            # Get user details
-            user_result = await query_db.execute("SELECT username FROM users WHERE user_id = ?", [user_id])
-            user = user_result.first()
-            if not user:
-                return Response.redirect("/system-admin?error=User not found")
-            
-            # Prevent admin from deleting themselves
-            if user_id == actor.get("id"):
-                return Response.redirect("/system-admin?error=Cannot delete your own account")
-            
-            # Check if user has databases
-            db_result = await query_db.execute("SELECT COUNT(*) as count FROM databases WHERE user_id = ? AND status != 'Deleted'", [user_id])
-            db_count = db_result.first()['count']
-            
-            if db_count > 0:
-                return Response.redirect(f"/system-admin?error=Cannot delete user {user['username']} - they have {db_count} active databases")
-            
-            # Delete user
-            await query_db.execute_write("DELETE FROM users WHERE user_id = ?", [user_id])
-            
-            await log_admin_activity(
-                datasette, actor.get("id"), "delete_user",
-                f"Deleted user {user['username']}",
-                {"deleted_user_id": user_id, "deleted_username": user['username']}
-            )
-            
-            return Response.redirect(f"/system-admin?success=Successfully deleted user {user['username']}")
-            
-        except Exception as e:
-            logger.error(f"Error deleting user: {str(e)}")
-            return Response.redirect(f"/system-admin?error=Failed to delete user: {str(e)}")
-    
-    return Response.redirect("/system-admin")
+    # This function now just redirects to the confirmation page
+    # The actual deletion happens in handle_confirmed_delete_user
+    return Response.redirect("/system-admin?tab=users&error=Invalid access. Use the user interface to delete users.")
 
 async def edit_portal_homepage(datasette, request):
     """Edit portal homepage content - System Admin only."""
@@ -519,6 +481,12 @@ async def get_database_details_api(datasette, request):
     
 async def system_admin(datasette, request):
     """Enhanced system admin page with settings support."""
+    
+    # Check password change requirement first
+    password_redirect = await enforce_password_change_check(datasette, request)
+    if password_redirect:
+        return password_redirect
+    
     actor = get_actor_from_request(request)
     if not actor:
         return Response.redirect("/login?error=Session expired or invalid")
@@ -790,6 +758,11 @@ async def admin_password_confirmation(datasette, request):
                 return await export_system_logs(datasette, request, actor)
             elif operation == 'reset_system_settings':
                 return await handle_settings_reset(datasette, request, actor)
+            # NEW: Handle user management operations
+            elif operation == 'reset_user_password':
+                return await handle_confirmed_reset_user_password(datasette, request, post_vars, actor)
+            elif operation == 'delete_user':
+                return await handle_confirmed_delete_user(datasette, request, post_vars, actor)
             else:
                 logger.error(f"Unknown operation: {operation}")
                 return Response.redirect("/system-admin?error=Unknown operation")
@@ -900,6 +873,27 @@ async def show_confirmation_page(datasette, request, actor, operation, error=Non
                 'System will revert to factory defaults',
                 'This action cannot be undone'
             ]
+        },
+        # User management operations
+        'reset_user_password': {
+            'title': 'Reset User Password',
+            'description': 'Reset a user\'s password and force them to change it on next login.',
+            'details': [
+                'User will receive a temporary password',
+                'User must change password on next login',
+                'Previous password will be invalidated',
+                'Action will be logged in system activity'
+            ]
+        },
+        'delete_user': {
+            'title': 'Delete User Account',
+            'description': 'DANGER: Permanently remove a user from the system.',
+            'details': [
+                'User account will be permanently deleted',
+                'User will lose access to all databases',
+                'User data and activity logs will be preserved',
+                'This action cannot be undone'
+            ]
         }
     }
     
@@ -943,7 +937,7 @@ async def show_confirmation_page(datasette, request, actor, operation, error=Non
                 "operation_details": op_info['details'],
                 "form_action": "/admin/confirm-password",
                 "form_data": form_data,
-                "cancel_url": "/system-admin?tab=settings",
+                "cancel_url": "/system-admin?tab=users",  # Updated for user operations
                 "error": error,
             },
             request=request
@@ -1448,7 +1442,198 @@ async def preview_portal_homepage(datasette, request):
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return Response.text(f"Portal preview error: {str(e)}", status=500)
+
+async def reset_user_password(datasette, request):
+    """Redirect to admin password confirmation for password reset."""
+    logger.debug(f"Reset User Password request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor or actor.get("role") != "system_admin":
+        return Response.redirect("/login?error=Admin access required")
+
+    # This function now just redirects to the confirmation page
+    # The actual reset happens in handle_confirmed_reset_user_password
+    return Response.redirect("/system-admin?tab=users&error=Invalid access. Use the user interface to reset passwords.")
+
+async def admin_force_password_change(datasette, request):
+    """Admin function to force a user to change their password without providing a new one."""
+    logger.debug(f"Admin Force Password Change request: method={request.method}")
+
+    actor = get_actor_from_request(request)
+    if not actor or actor.get("role") != "system_admin":
+        return Response.redirect("/login?error=Admin access required")
+
+    if request.method == "POST":
+        post_vars = await request.post_vars()
+        user_id = post_vars.get("user_id")
+        
+        if not user_id:
+            return Response.redirect("/system-admin?tab=users&error=Missing user ID")
+        
+        try:
+            query_db = datasette.get_database("portal")
+            
+            # Get user details
+            user_result = await query_db.execute("SELECT username FROM users WHERE user_id = ?", [user_id])
+            user = user_result.first()
+            if not user:
+                return Response.redirect("/system-admin?tab=users&error=User not found")
+            
+            # Prevent admin from forcing themselves
+            if user_id == actor.get("id"):
+                return Response.redirect("/system-admin?tab=users&error=Cannot force password change on your own account")
+            
+            # Set must_change_password flag without changing the password
+            await query_db.execute_write(
+                "UPDATE users SET must_change_password = 1 WHERE user_id = ?",
+                [user_id]
+            )
+            
+            await log_admin_activity(
+                datasette, actor.get("id"), "admin_force_password_change",
+                f"Admin {actor.get('username')} forced password change for user {user['username']}",
+                {
+                    "target_user_id": user_id,
+                    "target_username": user['username'],
+                    "admin_forced": True
+                }
+            )
+            
+            # Log from target user's perspective
+            await log_user_activity(
+                datasette, user_id, "force_password_change_by_admin",
+                f"Password change forced by administrator {actor.get('username')}",
+                {
+                    "admin_user_id": actor.get("id"),
+                    "admin_username": actor.get('username')
+                }
+            )
+            
+            return Response.redirect(f"/system-admin?tab=users&success=User {user['username']} will be required to change password on next login")
+            
+        except Exception as e:
+            logger.error(f"Error forcing password change: {str(e)}")
+            return Response.redirect(f"/system-admin?tab=users&error=Failed to force password change: {str(e)}")
     
+    return Response.redirect("/system-admin?tab=users")
+
+async def handle_confirmed_reset_user_password(datasette, request, post_vars, actor):
+    """Handle confirmed user password reset after admin password verification."""
+    user_id = post_vars.get("user_id")
+    temp_password = post_vars.get("temp_password")
+    username = post_vars.get("username", "Unknown")
+    
+    if not user_id or not temp_password:
+        return Response.redirect("/system-admin?tab=users&error=Missing user ID or temporary password")
+    
+    if len(temp_password) < 8:
+        return Response.redirect("/system-admin?tab=users&error=Temporary password must be at least 8 characters long")
+    
+    try:
+        query_db = datasette.get_database("portal")
+        
+        # Get user details
+        user_result = await query_db.execute("SELECT username, email FROM users WHERE user_id = ?", [user_id])
+        user = user_result.first()
+        if not user:
+            return Response.redirect("/system-admin?tab=users&error=User not found")
+        
+        # Prevent admin from resetting their own password through this method
+        if user_id == actor.get("id"):
+            return Response.redirect("/system-admin?tab=users&error=Cannot reset your own password through this method")
+        
+        # Hash the temporary password
+        hashed_password = bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        # Update user password and set must_change_password flag
+        await query_db.execute_write(
+            "UPDATE users SET password_hash = ?, must_change_password = 1 WHERE user_id = ?",
+            [hashed_password, user_id]
+        )
+        
+        await log_admin_activity(
+            datasette, actor.get("id"), "admin_reset_user_password_confirmed",
+            f"Admin {actor.get('username')} reset password for user {user['username']} with admin password verification",
+            {
+                "target_user_id": user_id, 
+                "target_username": user['username'],
+                "admin_reset": True,
+                "must_change_password_set": True,
+                "password_verified": True
+            }
+        )
+        
+        # Log from target user's perspective
+        await log_database_action(
+            datasette, user_id, "password_reset_by_admin_confirmed",
+            f"Password reset by administrator {actor.get('username')} with verification",
+            {
+                "admin_user_id": actor.get("id"),
+                "admin_username": actor.get('username'),
+                "forced_change_required": True,
+                "admin_password_verified": True
+            }
+        )
+        
+        success_message = f"Password reset successfully for user {user['username']} with admin verification. User will be required to change password on next login."
+        return Response.redirect(f"/system-admin?tab=users&success={success_message}")
+        
+    except Exception as e:
+        logger.error(f"Error in confirmed password reset: {str(e)}")
+        return Response.redirect(f"/system-admin?tab=users&error=Failed to reset password: {str(e)}")
+
+async def handle_confirmed_delete_user(datasette, request, post_vars, actor):
+    """Handle confirmed user deletion after admin password verification."""
+    user_id = post_vars.get("user_id")
+    username = post_vars.get("username", "Unknown")
+    
+    if not user_id:
+        return Response.redirect("/system-admin?tab=users&error=Missing user ID")
+    
+    try:
+        query_db = datasette.get_database("portal")
+        
+        # Get user details
+        user_result = await query_db.execute("SELECT username, email FROM users WHERE user_id = ?", [user_id])
+        user = user_result.first()
+        if not user:
+            return Response.redirect("/system-admin?tab=users&error=User not found")
+        
+        # Prevent admin from deleting themselves
+        if user_id == actor.get("id"):
+            return Response.redirect("/system-admin?tab=users&error=Cannot delete your own account")
+        
+        # Check if user has active databases
+        db_result = await query_db.execute(
+            "SELECT COUNT(*) as count FROM databases WHERE user_id = ? AND status != 'Deleted'", 
+            [user_id]
+        )
+        db_count = db_result.first()['count']
+        
+        if db_count > 0:
+            return Response.redirect(f"/system-admin?tab=users&error=Cannot delete user {user['username']} - they have {db_count} active databases. Move databases to trash first.")
+        
+        # Delete user
+        await query_db.execute_write("DELETE FROM users WHERE user_id = ?", [user_id])
+        
+        await log_admin_activity(
+            datasette, actor.get("id"), "delete_user_confirmed",
+            f"Admin {actor.get('username')} deleted user {user['username']} with admin password verification",
+            {
+                "deleted_user_id": user_id, 
+                "deleted_username": user['username'],
+                "admin_deletion": True,
+                "password_verified": True,
+                "had_active_databases": db_count
+            }
+        )
+        
+        return Response.redirect(f"/system-admin?tab=users&success=User {user['username']} deleted successfully with admin verification")
+        
+    except Exception as e:
+        logger.error(f"Error in confirmed user deletion: {str(e)}")
+        return Response.redirect(f"/system-admin?tab=users&error=Failed to delete user: {str(e)}")
+
 @hookimpl
 def register_routes():
     """Register admin panel routes."""
@@ -1457,6 +1642,8 @@ def register_routes():
         (r"^/admin/confirm-password$", admin_password_confirmation),
         (r"^/admin/update-settings$", update_system_settings),
         (r"^/admin/export-logs$", export_system_logs),
+        (r"^/reset-user-password$", reset_user_password),
+        (r"^/force-user-password-change$", admin_force_password_change),
         (r"^/edit-user-role$", edit_user_role),
         (r"^/delete-user$", delete_user),
         (r"^/edit-portal-homepage$", edit_portal_homepage),
