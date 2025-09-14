@@ -106,6 +106,24 @@
                             <p class="text-xs text-textlight mt-1">As a system admin, you can create both user and admin accounts</p>
                         </div>
                         
+                        <!-- Password Change Requirement Option -->
+                        <div class="mb-4">
+                            <div class="flex items-center">
+                                <input type="checkbox" 
+                                    id="require_password_change" 
+                                    name="require_password_change" 
+                                    checked
+                                    class="h-4 w-4 text-accent focus:ring-accent border-border rounded">
+                                <label for="require_password_change" class="ml-2 block text-sm text-text">
+                                    Require password change on first login
+                                </label>
+                            </div>
+                            <p class="text-xs text-textlight mt-1">
+                                When enabled, the user will be forced to change their password when they first log in.
+                                This is recommended for security.
+                            </p>
+                        </div>
+
                         <button type="submit" class="w-full bg-accent text-white py-3 px-4 rounded-button hover:bg-primary transition font-medium">
                             <i class="ri-user-add-line mr-2"></i>Add User
                         </button>
