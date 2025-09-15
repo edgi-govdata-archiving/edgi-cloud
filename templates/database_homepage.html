@@ -104,18 +104,18 @@
                 </div>
 
                 <!-- Description with Markdown Support -->
-                <div class="prose prose-blue compact max-w-none text-text">
+                <div class="prose prose-resette max-w-none">
                     {% if content.description.paragraphs %}
                         {% for paragraph in content.description.paragraphs %}
-                            <div class="mb-2">{{ paragraph | safe }}</div>
+                            {{ paragraph | safe }}
                         {% endfor %}
                     {% else %}
                         {% if content.info.paragraphs %}
                             {% for paragraph in content.info.paragraphs %}
-                                <div class="mb-2">{{ paragraph | safe }}</div>
+                                {{ paragraph | safe }}
                             {% endfor %}
                         {% else %}
-                            <p class="mb-2">Database | Powered by Resette.</p>
+                            Database | Powered by Resette.
                         {% endif %}
                     {% endif %}
                 </div>
@@ -341,7 +341,7 @@
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
                     <!-- Footer section with Markdown Support -->
-                    <div class="prose prose-blue compact max-w-none text-text">
+                    <div class="prose prose-resette max-w-none">
                         {% if content.footer.paragraphs %}
                             {% for paragraph in content.footer.paragraphs %}
                                 <span>{{ paragraph | safe }}</span>
