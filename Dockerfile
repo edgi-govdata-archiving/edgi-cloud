@@ -13,7 +13,6 @@ COPY templates/ ./templates/
 COPY static/ ./static/
 COPY init_db.py .
 COPY migrate_db.py .
-COPY generate_metadata.py .
 
 # Create data directory
 RUN mkdir -p /data && chmod 755 /data
@@ -52,7 +51,7 @@ fi\n\
 \n\
 # Generate dynamic metadata for all registered databases\n\
 echo "🔧 Generating dynamic metadata..."\n\
-python generate_metadata.py\n\
+python plugins/generate_metadata.py\n\
 if [ -f "/app/metadata.json" ]; then\n\
   echo "✅ Metadata generated successfully"\n\
   echo "📄 Size: $(du -h /app/metadata.json | cut -f1)"\n\

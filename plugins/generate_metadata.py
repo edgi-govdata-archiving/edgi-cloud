@@ -66,19 +66,15 @@ def generate_metadata():
     for path in possible_paths:
         if path and os.path.exists(path):
             portal_db_path = path
-            logger.info(f"Found portal database at: {db_path}")
+            print(f"Found portal database at: {path}")
             break
     
     if not portal_db_path:
-        logger.warning("Portal database not found. Checked paths:")
+        print("Portal database not found. Checked paths:")
         for path in possible_paths:
             if path:
-                logger.warning(f"  - {path} {'(exists)' if os.path.exists(path) else '(not found)'}")
-        logger.warning("Database registration will be skipped. Some features may not work.")
-        return
-        
-    if not os.path.exists(portal_db_path):
-        print(f"Portal database not found at {portal_db_path}")
+                print(f"  - {path} {'(exists)' if os.path.exists(path) else '(not found)'}")
+        print("Database registration will be skipped. Some features may not work.")
         return base_metadata
     
     try:
