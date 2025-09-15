@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from email.parser import BytesParser
 from email.policy import default
+import html 
 
 logger = logging.getLogger(__name__)
 
@@ -776,75 +777,6 @@ def sanitize_text(text):
         str: Sanitized text with HTML tags removed
     """
     return bleach.clean(text, tags=[], strip=True)
-
-def parse_markdown_links(text):
-    """
-    Parse markdown-style text into HTML paragraphs with support for links, lists, and formatting.
-    
-    Args:
-        text (str): Markdown-style text to parse
-        
-    Returns:
-        list: List of HTML strings (paragraphs, lists, etc.)
-    """
-    blocks = []
-    current_block = []
-    lines = text.split('\n')
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        if not line:
-            if current_block:
-                blocks.append('\n'.join(current_block))
-                current_block = []
-        else:
-            current_block.append(line)
-        i += 1
-    
-    if current_block:
-        blocks.append('\n'.join(current_block))
-    
-    parsed_blocks = []
-    
-    for block in blocks:
-        if not block.strip():
-            continue
-            
-        lines = [line.strip() for line in block.split('\n') if line.strip()]
-        
-        bullet_lines = [line for line in lines if line.startswith(('- ', '* '))]
-        numbered_lines = [line for line in lines if re.match(r'^\d+\.\s', line)]
-        
-        if len(bullet_lines) >= 2:
-            list_items = []
-            for line in lines:
-                if line.startswith(('- ', '* ')):
-                    item_text = line[2:].strip()
-                    item_text = apply_inline_formatting(item_text)
-                    list_items.append(f'<li>{item_text}</li>')
-            
-            if list_items:
-                parsed_blocks.append(f'<ul>{"".join(list_items)}</ul>')
-            
-        elif len(numbered_lines) >= 2:
-            list_items = []
-            for line in lines:
-                if re.match(r'^\d+\.\s', line):
-                    item_text = re.sub(r'^\d+\.\s', '', line).strip()
-                    item_text = apply_inline_formatting(item_text)
-                    list_items.append(f'<li>{item_text}</li>')
-            
-            if list_items:
-                parsed_blocks.append(f'<ol>{"".join(list_items)}</ol>')
-            
-        else:
-            paragraph_text = ' '.join(lines)
-            formatted_text = apply_inline_formatting(paragraph_text)
-            parsed_blocks.append(formatted_text)
-    
-    return parsed_blocks
 
 def apply_inline_formatting(text):
     """
@@ -1845,3 +1777,212 @@ async def enforce_password_change_check(datasette, request):
         return redirect_response
     
     return None  # Continue with normal flow
+
+def convert_github_flavored_markdown_for_homepage(text):
+    """
+    Convert GitHub Flavored Markdown to HTML for homepage content.
+    Balanced spacing - readable but not excessive.
+    """
+    if not text:
+        return text
+    
+    # Escape HTML to prevent XSS
+    text = html.escape(text)
+    
+    # Process code blocks first
+    text = process_code_blocks_homepage(text)
+    
+    # Process headers with minimal but readable spacing
+    text = process_headers_balanced(text)
+    
+    # Process horizontal rules
+    text = re.sub(r'^---+$', '<hr class="my-2 border-gray-300">', text, flags=re.MULTILINE)
+    text = re.sub(r'^\*\*\*+$', '<hr class="my-2 border-gray-300">', text, flags=re.MULTILINE)
+    
+    # Process blockquotes
+    text = process_blockquotes_balanced(text)
+    
+    # Process lists with readable spacing
+    text = process_lists_balanced(text)
+    
+    # Process inline formatting
+    text = process_inline_formatting_homepage(text)
+    
+    # Process paragraphs with preserved line breaks
+    text = process_paragraphs_balanced(text)
+    
+    return text
+
+def process_code_blocks_homepage(text):
+    """Process code blocks for homepage display"""
+    
+    # Fenced code blocks
+    def replace_code_block(match):
+        language = match.group(1) or ''
+        code = match.group(2).strip()
+        code = html.escape(code, quote=False)
+        if language:
+            return f'<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code class="language-{language}">{code}</code></pre>'
+        else:
+            return f'<pre class="bg-gray-100 p-4 rounded-lg overflow-x-auto"><code>{code}</code></pre>'
+    
+    # Triple backticks with optional language
+    text = re.sub(r'```(\w+)?\n(.*?)\n```', replace_code_block, text, flags=re.DOTALL)
+    
+    # Inline code
+    text = re.sub(r'`([^`]+)`', r'<code class="bg-gray-100 px-2 py-1 rounded text-sm font-mono">\1</code>', text)
+    
+    return text
+
+def process_headers_balanced(text):
+    """Process headers with proper styling and minimal spacing"""
+    text = re.sub(r'^# (.+)$', r'<h1 class="text-2xl font-bold mb-1">\1</h1>', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.+)$', r'<h2 class="text-xl font-semibold mb-1">\1</h2>', text, flags=re.MULTILINE)
+    text = re.sub(r'^### (.+)$', r'<h3 class="text-lg font-semibold mb-1">\1</h3>', text, flags=re.MULTILINE)
+    text = re.sub(r'^#### (.+)$', r'<h4 class="text-base font-semibold mb-1">\1</h4>', text, flags=re.MULTILINE)
+    text = re.sub(r'^##### (.+)$', r'<h5 class="text-sm font-semibold mb-1">\1</h5>', text, flags=re.MULTILINE)
+    text = re.sub(r'^###### (.+)$', r'<h6 class="text-xs font-semibold mb-1">\1</h6>', text, flags=re.MULTILINE)
+    
+    return text
+
+def process_blockquotes_balanced(text):
+    """Process blockquotes with readable spacing"""
+    lines = text.split('\n')
+    in_blockquote = False
+    result = []
+    
+    for line in lines:
+        if line.strip().startswith('> '):
+            if not in_blockquote:
+                result.append('<blockquote class="border-l-4 border-blue-300 pl-4 py-1 mb-2 bg-blue-50 italic">')
+                in_blockquote = True
+            content = line[2:].strip()
+            if content:
+                result.append(f'<p class="mb-1">{content}</p>')
+        else:
+            if in_blockquote:
+                result.append('</blockquote>')
+                in_blockquote = False
+            result.append(line)
+    
+    if in_blockquote:
+        result.append('</blockquote>')
+    
+    return '\n'.join(result)
+
+def process_lists_balanced(text):
+    """Process lists with readable spacing between items"""
+    lines = text.split('\n')
+    result = []
+    in_ul = False
+    in_ol = False
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Unordered list items
+        if re.match(r'^[-*+] ', stripped):
+            if in_ol:
+                result.append('</ol>')
+                in_ol = False
+            if not in_ul:
+                result.append('<ul class="list-disc list-inside space-y-0.5 mb-2">')
+                in_ul = True
+            list_content = stripped[2:]
+            result.append(f'<li class="ml-4">{list_content}</li>')
+        
+        # Ordered list items
+        elif re.match(r'^\d+\. ', stripped):
+            if in_ul:
+                result.append('</ul>')
+                in_ul = False
+            if not in_ol:
+                result.append('<ol class="list-decimal list-inside space-y-0.5 mb-2">')
+                in_ol = True
+            list_content = re.sub(r'^\d+\. ', '', stripped)
+            result.append(f'<li class="ml-4">{list_content}</li>')
+        
+        else:
+            if in_ul:
+                result.append('</ul>')
+                in_ul = False
+            if in_ol:
+                result.append('</ol>')
+                in_ol = False
+            result.append(line)
+    
+    if in_ul:
+        result.append('</ul>')
+    if in_ol:
+        result.append('</ol>')
+    
+    return '\n'.join(result)
+
+def process_inline_formatting_homepage(text):
+    """Process inline formatting for homepage - remove Tailwind classes"""
+    
+    # Links without Tailwind classes (let CSS handle styling)
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)', 
+                  lambda m: f'<a href="{m.group(2)}"' + 
+                           (f' title="{m.group(3)}"' if m.group(3) else '') + 
+                           f' rel="noopener noreferrer">{m.group(1)}</a>', text)
+    
+    # Auto-link URLs without Tailwind classes
+    text = re.sub(r'(?<!href=")(?<!src=")(https?://[^\s<>"]+)', 
+                  r'<a href="\1" target="_blank" rel="noopener noreferrer">\1</a>', text)
+    
+    # Bold and italic (no changes needed)
+    text = re.sub(r'\*\*\*([^*]+)\*\*\*', r'<strong><em>\1</em></strong>', text)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'(?<!\*)\*([^*\s][^*]*[^*\s]|\S)\*(?!\*)', r'<em>\1</em>', text)
+    
+    # Alternative with underscores
+    text = re.sub(r'___([^_]+)___', r'<strong><em>\1</em></strong>', text)
+    text = re.sub(r'__([^_]+)__', r'<strong>\1</strong>', text)
+    text = re.sub(r'(?<!_)_([^_\s][^_]*[^_\s]|\S)_(?!_)', r'<em>\1</em>', text)
+    
+    # Strikethrough
+    text = re.sub(r'~~([^~]+)~~', r'<del>\1</del>', text)
+    
+    return text
+
+def process_paragraphs_balanced(text):
+    """Process paragraphs preserving line breaks with minimal spacing"""
+    
+    # Split by double newlines to identify paragraphs
+    sections = text.split('\n\n')
+    result = []
+    
+    for section in sections:
+        section = section.strip()
+        if section:
+            # Don't wrap HTML blocks in paragraphs
+            if (section.startswith('<') and '>' in section) or \
+               any(section.startswith(tag) for tag in ['<h1>', '<h2>', '<h3>', '<h4>', '<h5>', '<h6>', 
+                                                     '<ul>', '<ol>', '<blockquote>', '<pre>', '<hr>', '<div>']):
+                result.append(section)
+            else:
+                # Preserve line breaks within paragraphs using <br>
+                section_with_breaks = section.replace('\n', '<br>')
+                result.append(f'<p class="mb-2">{section_with_breaks}</p>')
+    
+    return '\n'.join(result)
+
+def parse_markdown_to_html_balanced(markdown_text):
+    """
+    Convert markdown to HTML with balanced spacing
+    """
+    if not markdown_text:
+        return ""
+    
+    html_content = convert_github_flavored_markdown_for_homepage(markdown_text)
+    return html_content
+
+def parse_markdown_links(text):
+    """Main function for homepage template markdown processing - balanced version"""
+    if not text:
+        return []
+    
+    # Return as single-item array with all content combined
+    html_content = parse_markdown_to_html_balanced(text)
+    return [html_content] if html_content else []

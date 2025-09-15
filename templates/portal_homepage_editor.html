@@ -172,13 +172,14 @@
                                           class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
                                           placeholder="The EDGI Datasette Cloud Portal enables users to share environmental datasets as interactive websites...">{{ content.info.content | default('') }}</textarea>
                                 <div class="text-xs text-textlight mt-1 space-y-1">
-                                    <div><i class="ri-markdown-line mr-1"></i>Supports Markdown formatting:</div>
-                                    <div class="ml-4">• <strong>**bold text**</strong> for emphasis</div>
-                                    <div class="ml-4">• <em>*italic text*</em> for subtle emphasis</div>
-                                    <div class="ml-4">• <code>[link text](URL)</code> for links</div>
-                                    <div class="ml-4">• <code>- Item</code> or <code>* Item</code> for bullet points</div>
-                                    <div class="ml-4">• <code>1. Item</code> for numbered lists</div>
-                                    <div class="ml-4">• Leave blank lines between paragraphs</div>
+                                    <div><i class="ri-markdown-line mr-1"></i>Supports GitHub Flavored Markdown:</div>
+                                    <div class="ml-4">• **bold text** and *italic text*</div>
+                                    <div class="ml-4">• [link text](URL) for links</div>
+                                    <div class="ml-4">• # Headers and ## Subheaders</div>
+                                    <div class="ml-4">• - Item or * Item for bullet points</div>
+                                    <div class="ml-4">• 1. Item for numbered lists</div>
+                                    <div class="ml-4">• `code` and ```code blocks```</div>
+                                    <div class="ml-4">• | Table | Headers | for tables</div>
                                 </div>
                             </div>
                             <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">

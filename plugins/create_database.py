@@ -668,7 +668,7 @@ async def ajax_import_database_handler(datasette, request):
             return Response.json({
                 "success": True,
                 "message": result["message"],
-                "stats": f"{result['table_count']} tables • {result['file_size_mb']:.1f}MB • Import complete",
+                "stats": f"{result['table_count']} tables | {result['file_size_mb']:.1f}MB | Import complete",
                 "redirect_url": "/manage-databases",
                 "db_name": result["db_name"],
                 "db_id": result["db_id"],

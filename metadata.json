@@ -13,13 +13,6 @@
           "fts_table": "facility_fts",
           "fts_pk": "epa_facility_id"
         },
-        "rmp_facility": {
-          "title": "Facilities",
-          "description": "Details of facilities in the EPA Risk Management Plans, including associated chemical names and NAICS codes.",
-          "facets": ["state", "county"],
-          "fts_table": "facility_fts",
-          "fts_pk": "epa_facility_id"
-        },
         "facility_accidents_view": {
           "title": "Facility Accidents",
           "description": "Details of accidents in the EPA Risk Management Plans, including associated chemical names and NAICS codes.",
@@ -33,6 +26,13 @@
           "facets": ["state", "county", "date_of_accident", "chemical_name"],
           "fts_table": "accident_chemicals_fts",
           "fts_pk": "accident_chemical_id"
+        },
+        "rmp_facility": {
+          "title": "Facilities",
+          "description": "Details of facilities in the EPA Risk Management Plans, including associated chemical names and NAICS codes.",
+          "facets": ["state", "county"],
+          "fts_table": "facility_fts",
+          "fts_pk": "epa_facility_id"
         },
         "tbl_accident_details": {
           "title": "Detailed Accidents",
@@ -52,12 +52,16 @@
   "plugins": {
     "datasette-cluster-map": {
       "latitude": "latitude",
-      "longitude": "longitude"
+      "longitude": "longitude",
+      "tile_layer": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      "tile_layer_attribution": "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors &copy; <a href=\"https://carto.com/attributions\">CARTO</a>"
     },
     "datasette-cluster-map-geojson": {
       "latitude": "latitude",
       "longitude": "longitude",
-      "geojson": true
+      "geojson": true,
+      "tile_layer": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      "tile_layer_attribution": "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors &copy; <a href=\"https://carto.com/attributions\">CARTO</a>"
     },
     "datasette-auth-tokens": {
       "secret_key": "fd93c677e08304855095d266835d86c9a2eadda209d6c2c9fe0bea65fe0941d4"
