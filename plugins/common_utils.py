@@ -1925,30 +1925,63 @@ def process_lists(text):
     return '\n'.join(result)
 
 def process_inline_formatting(text):
-    """Process inline formatting"""
+    """Process inline formatting - protecting URLs first"""
     
-    # Links
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)', 
-                  lambda m: f'<a href="{m.group(2)}"' + 
-                           (f' title="{m.group(3)}"' if m.group(3) else '') + 
-                           f'>{m.group(1)}</a>', text)
+    # Step 1: Protect URLs in markdown links FIRST
+    # Use a placeholder that survives HTML escaping
+    protected_links = []
+    placeholder_template = "PROTECTEDLINK{}PROTECTEDLINK"
     
-    # Auto-link URLs
+    def protect_link(match):
+        full_link = match.group(0)  # The entire [text](url)
+        protected_links.append(full_link)
+        return placeholder_template.format(len(protected_links))
+    
+    # Protect all markdown links
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)', protect_link, text)
+    
+    # Step 2: Auto-link bare URLs (before other processing)
     text = re.sub(r'(?<!href=")(?<!src=")(https?://[^\s<>"]+)', 
                   r'<a href="\1">\1</a>', text)
     
+    # Step 3: Process markdown formatting on the remaining text
     # Bold and italic combinations
     text = re.sub(r'\*\*\*([^*]+)\*\*\*', r'<strong><em>\1</em></strong>', text)
     text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
-    text = re.sub(r'(?<!\*)\*([^*\s][^*]*[^*\s]|\S)\*(?!\*)', r'<em>\1</em>', text)
     
-    # Underscores
+    # Italic - only match single asterisks not near underscores
+    text = re.sub(r'(?<![*_])\*([^*_\s][^*_]*[^*_\s]|\S)\*(?![*_])', r'<em>\1</em>', text)
+    
+    # Underscores (for emphasis, but being careful)
     text = re.sub(r'___([^_]+)___', r'<strong><em>\1</em></strong>', text)
     text = re.sub(r'__([^_]+)__', r'<strong>\1</strong>', text)
     text = re.sub(r'(?<!_)_([^_\s][^_]*[^_\s]|\S)_(?!_)', r'<em>\1</em>', text)
     
     # Strikethrough
     text = re.sub(r'~~([^~]+)~~', r'<del>\1</del>', text)
+    
+    # Step 4: Restore the protected links and convert them to HTML
+    for i, link in enumerate(protected_links):
+        placeholder = placeholder_template.format(i)
+        # Extract the text, URL, and optional title from the markdown link
+        match = re.match(r'\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)', link)
+        if match:
+            link_text = match.group(1)
+            url = match.group(2)
+            title = match.group(3)
+            
+            # Process any markdown formatting in the link text itself
+            link_text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', link_text)
+            link_text = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', link_text)
+            
+            if title:
+                html_link = f'<a href="{url}" title="{title}">{link_text}</a>'
+            else:
+                html_link = f'<a href="{url}">{link_text}</a>'
+            text = text.replace(placeholder, html_link)
+        else:
+            # Fallback - just restore the original
+            text = text.replace(placeholder, link)
     
     return text
 

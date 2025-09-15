@@ -61,27 +61,45 @@ def get_markdown_columns_from_db():
         return set()
 
 def convert_markdown_to_html(text):
-    """Convert basic markdown to HTML"""
+    """Convert basic markdown to HTML while protecting URLs"""
     if not text:
         return text
     
-    # Convert [text](url) to <a href="url">text</a>
-    link_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
-    text = re.sub(link_pattern, r'<a href="\2">\1</a>', text)
+    # Store all URLs and HTML tags temporarily with placeholders
+    protected_content = []
+    placeholder_template = "___PROTECTED_CONTENT_{}___"
     
+    # First, find and protect all markdown links [text](url)
+    def protect_link(match):
+        full_match = match.group(0)
+        link_text = match.group(1)
+        url = match.group(2)
+        # Convert to HTML and store
+        html_link = f'<a href="{url}">{link_text}</a>'
+        protected_content.append(html_link)
+        return placeholder_template.format(len(protected_content) - 1)
+    
+    # Protect markdown links
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', protect_link, text)
+    
+    # Now process markdown on the remaining text
     # Convert **bold** to <strong>bold</strong>
     text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
     
     # Convert *italic* to <em>italic</em>
-    text = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<em>\1</em>', text)
+    # Only match if not adjacent to underscores (which are common in URLs/identifiers)
+    text = re.sub(r'(?<![_*])\*([^*_]+)\*(?![_*])', r'<em>\1</em>', text)
     
-    # Convert # Header to <h3>Header</h3> (smaller headers for table cells)
+    # Convert headers
     text = re.sub(r'^# (.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
-    
-    # Convert ## Header to <h4>Header</h4>
     text = re.sub(r'^## (.+)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
     
-    # Convert newlines to <br> for better cell display
+    # Restore protected content
+    for i, content in enumerate(protected_content):
+        placeholder = placeholder_template.format(i)
+        text = text.replace(placeholder, content)
+    
+    # Convert newlines to <br>
     text = text.replace('\n\n', '<br><br>').replace('\n', '<br>')
     
     return text
@@ -142,6 +160,16 @@ def render_cell(datasette, value, column, table, database, row):
 def handle_rmp_database_links(table, column, value, row):
     """Handle risk_management_plans database specific linking"""
     
+    # Convert sqlite3.Row to dict for easier access
+    row_dict = {}
+    try:
+        if hasattr(row, 'keys'):  # sqlite3.Row has keys() method
+            row_dict = dict(zip(row.keys(), row))
+        elif isinstance(row, dict):
+            row_dict = row
+    except Exception:
+        pass
+    
     # Handle facility_id, naics_code, and id for facility_accidents_view
     if table == "facility_accidents_view":
         if column == "facility_id":
@@ -149,10 +177,10 @@ def handle_rmp_database_links(table, column, value, row):
         if column == "naics_code":
             return Markup(f'<a href="/risk_management_plans/rmp_naics/{value}">{value}</a>')
         if column == "facility_accident_id":
-            record_id = row.get("id")
+            record_id = row_dict.get("id")
             return Markup(f'<a href="/risk_management_plans/facility_accidents_view/{record_id}">{value}</a>') if record_id else None
         if column == "accident_id":
-            record_id = row.get("id")
+            record_id = row_dict.get("id")
             return Markup(f'<a href="/risk_management_plans/facility_accidents_view/{record_id}">{value}</a>') if record_id else None
 
     # Handle facility_id for accident_chemicals_view
