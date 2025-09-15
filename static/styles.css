@@ -42,206 +42,241 @@ tr:hover {
     min-width: 120px;
 }
 
-/* Enhanced GitHub Flavored Markdown styling with consistent colors */
-.prose {
-    color: #333333; /* Match your text color */
-    max-width: 65ch;
-}
-
-/* Ensure links maintain your brand blue color */
-.prose a {
-    color: #0071BC !important; /* Your accent blue */
-    text-decoration: underline;
-    font-weight: 500;
-}
-
-.prose a:hover {
-    color: #1A4480 !important; /* Your primary blue */
-    text-decoration: underline;
-}
-
-/* Bold links should keep the same blue color */
-.prose strong a, 
-.prose a strong {
-    color: #0071BC !important; /* Same blue even when bold */
-    font-weight: 600; /* Maintain bold weight */
-}
-
-.prose strong a:hover, 
-.prose a strong:hover {
-    color: #1A4480 !important; /* Same hover color */
-}
-
-/* Headers using your color scheme */
-.prose h1 {
-    color: #1A4480;
-    font-weight: 800;
-    font-size: 2.25em;
-    margin-top: 0;
-    margin-bottom: 0.5em; /* Reduced from 0.8888889em */
-    line-height: 1.1111111;
-}
-
-.prose h2 {
-    color: #1A4480;
-    font-weight: 700;
-    font-size: 1.5em;
-    margin-top: 1em; /* Reduced from 2em */
-    margin-bottom: 0.5em; /* Reduced from 1em */
-    line-height: 1.3333333;
-}
-
-.prose h3 {
-    color: #1A4480;
-    font-weight: 600;
-    font-size: 1.25em;
-    margin-top: 0.8em; /* Reduced from 1.6em */
-    margin-bottom: 0.3em; /* Reduced from 0.6em */
+/* Resette-specific prose styling */
+.prose-resette {
+    color: #333333;
     line-height: 1.6;
 }
 
-/* Strong text using your colors */
-.prose strong {
-    color: #1A4480; /* Your primary color for emphasis */
-    font-weight: 600;
-}
-
-/* Code styling with your color scheme */
-.prose code {
-    color: #1A4480; /* Your primary color */
-    font-weight: 600;
-    font-size: 0.875em;
-    background-color: #f3f4f6;
-    padding: 0.125rem 0.25rem;
-    border-radius: 0.25rem;
-}
-
-/* Table styling matching your existing table styles */
-.prose table {
-    width: 100%;
-    margin-top: 2em;
-    margin-bottom: 2em;
-    font-size: 0.875em;
-    border-collapse: collapse;
-}
-
-.prose thead th {
-    background-color: #0071BC; /* Your accent blue */
-    color: white;
-    padding: 0.75rem;
-    text-align: left;
-    border-bottom: 1px solid #CCC;
-}
-
-.prose tbody td {
-    padding: 0.75rem;
-    text-align: left;
-    border-bottom: 1px solid #CCC;
-}
-
-.prose tbody tr:hover {
-    background-color: #F5F5F5;
-}
-
-/* Blockquotes with your styling */
-.prose blockquote {
-    font-weight: 500;
-    font-style: italic;
-    color: #1A4480; /* Your primary color */
-    border-left-width: 0.25rem;
-    border-left-color: #0071BC; /* Your accent blue */
-    margin-top: 1.6em;
-    margin-bottom: 1.6em;
-    padding-left: 1em;
-    background-color: #f8fafc;
-    padding: 1rem;
-    border-radius: 0.25rem;
-}
-
-/* Lists with proper spacing */
-.prose ul, .prose ol {
-    margin-top: 1.25em;
-    margin-bottom: 1.25em;
-    padding-left: 1.625em;
-}
-
-.prose li {
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
-}
-
-/* Override any conflicting Tailwind prose colors */
-.prose-blue a {
-    color: #0071BC !important;
-}
-
-.prose-blue a:hover {
-    color: #1A4480 !important;
-}
-
-/* Ensure max-width doesn't constrain in your layouts */
-.prose.max-w-none {
-    max-width: none;
-}
-
-/* Compact prose styling */
-.prose.compact {
-    line-height: 1.5; /* Tighter line height */
-}
-
-/* Reduce header margins for compact display */
-.prose.compact h1 {
+/* Remove margins between headers and following content */
+.prose-resette h1 + p,
+.prose-resette h2 + p,
+.prose-resette h3 + p,
+.prose-resette h4 + p,
+.prose-resette h5 + p,
+.prose-resette h6 + p {
     margin-top: 0;
-    margin-bottom: 0.25em; /* Reduced from 0.5em */
 }
 
-.prose.compact h2 {
-    margin-top: 0.5em; /* Reduced from 1em */
-    margin-bottom: 0.25em; /* Reduced from 0.5em */
+/* Remove margins between headers and lists */
+.prose-resette h1 + ul,
+.prose-resette h2 + ul,
+.prose-resette h3 + ul,
+.prose-resette h1 + ol,
+.prose-resette h2 + ol,
+.prose-resette h3 + ol {
+    margin-top: 0.25rem;  /* Very small gap */
 }
 
-.prose.compact h3 {
-    margin-top: 0.4em; /* Reduced from 0.8em */
-    margin-bottom: 0.2em; /* Reduced from 0.3em */
+
+/* Headers - matching the title color exactly */
+.prose-resette h1 {
+    color: #1A4480;
+    font-size: 1.875rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;  /* Consistent bottom margin */
+    margin-top: 0;  /* No top margin for first h1 */
+    line-height: 1.2;
 }
 
-.prose.compact h4,
-.prose.compact h5,
-.prose.compact h6 {
-    margin-top: 0.3em;
-    margin-bottom: 0.15em;
+.prose-resette h2 {
+    color: #1A4480;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;  /* Consistent bottom margin */
+    margin-top: 0.75rem;  /* Small top margin */
+    line-height: 1.3;
 }
 
-/* Compact list spacing */
-.prose.compact ul, 
-.prose.compact ol {
-    margin-top: 0.5em; /* Reduced from 1.25em */
-    margin-bottom: 0.5em; /* Reduced from 1.25em */
+.prose-resette h3 {
+    color: #1A4480;
+    font-size: 1.25rem; /* 20px */
+    font-weight: 600;
+    margin-bottom: 0.375rem;
+    margin-top: 0.75rem;
+    line-height: 1.4;
 }
 
-.prose.compact li {
-    margin-top: 0.1em; /* Reduced from 0.5em */
-    margin-bottom: 0.1em; /* Reduced from 0.5em */
+.prose-resette h4 {
+    color: #1A4480;
+    font-size: 1.125rem; /* 18px */
+    font-weight: 600;
+    margin-bottom: 0.375rem;
+    margin-top: 0.75rem;
+    line-height: 1.4;
 }
 
-/* Compact paragraph spacing */
-.prose.compact p {
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
+.prose-resette h5 {
+    color: #1A4480;
+    font-size: 1rem; /* 16px */
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    margin-top: 0.5rem;
+    line-height: 1.5;
 }
 
-/* Compact blockquote spacing */
-.prose.compact blockquote {
-    margin-top: 0.8em; /* Reduced from 1.6em */
-    margin-bottom: 0.8em; /* Reduced from 1.6em */
+.prose-resette h6 {
+    color: #1A4480;
+    font-size: 0.875rem; /* 14px */
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    margin-top: 0.5rem;
+    line-height: 1.5;
 }
 
-/* Ensure first element has no top margin */
-.prose.compact > *:first-child {
+/* Paragraphs - proper spacing between paragraphs */
+.prose-resette p {
+    margin-bottom: 1.5rem;  /* Space between paragraphs */
+    margin-top: 0;
+    line-height: 1.5;
+}
+
+
+/* Links */
+.prose-resette a {
+    color: #0071BC;
+    text-decoration: underline;
+    font-weight: 500;
+}
+
+.prose-resette a:hover {
+    color: #1A4480;
+}
+
+/* Bold text */
+.prose-resette strong {
+    font-weight: 600;
+    color: inherit;
+}
+
+/* Italic text */
+.prose-resette em {
+    font-style: italic;
+}
+
+/* Lists - tight spacing within lists */
+.prose-resette ul {
+    list-style-type: disc;
+    padding-left: 1.25rem;
+    margin-bottom: 1rem;
+    margin-top: 0.5rem;
+}
+
+.prose-resette ol {
+    list-style-type: decimal;
+    padding-left: 1.25rem;
+    margin-bottom: 1rem;
+    margin-top: 0.5rem;
+}
+/* No spacing between list items - reduced line height */
+.prose-resette li {
+    margin: 0;
+    padding: 0;
+    line-height: 0.25;  /* Reduced from 0.25 to make items closer */
+}
+
+/* But preserve spacing after paragraphs before lists */
+.prose-resette p + ul,
+.prose-resette p + ol {
+    margin-top: 1rem;
+}
+
+/* No margin on first element */
+.prose-resette > *:first-child {
     margin-top: 0 !important;
 }
 
-/* Ensure last element has no bottom margin */
-.prose.compact > *:last-child {
+/* Reduced margin on last element */
+.prose-resette > *:last-child {
     margin-bottom: 0 !important;
+}
+
+/* Nested lists should have less spacing */
+.prose-resette li ul,
+.prose-resette li ol {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
+/* Direct spacing between list items */
+.prose-resette li + li {
+    margin-top: 0;  /* No space between items */
+}
+
+/* Code */
+.prose-resette code {
+    background-color: #f3f4f6;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+    font-size: 0.875em;
+    font-family: monospace;
+}
+
+.prose-resette pre {
+    background-color: #f3f4f6;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+    margin-top: 1rem;
+}
+
+.prose-resette pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+/* Blockquotes */
+.prose-resette blockquote {
+    border-left: 4px solid #0071BC;
+    padding-left: 1rem;
+    margin-left: 0;
+    margin-right: 0;
+    margin-bottom: 1rem;
+    margin-top: 1rem;
+    background-color: #f8fafc;
+    padding: 0.75rem 1rem;
+    font-style: italic;
+}
+
+/* Horizontal rules */
+.prose-resette hr {
+    border: 0;
+    border-top: 1px solid #d1d5db;
+    margin: 1.5rem 0;
+}
+
+/* Tables */
+.prose-resette table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+    margin-top: 1rem;
+}
+
+.prose-resette thead th {
+    background-color: #0071BC;
+    color: white;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+}
+
+.prose-resette tbody td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #d1d5db;
+}
+
+.prose-resette tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+/* First child margin reset */
+.prose-resette > *:first-child {
+    margin-top: 0;
+}
+
+/* Last child margin reset */
+.prose-resette > *:last-child {
+    margin-bottom: 0;
 }
