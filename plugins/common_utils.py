@@ -1928,14 +1928,16 @@ def process_inline_formatting(text):
     """Process inline formatting - protecting URLs first"""
     
     # Step 1: Protect URLs in markdown links FIRST
-    # Use a placeholder that survives HTML escaping
+    # Use a unique placeholder that survives HTML escaping
     protected_links = []
-    placeholder_template = "PROTECTEDLINK{}PROTECTEDLINK"
+    placeholder_base = "PROTECTEDLINK"
     
     def protect_link(match):
         full_link = match.group(0)  # The entire [text](url)
+        idx = len(protected_links)
         protected_links.append(full_link)
-        return placeholder_template.format(len(protected_links))
+        # Use a unique separator that won't appear in normal text
+        return f"{placeholder_base}XXX{idx}XXX{placeholder_base}"
     
     # Protect all markdown links
     text = re.sub(r'\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)', protect_link, text)
@@ -1962,7 +1964,7 @@ def process_inline_formatting(text):
     
     # Step 4: Restore the protected links and convert them to HTML
     for i, link in enumerate(protected_links):
-        placeholder = placeholder_template.format(i)
+        placeholder = f"{placeholder_base}XXX{i}XXX{placeholder_base}"
         # Extract the text, URL, and optional title from the markdown link
         match = re.match(r'\[([^\]]+)\]\(([^)]+?)(?:\s+"([^"]+)")?\)', link)
         if match:
