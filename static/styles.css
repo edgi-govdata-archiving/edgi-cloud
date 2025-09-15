@@ -41,3 +41,207 @@ tr:hover {
 .table-name-edit input {
     min-width: 120px;
 }
+
+/* Enhanced GitHub Flavored Markdown styling with consistent colors */
+.prose {
+    color: #333333; /* Match your text color */
+    max-width: 65ch;
+}
+
+/* Ensure links maintain your brand blue color */
+.prose a {
+    color: #0071BC !important; /* Your accent blue */
+    text-decoration: underline;
+    font-weight: 500;
+}
+
+.prose a:hover {
+    color: #1A4480 !important; /* Your primary blue */
+    text-decoration: underline;
+}
+
+/* Bold links should keep the same blue color */
+.prose strong a, 
+.prose a strong {
+    color: #0071BC !important; /* Same blue even when bold */
+    font-weight: 600; /* Maintain bold weight */
+}
+
+.prose strong a:hover, 
+.prose a strong:hover {
+    color: #1A4480 !important; /* Same hover color */
+}
+
+/* Headers using your color scheme */
+.prose h1 {
+    color: #1A4480;
+    font-weight: 800;
+    font-size: 2.25em;
+    margin-top: 0;
+    margin-bottom: 0.5em; /* Reduced from 0.8888889em */
+    line-height: 1.1111111;
+}
+
+.prose h2 {
+    color: #1A4480;
+    font-weight: 700;
+    font-size: 1.5em;
+    margin-top: 1em; /* Reduced from 2em */
+    margin-bottom: 0.5em; /* Reduced from 1em */
+    line-height: 1.3333333;
+}
+
+.prose h3 {
+    color: #1A4480;
+    font-weight: 600;
+    font-size: 1.25em;
+    margin-top: 0.8em; /* Reduced from 1.6em */
+    margin-bottom: 0.3em; /* Reduced from 0.6em */
+    line-height: 1.6;
+}
+
+/* Strong text using your colors */
+.prose strong {
+    color: #1A4480; /* Your primary color for emphasis */
+    font-weight: 600;
+}
+
+/* Code styling with your color scheme */
+.prose code {
+    color: #1A4480; /* Your primary color */
+    font-weight: 600;
+    font-size: 0.875em;
+    background-color: #f3f4f6;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+}
+
+/* Table styling matching your existing table styles */
+.prose table {
+    width: 100%;
+    margin-top: 2em;
+    margin-bottom: 2em;
+    font-size: 0.875em;
+    border-collapse: collapse;
+}
+
+.prose thead th {
+    background-color: #0071BC; /* Your accent blue */
+    color: white;
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #CCC;
+}
+
+.prose tbody td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #CCC;
+}
+
+.prose tbody tr:hover {
+    background-color: #F5F5F5;
+}
+
+/* Blockquotes with your styling */
+.prose blockquote {
+    font-weight: 500;
+    font-style: italic;
+    color: #1A4480; /* Your primary color */
+    border-left-width: 0.25rem;
+    border-left-color: #0071BC; /* Your accent blue */
+    margin-top: 1.6em;
+    margin-bottom: 1.6em;
+    padding-left: 1em;
+    background-color: #f8fafc;
+    padding: 1rem;
+    border-radius: 0.25rem;
+}
+
+/* Lists with proper spacing */
+.prose ul, .prose ol {
+    margin-top: 1.25em;
+    margin-bottom: 1.25em;
+    padding-left: 1.625em;
+}
+
+.prose li {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+
+/* Override any conflicting Tailwind prose colors */
+.prose-blue a {
+    color: #0071BC !important;
+}
+
+.prose-blue a:hover {
+    color: #1A4480 !important;
+}
+
+/* Ensure max-width doesn't constrain in your layouts */
+.prose.max-w-none {
+    max-width: none;
+}
+
+/* Compact prose styling */
+.prose.compact {
+    line-height: 1.5; /* Tighter line height */
+}
+
+/* Reduce header margins for compact display */
+.prose.compact h1 {
+    margin-top: 0;
+    margin-bottom: 0.25em; /* Reduced from 0.5em */
+}
+
+.prose.compact h2 {
+    margin-top: 0.5em; /* Reduced from 1em */
+    margin-bottom: 0.25em; /* Reduced from 0.5em */
+}
+
+.prose.compact h3 {
+    margin-top: 0.4em; /* Reduced from 0.8em */
+    margin-bottom: 0.2em; /* Reduced from 0.3em */
+}
+
+.prose.compact h4,
+.prose.compact h5,
+.prose.compact h6 {
+    margin-top: 0.3em;
+    margin-bottom: 0.15em;
+}
+
+/* Compact list spacing */
+.prose.compact ul, 
+.prose.compact ol {
+    margin-top: 0.5em; /* Reduced from 1.25em */
+    margin-bottom: 0.5em; /* Reduced from 1.25em */
+}
+
+.prose.compact li {
+    margin-top: 0.1em; /* Reduced from 0.5em */
+    margin-bottom: 0.1em; /* Reduced from 0.5em */
+}
+
+/* Compact paragraph spacing */
+.prose.compact p {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+
+/* Compact blockquote spacing */
+.prose.compact blockquote {
+    margin-top: 0.8em; /* Reduced from 1.6em */
+    margin-bottom: 0.8em; /* Reduced from 1.6em */
+}
+
+/* Ensure first element has no top margin */
+.prose.compact > *:first-child {
+    margin-top: 0 !important;
+}
+
+/* Ensure last element has no bottom margin */
+.prose.compact > *:last-child {
+    margin-bottom: 0 !important;
+}

@@ -173,9 +173,15 @@
                                 <textarea name="description" rows="5" 
                                           class="w-full p-3 border rounded-button focus:outline-none focus:ring-2 focus:ring-accent" 
                                           placeholder="Describe your environmental dataset...">{{ content.description.content | default('') }}</textarea>
-                                <div class="text-xs text-textlight mt-1">
-                                    <i class="ri-markdown-line mr-1"></i>
-                                    Supports Markdown: **bold**, *italic*, [links](url)
+                                <div class="text-xs text-textlight mt-1 space-y-1">
+                                    <div><i class="ri-markdown-line mr-1"></i>Supports GitHub Flavored Markdown:</div>
+                                    <div class="ml-4">• **bold text** and *italic text*</div>
+                                    <div class="ml-4">• [link text](URL) for links</div>
+                                    <div class="ml-4">• # Headers and ## Subheaders</div>
+                                    <div class="ml-4">• - Item or * Item for bullet points</div>
+                                    <div class="ml-4">• 1. Item for numbered lists</div>
+                                    <div class="ml-4">• `code` and ```code blocks```</div>
+                                    <div class="ml-4">• | Table | Headers | for tables</div>
                                 </div>
                             </div>
                             <button type="submit" class="bg-accent text-white py-2 px-4 rounded-button hover:bg-primary transition">

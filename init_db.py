@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 EDGI Cloud Portal - Database Initialization Script
-Enhanced with system settings, blocked domains, and improved schema
+Enhanced with complete schema including must_change_password and markdown_columns
 """
 
 import sqlite_utils
@@ -19,18 +19,19 @@ STATIC_DIR = os.getenv('RESETTE_STATIC_DIR', "/static")
 
 def create_database_schema(portal_db):
     """Create all required database tables with complete schema."""
-    print("🗄️ Creating database tables...")
+    print("Creating database tables...")
     
-    # Users table - unchanged
+    # Users table - enhanced with must_change_password
     portal_db.create_table("users", {
         "user_id": str,
         "username": str,
         "password_hash": str,
         "role": str,
         "email": str,
-        "created_at": str
+        "created_at": str,
+        "must_change_password": bool  # New field for forcing password changes
     }, pk="user_id", if_not_exists=True)
-    print("   ✅ Created users table")
+    print("   Created users table (with must_change_password)")
 
     # Enhanced databases table with COMPLETE schema
     portal_db.create_table("databases", {
@@ -50,24 +51,47 @@ def create_database_schema(portal_db):
         "deleted_at": str,               # ISO timestamp of permanent deletion
         "deletion_reason": str,          # Reason for deletion (admin use)
     }, pk="db_id", if_not_exists=True)
-    print("   ✅ Created databases table (with complete deletion support)")
+    print("   Created databases table (with complete deletion support)")
 
-    # System settings table - NEW
+    # System settings table
     portal_db.create_table("system_settings", {
         "setting_key": str,              # Primary key (unique setting name)
         "setting_value": str,            # Setting value (stored as string)
         "updated_at": str,               # ISO timestamp of last update
         "updated_by": str                # Username who updated the setting
     }, pk="setting_key", if_not_exists=True)
-    print("   ✅ Created system_settings table")
+    print("   Created system_settings table")
 
-    # Blocked domains table - NEW
+    # Blocked domains table
     portal_db.create_table("blocked_domains", {
         "domain": str,                   # Primary key (domain name)
         "created_at": str,               # ISO timestamp when blocked
         "created_by": str                # Admin username who blocked it
     }, pk="domain", if_not_exists=True)
-    print("   ✅ Created blocked_domains table")
+    print("   Created blocked_domains table")
+
+    # Database tables visibility tracking
+    portal_db.create_table("database_tables", {
+        "table_id": str,                 # Primary key
+        "db_id": str,                    # Foreign key to databases table
+        "table_name": str,               # Name of the table
+        "show_in_homepage": bool,        # Visibility on homepage
+        "display_order": int,            # Order for display
+        "created_at": str,               # When table was first registered
+        "updated_at": str                # Last visibility change
+    }, pk="table_id", if_not_exists=True)
+    print("   Created database_tables table")
+
+    # Markdown columns configuration table
+    portal_db.create_table("markdown_columns", {
+        "id": int,                       # Primary key (auto-increment)
+        "db_name": str,                  # Database name
+        "table_name": str,               # Table name
+        "column_name": str,              # Column name to render as markdown
+        "created_at": str,               # ISO timestamp of creation
+        "created_by": str                # User who configured this
+    }, pk="id", if_not_exists=True)
+    print("   Created markdown_columns table")
 
     # Admin content table
     portal_db.create_table("admin_content", {
@@ -77,7 +101,7 @@ def create_database_schema(portal_db):
         "updated_at": str,               # ISO timestamp
         "updated_by": str                # Username who updated
     }, pk=("db_id", "section"), if_not_exists=True)
-    print("   ✅ Created admin_content table")
+    print("   Created admin_content table")
 
     # Enhanced activity logs table with metadata support
     portal_db.create_table("activity_logs", {
@@ -88,11 +112,11 @@ def create_database_schema(portal_db):
         "timestamp": str,                # ISO timestamp
         "action_metadata": str           # JSON metadata for enhanced logging
     }, pk="log_id", if_not_exists=True)
-    print("   ✅ Created activity_logs table (with metadata support)")
+    print("   Created activity_logs table (with metadata support)")
 
 def create_system_settings(portal_db):
     """Create default system settings."""
-    print("⚙️ Creating system settings...")
+    print("Creating system settings...")
     
     current_time = datetime.now(timezone.utc).isoformat()
     
@@ -111,7 +135,7 @@ def create_system_settings(portal_db):
         },
         {
             "setting_key": "max_file_size",
-            "setting_value": str(50 * 1024 * 1024),  # 50MB in bytes
+            "setting_value": str(500 * 1024 * 1024),  # 500MB in bytes
             "updated_at": current_time,
             "updated_by": "system_init"
         },
@@ -123,7 +147,7 @@ def create_system_settings(portal_db):
         },
         {
             "setting_key": "allowed_extensions",
-            "setting_value": ".jpg,.jpeg,.png,.csv,.xls,.xlsx,.txt,.db,.sqlite,.sqlite3",
+            "setting_value": ".jpg,.jpeg,.png,.csv,.xls,.xlsx,.txt,.db,.jsonl,.json",
             "updated_at": current_time,
             "updated_by": "system_init"
         },
@@ -144,13 +168,92 @@ def create_system_settings(portal_db):
     for setting in default_settings:
         try:
             portal_db["system_settings"].insert(setting, ignore=True)
-            print(f"   ✅ Created setting: {setting['setting_key']} = {setting['setting_value']}")
+            print(f"   Created setting: {setting['setting_key']} = {setting['setting_value']}")
         except Exception as e:
-            print(f"   ⚠️ Warning: Could not create setting {setting['setting_key']}: {e}")
+            print(f"   Warning: Could not create setting {setting['setting_key']}: {e}")
+
+def create_default_markdown_configurations(portal_db):
+    """Create default markdown column configurations."""
+    print("Creating default markdown configurations...")
+    
+    current_time = datetime.now(timezone.utc).isoformat()
+    
+    default_markdown_configs = [
+        {
+            "db_name": "risk_management_plans",
+            "table_name": "facility_view",
+            "column_name": "report",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "risk_management_plans",
+            "table_name": "facility_view",
+            "column_name": "popup",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "risk_management_plans",
+            "table_name": "facility_accidents_view",
+            "column_name": "report",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "risk_management_plans",
+            "table_name": "accident_chemicals_view",
+            "column_name": "report",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "risk_management_plans",
+            "table_name": "rmp_facility",
+            "column_name": "report",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "risk_management_plans",
+            "table_name": "rmp_facility",
+            "column_name": "popup",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "campd",
+            "table_name": "emissions",
+            "column_name": "id",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "campd",
+            "table_name": "emissions",
+            "column_name": "file_key",
+            "created_at": current_time,
+            "created_by": "system_init"
+        },
+        {
+            "db_name": "campd",
+            "table_name": "emissions",
+            "column_name": "datasette_link",
+            "created_at": current_time,
+            "created_by": "system_init"
+        }
+    ]
+    
+    for config in default_markdown_configs:
+        try:
+            portal_db["markdown_columns"].insert(config, ignore=True)
+            print(f"   Created markdown config: {config['db_name']}.{config['table_name']}.{config['column_name']}")
+        except Exception as e:
+            print(f"   Warning: Could not create markdown config: {e}")
 
 def create_indexes(portal_db):
     """Create database indexes for optimal performance."""
-    print("📊 Creating database indexes...")
+    print("Creating database indexes...")
     
     try:
         # Users table indexes
@@ -158,6 +261,7 @@ def create_indexes(portal_db):
             CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
             CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+            CREATE INDEX IF NOT EXISTS idx_users_must_change_password ON users(must_change_password);
         """)
         
         # Databases table indexes
@@ -183,6 +287,20 @@ def create_indexes(portal_db):
             CREATE INDEX IF NOT EXISTS idx_blocked_domains_created_at ON blocked_domains(created_at);
         """)
         
+        # Database tables indexes
+        portal_db.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_database_tables_db_id ON database_tables(db_id);
+            CREATE INDEX IF NOT EXISTS idx_database_tables_visibility ON database_tables(db_id, show_in_homepage);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_database_tables_unique ON database_tables(db_id, table_name);
+        """)
+        
+        # Markdown columns indexes
+        portal_db.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_markdown_columns_db_name ON markdown_columns(db_name);
+            CREATE INDEX IF NOT EXISTS idx_markdown_columns_table ON markdown_columns(db_name, table_name);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_markdown_columns_unique ON markdown_columns(db_name, table_name, column_name);
+        """)
+        
         # Activity logs indexes
         portal_db.executescript("""
             CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
@@ -196,14 +314,14 @@ def create_indexes(portal_db):
             CREATE INDEX IF NOT EXISTS idx_admin_content_section ON admin_content(section);
         """)
         
-        print("   ✅ Created performance indexes")
+        print("   Created performance indexes")
         
     except Exception as e:
-        print(f"   ⚠️ Warning: Could not create some indexes: {e}")
+        print(f"   Warning: Could not create some indexes: {e}")
 
 def create_test_users(portal_db):
     """Create test users for development and testing."""
-    print("👥 Creating test users...")
+    print("Creating test users...")
     
     # Test password
     test_password = os.getenv('DEFAULT_PASSWORD', 'resette2025!')
@@ -216,7 +334,8 @@ def create_test_users(portal_db):
             "password_hash": hashed_password,
             "role": "system_admin",
             "email": "admin@resette.org",
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "must_change_password": False  # Admin doesn't need to change password initially
         },
         {
             "user_id": uuid.uuid4().hex[:20],
@@ -224,7 +343,8 @@ def create_test_users(portal_db):
             "password_hash": hashed_password,
             "role": "system_user",
             "email": "researcher@university.edu",
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "must_change_password": True   # Regular users should change default password
         },
         {
             "user_id": uuid.uuid4().hex[:20],
@@ -232,7 +352,8 @@ def create_test_users(portal_db):
             "password_hash": hashed_password,
             "role": "system_user",
             "email": "analyst@ngo.org",
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "must_change_password": True
         },
         {
             "user_id": uuid.uuid4().hex[:20],
@@ -240,7 +361,8 @@ def create_test_users(portal_db):
             "password_hash": hashed_password,
             "role": "system_user",
             "email": "data@greengroup.org",
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "must_change_password": True
         }
     ]
     
@@ -248,15 +370,16 @@ def create_test_users(portal_db):
     for user in users:
         try:
             portal_db["users"].insert(user, ignore=True)
-            print(f"   ✅ Created user: {user['username']} ({user['role']}) - {user['email']}")
+            change_pwd = "must change password" if user['must_change_password'] else "password OK"
+            print(f"   Created user: {user['username']} ({user['role']}) - {change_pwd}")
         except Exception as e:
-            print(f"   ⚠️ Warning: Could not create user {user['username']}: {e}")
+            print(f"   Warning: Could not create user {user['username']}: {e}")
     
     return users
 
 def create_portal_content(portal_db):
     """Create default portal homepage content."""
-    print("🏠 Creating portal homepage content...")
+    print("Creating portal homepage content...")
     
     portal_content = [
         {
@@ -295,10 +418,10 @@ def create_portal_content(portal_db):
             "db_id": None,
             "section": "footer",
             "content": json.dumps({
-                "content": "Made with ❤️ by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/).",
+                "content": "Made with love by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/).",
                 "odbl_text": "Data licensed under ODbL",
                 "odbl_url": "https://opendatacommons.org/licenses/odbl/",
-                "paragraphs": ["Made with ❤️ by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/)."]
+                "paragraphs": ["Made with love by [EDGI](https://envirodatagov.org) and [Public Environmental Data Partners](https://screening-tools.com/)."]
             }),
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "updated_by": "system"
@@ -308,88 +431,19 @@ def create_portal_content(portal_db):
     for content in portal_content:
         try:
             portal_db["admin_content"].insert(content, ignore=True)
-            print(f"   ✅ Created portal content: {content['section']}")
+            print(f"   Created portal content: {content['section']}")
         except Exception as e:
-            print(f"   ⚠️ Warning: Could not create content {content['section']}: {e}")
+            print(f"   Warning: Could not create content {content['section']}: {e}")
 
 def create_sample_databases(portal_db, users):
-    """Create sample databases for demonstration (optional)."""
-    print("📊 Creating sample databases...")
-    
-    if not users:
-        print("   ⚠️ No users available, skipping sample databases")
-        return
-    
-    # Find regular users (not admin) for sample databases
-    regular_users = [u for u in users if u['role'] == 'system_user']
-    if not regular_users:
-        regular_users = [users[0]]  # Fallback to first user
-    
-    current_time = datetime.now(timezone.utc).isoformat()
-    
-    sample_databases = [
-        {
-            "db_id": uuid.uuid4().hex[:20],
-            "user_id": regular_users[0]['user_id'],
-            "db_name": "air-quality-monitoring",
-            "website_url": "/air-quality-monitoring/",
-            "status": "Published",
-            "created_at": current_time,
-            "updated_at": current_time,
-            "file_path": f"{DATA_DIR}/{regular_users[0]['user_id']}/air-quality-monitoring.db",
-            "trashed_at": None,
-            "restore_deadline": None,
-            "deleted_by_user_id": None,
-            "deleted_at": None,
-            "deletion_reason": None
-        },
-        {
-            "db_id": uuid.uuid4().hex[:20],
-            "user_id": regular_users[0]['user_id'],
-            "db_name": "water_quality_sensors",
-            "website_url": "/water_quality_sensors/",
-            "status": "Draft",
-            "created_at": current_time,
-            "updated_at": current_time,
-            "file_path": f"{DATA_DIR}/{regular_users[0]['user_id']}/water_quality_sensors.db",
-            "trashed_at": None,
-            "restore_deadline": None,
-            "deleted_by_user_id": None,
-            "deleted_at": None,
-            "deletion_reason": None
-        }
-    ]
-    
-    # Add more sample databases if we have multiple users
-    if len(regular_users) > 1:
-        sample_databases.extend([
-            {
-                "db_id": uuid.uuid4().hex[:20],
-                "user_id": regular_users[1]['user_id'],
-                "db_name": "climate-data-2024",
-                "website_url": "/climate-data-2024/",
-                "status": "Published",
-                "created_at": current_time,
-                "updated_at": current_time,
-                "file_path": f"{DATA_DIR}/{regular_users[1]['user_id']}/climate-data-2024.db",
-                "trashed_at": None,
-                "restore_deadline": None,
-                "deleted_by_user_id": None,
-                "deleted_at": None,
-                "deletion_reason": None
-            }
-        ])
-    
-    for db_info in sample_databases:
-        try:
-            portal_db["databases"].insert(db_info, ignore=True)
-            print(f"   ✅ Created sample database: {db_info['db_name']} ({db_info['status']})")
-        except Exception as e:
-            print(f"   ⚠️ Warning: Could not create database {db_info['db_name']}: {e}")
+    """Skip sample database creation to avoid broken references."""
+    print("Skipping sample database creation (prevents broken references)")
+    print("   Users can create databases through the web interface after deployment")
+    return  # No sample databases created
 
 def create_initial_activity_logs(portal_db, users):
     """Create initial activity logs for system startup."""
-    print("📝 Creating initial activity logs...")
+    print("Creating initial activity logs...")
     
     current_time = datetime.now(timezone.utc).isoformat()
     
@@ -409,7 +463,9 @@ def create_initial_activity_logs(portal_db, users):
                     "system_settings",
                     "blocked_domains",
                     "enhanced_validation",
-                    "image_optimization"
+                    "image_optimization",
+                    "markdown_columns",
+                    "password_security"
                 ],
                 "user_count": len(users) if users else 0,
                 "database_version": "sqlite3",
@@ -426,7 +482,7 @@ def create_initial_activity_logs(portal_db, users):
                 "settings_created": 7,
                 "trash_retention_days": 30,
                 "max_databases_per_user": 10,
-                "max_file_size_mb": 50,
+                "max_file_size_mb": 500,
                 "max_img_size_mb": 5
             })
         }
@@ -435,20 +491,20 @@ def create_initial_activity_logs(portal_db, users):
     for log_entry in initial_logs:
         try:
             portal_db["activity_logs"].insert(log_entry, ignore=True)
-            print(f"   ✅ Created initial log: {log_entry['action']}")
+            print(f"   Created initial log: {log_entry['action']}")
         except Exception as e:
-            print(f"   ⚠️ Warning: Could not create log: {e}")
+            print(f"   Warning: Could not create log: {e}")
 
 def setup_file_structure():
     """Create necessary directory structure and default files."""
-    print("📁 Setting up file structure...")
+    print("Setting up file structure...")
     
     # Ensure directories exist
     directories = [DATA_DIR, STATIC_DIR, os.path.dirname(PORTAL_DB_PATH)]
     for directory in directories:
         if directory:  # Skip if directory is empty
             os.makedirs(directory, exist_ok=True)
-            print(f"   ✅ Ensured directory: {directory}")
+            print(f"   Ensured directory: {directory}")
     
     # Create default header image placeholder
     default_header = os.path.join(STATIC_DIR, 'default_header.jpg')
@@ -489,21 +545,21 @@ def setup_file_structure():
                 pass
             
             img.save(default_header, 'JPEG', quality=95)
-            print(f"   ✅ Created default header image: {default_header}")
+            print(f"   Created default header image: {default_header}")
             
         except ImportError:
             # If PIL not available, create a placeholder file
             with open(default_header, 'w') as f:
                 f.write("# Resette Environmental Data Portal Header Image Placeholder\n")
                 f.write("# Replace this file with an actual image (1680x450 recommended)\n")
-            print(f"   ✅ Created header placeholder: {default_header}")
+            print(f"   Created header placeholder: {default_header}")
         except Exception as e:
-            print(f"   ⚠️ Warning: Could not create header image: {e}")
+            print(f"   Warning: Could not create header image: {e}")
 
 def check_existing_database():
     """Check if database already exists and handle accordingly."""
     if os.path.exists(PORTAL_DB_PATH):
-        print(f"📊 Database already exists at: {PORTAL_DB_PATH}")
+        print(f"Database already exists at: {PORTAL_DB_PATH}")
         
         # Check if this is an old version that needs migration
         try:
@@ -511,11 +567,11 @@ def check_existing_database():
             tables = existing_db.table_names()
             
             # Check for new tables
-            required_tables = ['system_settings', 'blocked_domains']
+            required_tables = ['system_settings', 'blocked_domains', 'database_tables', 'markdown_columns']
             missing_tables = [table for table in required_tables if table not in tables]
             
             if missing_tables:
-                print(f"📄 Database needs migration for new features")
+                print(f"Database needs migration for new features")
                 print(f"   Missing tables: {missing_tables}")
                 
                 response = input("Do you want to migrate the database? [y/N]: ")
@@ -527,13 +583,26 @@ def check_existing_database():
                     return True  # Skip initialization
             
             # Check for missing columns in existing tables
+            if 'users' in tables:
+                user_columns = [col.name for col in existing_db['users'].columns]
+                if 'must_change_password' not in user_columns:
+                    print(f"Database schema needs updates (missing must_change_password)")
+                    
+                    response = input("Do you want to update the database schema? [y/N]: ")
+                    if response.lower() == 'y':
+                        migrate_database(existing_db)
+                        return False
+                    else:
+                        print("   Skipping schema updates. Some features may not work.")
+                        return True
+            
             if 'databases' in tables:
                 db_columns = [col.name for col in existing_db['databases'].columns]
                 required_columns = ['updated_at', 'trashed_at', 'restore_deadline', 'deleted_by_user_id', 'deleted_at', 'deletion_reason']
                 missing_columns = [col for col in required_columns if col not in db_columns]
                 
                 if missing_columns:
-                    print(f"📄 Database schema needs updates")
+                    print(f"Database schema needs updates")
                     print(f"   Missing columns: {missing_columns}")
                     
                     response = input("Do you want to update the database schema? [y/N]: ")
@@ -544,11 +613,11 @@ def check_existing_database():
                         print("   Skipping schema updates. Some features may not work.")
                         return True
             
-            print("✅ Database is up to date")
+            print("Database is up to date")
             return True  # Skip initialization
             
         except Exception as e:
-            print(f"⚠️ Warning: Could not check existing database: {e}")
+            print(f"Warning: Could not check existing database: {e}")
             response = input("Do you want to continue anyway? [y/N]: ")
             return response.lower() != 'y'
     
@@ -556,7 +625,7 @@ def check_existing_database():
 
 def migrate_database(existing_db):
     """Migrate existing database to support new features."""
-    print("📄 Migrating database schema...")
+    print("Migrating database schema...")
     
     try:
         # Create new tables if they don't exist
@@ -565,6 +634,34 @@ def migrate_database(existing_db):
         if 'system_settings' not in tables:
             create_database_schema(existing_db)
             create_system_settings(existing_db)
+        
+        if 'markdown_columns' not in tables:
+            # Create markdown_columns table with created_by field
+            existing_db.create_table("markdown_columns", {
+                "id": int,
+                "db_name": str,
+                "table_name": str,
+                "column_name": str,
+                "created_at": str,
+                "created_by": str
+            }, pk="id", if_not_exists=True)
+            
+            # Add default configurations
+            create_default_markdown_configurations(existing_db)
+            print("   Created markdown_columns table with defaults")
+        
+        # Add must_change_password to users table if missing
+        if 'users' in tables:
+            user_columns = [col.name for col in existing_db['users'].columns]
+            if 'must_change_password' not in user_columns:
+                try:
+                    existing_db.executescript("ALTER TABLE users ADD COLUMN must_change_password BOOLEAN DEFAULT 0;")
+                    print("   Added must_change_password column to users table")
+                except Exception as e:
+                    if "duplicate column name" in str(e).lower():
+                        print("   Column already exists: users.must_change_password")
+                    else:
+                        print(f"   Warning: Could not add must_change_password column: {e}")
         
         # Add new columns to databases table
         if 'databases' in tables:
@@ -582,17 +679,17 @@ def migrate_database(existing_db):
                 if column_name not in db_columns:
                     try:
                         existing_db.executescript(f"ALTER TABLE databases ADD COLUMN {column_name} {column_type};")
-                        print(f"   ✅ Added column: databases.{column_name}")
+                        print(f"   Added column: databases.{column_name}")
                     except Exception as e:
                         if "duplicate column name" in str(e).lower():
-                            print(f"   ⚪ Column already exists: databases.{column_name}")
+                            print(f"   Column already exists: databases.{column_name}")
                         else:
-                            print(f"   ⚠️ Warning: Could not add column {column_name}: {e}")
+                            print(f"   Warning: Could not add column {column_name}: {e}")
             
             # Set updated_at for existing records
             current_time = datetime.now(timezone.utc).isoformat()
             existing_db.execute("UPDATE databases SET updated_at = created_at WHERE updated_at IS NULL")
-            print("   ✅ Updated existing records with timestamps")
+            print("   Updated existing records with timestamps")
         
         # Add action_metadata column to activity_logs table if it doesn't exist
         if 'activity_logs' in tables:
@@ -600,12 +697,12 @@ def migrate_database(existing_db):
             if 'action_metadata' not in activity_columns:
                 try:
                     existing_db.executescript("ALTER TABLE activity_logs ADD COLUMN action_metadata TEXT;")
-                    print(f"   ✅ Added column: activity_logs.action_metadata")
+                    print(f"   Added column: activity_logs.action_metadata")
                 except Exception as e:
                     if "duplicate column name" in str(e).lower():
-                        print(f"   ⚪ Column already exists: activity_logs.action_metadata")
+                        print(f"   Column already exists: activity_logs.action_metadata")
                     else:
-                        print(f"   ⚠️ Warning: Could not add action_metadata column: {e}")
+                        print(f"   Warning: Could not add action_metadata column: {e}")
         
         # Create new indexes
         create_indexes(existing_db)
@@ -615,53 +712,26 @@ def migrate_database(existing_db):
             "log_id": uuid.uuid4().hex[:20],
             "user_id": "system",
             "action": "database_migration",
-            "details": "Migrated database to support enhanced features",
+            "details": "Migrated database to support enhanced features including markdown columns",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "action_metadata": json.dumps({
                 "migration_version": "3.0.0",
-                "features_added": ["system_settings", "blocked_domains", "enhanced_deletion"],
+                "features_added": ["system_settings", "blocked_domains", "enhanced_deletion", "markdown_columns", "password_security"],
                 "migration_timestamp": datetime.now(timezone.utc).isoformat()
             })
         }
         
         existing_db["activity_logs"].insert(migration_log, ignore=True)
-        print("   ✅ Migration completed successfully")
+        print("   Migration completed successfully")
         
     except Exception as e:
-        print(f"   ❌ Migration failed: {e}")
+        print(f"   Migration failed: {e}")
         raise
-
-def migrate_add_table_visibility_tracking(portal_db):
-    """Add table visibility tracking to portal database."""
-    
-    # Create the database_tables table
-    portal_db.create_table("database_tables", {
-        "table_id": str,              # Primary key: {db_id}_{table_name}
-        "db_id": str,                 # Foreign key to databases table
-        "table_name": str,            # Name of the table
-        "show_in_homepage": bool,     # Visibility on homepage
-        "display_order": int,         # Order for display (future feature)
-        "created_at": str,            # When table was first registered
-        "updated_at": str,            # Last visibility change
-        "table_description": str      # Optional custom description
-    }, pk="table_id", if_not_exists=True)
-    
-    # Create indexes for performance
-    portal_db.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_database_tables_db_id 
-            ON database_tables(db_id);
-        CREATE INDEX IF NOT EXISTS idx_database_tables_visibility 
-            ON database_tables(db_id, show_in_homepage);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_database_tables_unique 
-            ON database_tables(db_id, table_name);
-    """)
-    
-    print("   ✅ Created database_tables table with indexes")
 
 def main():
     """Main initialization function."""
     try:
-        print("🌱 Initializing Resette Cloud Portal Database...")
+        print("Initializing Resette Cloud Portal Database...")
         print("   Enhanced features enabled:")
         print("   • Three-tier deletion system (Draft → Trash → Delete)")
         print("   • System settings management")
@@ -669,17 +739,19 @@ def main():
         print("   • Enhanced validation and security")
         print("   • Image optimization support")
         print("   • Comprehensive audit logging")
+        print("   • Markdown column rendering")
+        print("   • Password security controls")
         print()
         
         # Check if database already exists
         if check_existing_database():
-            print("✅ Database initialization skipped (already exists and up to date)")
+            print("Database initialization skipped (already exists and up to date)")
             return
         
         # Setup file structure
         setup_file_structure()
         
-        print(f"🗄️ Creating portal database at: {PORTAL_DB_PATH}")
+        print(f"Creating portal database at: {PORTAL_DB_PATH}")
         
         # Create portal database
         portal_db = sqlite_utils.Database(PORTAL_DB_PATH)
@@ -689,6 +761,9 @@ def main():
         
         # Create system settings
         create_system_settings(portal_db)
+        
+        # Create default markdown configurations
+        create_default_markdown_configurations(portal_db)
         
         # Create indexes
         create_indexes(portal_db)
@@ -709,37 +784,41 @@ def main():
         test_password = os.getenv('DEFAULT_PASSWORD', 'resette2025!')
         
         print()
-        print("✅ Database initialization complete!")
-        print(f"📊 Database created at: {PORTAL_DB_PATH}")
+        print("Database initialization complete!")
+        print(f"Database created at: {PORTAL_DB_PATH}")
         print()
-        print("🔑 Test Login Credentials:")
-        print(f"   Admin:          admin / {test_password}")
-        print(f"   Researcher:     researcher / {test_password}")
-        print(f"   Analyst:        analyst / {test_password}")
-        print(f"   Environmentalist: environmentalist / {test_password}")
+        print("Test Login Credentials:")
+        print(f"   Admin:          admin / {test_password} (no password change required)")
+        print(f"   Researcher:     researcher / {test_password} (must change password)")
+        print(f"   Analyst:        analyst / {test_password} (must change password)")
+        print(f"   Environmentalist: environmentalist / {test_password} (must change password)")
         print()
-        print("🗂️ Directory Structure:")
+        print("Directory Structure:")
         print(f"   Portal DB:  {PORTAL_DB_PATH}")
         print(f"   Data Dir:   {DATA_DIR}")
         print(f"   Static Dir: {STATIC_DIR}")
         print()
-        print("🚀 Features Enabled:")
-        print("   ✅ Three-tier deletion system with 30-day retention")
-        print("   ✅ System settings management")
-        print("   ✅ Domain blocking and security controls")
-        print("   ✅ Enhanced database validation")
-        print("   ✅ Image optimization and processing")
-        print("   ✅ Comprehensive audit logging")
-        print("   ✅ User self-service capabilities")
-        print("   ✅ Admin override and management tools")
+        print("Features Enabled:")
+        print("   ✓ Three-tier deletion system with 30-day retention")
+        print("   ✓ System settings management")
+        print("   ✓ Domain blocking and security controls")
+        print("   ✓ Enhanced database validation")
+        print("   ✓ Image optimization and processing")
+        print("   ✓ Comprehensive audit logging")
+        print("   ✓ User self-service capabilities")
+        print("   ✓ Admin override and management tools")
+        print("   ✓ Markdown column rendering")
+        print("   ✓ Password security controls")
         print()
-        print("📈 Database Statistics:")
+        print("Database Statistics:")
         try:
             print(f"   Users created: {len(users)}")
             db_count = portal_db.execute("SELECT COUNT(*) FROM databases").fetchone()[0]
             settings_count = portal_db.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0]
+            markdown_count = portal_db.execute("SELECT COUNT(*) FROM markdown_columns").fetchone()[0]
             print(f"   Sample databases: {db_count}")
             print(f"   System settings: {settings_count}")
+            print(f"   Markdown configurations: {markdown_count}")
         except:
             pass
         print()
@@ -751,7 +830,7 @@ def main():
         print("5. Customize the portal homepage (admin only)")
         
     except Exception as e:
-        print(f"❌ ERROR: Database initialization failed!")
+        print(f"ERROR: Database initialization failed!")
         print(f"Error details: {str(e)}")
         import traceback
         traceback.print_exc()

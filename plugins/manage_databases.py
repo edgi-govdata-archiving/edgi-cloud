@@ -25,6 +25,8 @@ PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
 if PLUGINS_DIR not in sys.path:
     sys.path.insert(0, PLUGINS_DIR)
 ROOT_DIR = os.path.dirname(PLUGINS_DIR)
+DATA_DIR = os.getenv("RESETTE_DATA_DIR", os.path.join(ROOT_DIR, "data"))
+PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH', os.path.join(DATA_DIR, "portal.db"))
 
 # Import from common_utils
 from common_utils import (
@@ -44,7 +46,6 @@ from common_utils import (
     update_database_timestamp,
     update_database_timestamp_by_id,
     parse_markdown_links,
-    DATA_DIR,
     get_max_image_size,
     is_system_table,
     enforce_password_change_check,
@@ -1779,12 +1780,13 @@ def startup(datasette):
             # Ensure directories exist
             ensure_data_directories()
             
-            # Get database path - SUPPORT MULTIPLE ENVIRONMENTS
-            db_path = None
+            # Get portal database path - SUPPORT MULTIPLE ENVIRONMENTS
+            db_path = PORTAL_DB_PATH
             possible_paths = [
                 os.getenv('PORTAL_DB_PATH'),  # Environment variable
                 "/data/portal.db",            # Docker/production
                 os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
+                os.path.join(DATA_DIR, "portal.db"),    # Data dir
                 os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
                 "portal.db"                   # Current directory fallback
             ]

@@ -9,87 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
-    <style>
-        /* Markdown content styling*/
-        .markdown-content {
-            line-height: 1.6;
-        }
-        .markdown-content p {
-            margin-bottom: 1rem;
-        }
-        .markdown-content ul {
-            list-style-type: disc;
-            margin-left: 2rem;
-            margin-bottom: 1rem;
-            margin-top: 1rem;
-            padding-left: 0;
-            display: block;
-        }
-        .markdown-content ol {
-            list-style-type: decimal;
-            margin-left: 2rem;
-            margin-bottom: 1rem;
-            margin-top: 1rem;
-            padding-left: 0;
-            display: block;
-        }
-        .markdown-content li {
-            margin-bottom: 0.5rem;
-            display: list-item;
-            margin-left: 0;
-            padding-left: 0.5rem;
-            list-style-position: outside;
-        }
-        
-        .markdown-content div {
-            display: block;
-            margin-bottom: 1rem;
-        }
-        .markdown-content strong {
-            font-weight: 600;
-        }
-        .markdown-content em {
-            font-style: italic;
-        }
-        .markdown-content a {
-            color: #0071BC;
-            text-decoration: none;
-            transition: color 0.2s ease-in-out;
-        }
-        .markdown-content a:hover {
-            color: #1A4480;
-            text-decoration: underline;
-        }
-        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
-            font-weight: 600;
-            margin-top: 1.5rem;
-            margin-bottom: 0.75rem;
-        }
-        .markdown-content h1 { font-size: 1.5rem; }
-        .markdown-content h2 { font-size: 1.25rem; }
-        .markdown-content h3 { font-size: 1.125rem; }
-        .markdown-content blockquote {
-            border-left: 4px solid #e5e7eb;
-            padding-left: 1rem;
-            margin: 1rem 0;
-            color: #6b7280;
-        }
-        .markdown-content code {
-            background-color: #f3f4f6;
-            padding: 0.125rem 0.25rem;
-            border-radius: 0.25rem;
-            font-family: monospace;
-            font-size: 0.875rem;
-        }
-        
-        /* Footer specific link styling */
-        footer .markdown-content a {
-            color: #0071BC;
-        }
-        footer .markdown-content a:hover {
-            color: #1A4480;
-        }
-        
+    <style>     
         .stat-card {
             transition: all 0.3s ease;
         }
@@ -213,13 +133,13 @@
                 <h2 class="text-3xl font-bold text-primary mb-6">{{ content.title.content | default("Resette") }}</h2>
                 
                 <!-- Enhanced Description with Markdown Support -->
-                <div class="markdown-content text-text">
+                <div class="prose prose-blue compact max-w-none text-text">
                     {% if content.info.paragraphs %}
                         {% for paragraph in content.info.paragraphs %}
-                            <div class="mb-4">{{ paragraph | safe }}</div>
+                            <div class="mb-2">{{ paragraph | safe }}</div>
                         {% endfor %}
                     {% else %}
-                        <p class="mb-4">The Resette Portal enables users to share their datasets as interactive websites, supporting data exploration and public access.</p>
+                        <p class="mb-2">The Resette Portal enables users to share their datasets as interactive websites, supporting data exploration and public access.</p>
                     {% endif %}
                 </div>
 
@@ -420,14 +340,13 @@
                         <i class="ri-earth-line text-primary ri-lg" aria-hidden="true"></i>
                     </div>
                     <!-- Enhanced Footer with Markdown Support from Database -->
-                    <div class="text-primary markdown-content">
+                    <div class="prose prose-blue compact max-w-none text-text">
                         {% if content.footer.paragraphs %}
                             {% for paragraph in content.footer.paragraphs %}
                                 <span>{{ paragraph | safe }}</span>
                                 {% if not loop.last %}<br>{% endif %}
                             {% endfor %}
                         {% else %}
-                            <!-- Fallback to original footer if no custom content -->
                             <span>
                                 Made with <span class="text-red-500" aria-label="love">❤</span> by 
                                 <a href="https://envirodatagov.org" rel="nofollow" class="text-accent hover:text-primary">EDGI</a> and 

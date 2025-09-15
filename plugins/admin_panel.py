@@ -16,6 +16,9 @@ PLUGINS_DIR = os.path.dirname(os.path.abspath(__file__))
 if PLUGINS_DIR not in sys.path:
     sys.path.insert(0, PLUGINS_DIR)
 ROOT_DIR = os.path.dirname(PLUGINS_DIR)
+DATA_DIR = os.getenv("RESETTE_DATA_DIR", os.path.join(ROOT_DIR, "data"))
+STATIC_DIR = os.getenv('RESETTE_STATIC_DIR', os.path.join(ROOT_DIR, "static"))
+PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH', os.path.join(DATA_DIR, "portal.db"))
 
 # Import from common_utils
 from common_utils import (
@@ -31,7 +34,6 @@ from common_utils import (
     parse_markdown_links,
     ensure_data_directories,
     optimize_existing_header_images,
-    DATA_DIR,
     get_portal_content,
     get_database_statistics,
     create_feature_cards_from_databases,
@@ -725,60 +727,234 @@ async def admin_password_confirmation(datasette, request):
         return redirect_response
 
     if request.method == "POST":
-        # Handle password verification and proceed with original operation
-        post_vars = await request.post_vars()
-        admin_password = post_vars.get('admin_password', '').strip()
-        operation = post_vars.get('operation', '')
-        
-        # Verify password
-        password_valid, password_error = await verify_admin_password_direct(datasette, actor, admin_password)
-        
-        if not password_valid:
-            # Show confirmation page again with error
-            return await show_confirmation_page(
-                datasette, request, actor, operation, 
-                error=password_error
-            )
-        
-        # Password verified - execute operation
         try:
-            if operation == 'update_system_settings':
-                return await handle_system_settings_update(datasette, request, post_vars, actor)
-            elif operation == 'add_blocked_domain':
-                return await handle_domain_block(datasette, request, post_vars, actor)
-            elif operation == 'remove_blocked_domain':
-                return await handle_domain_unblock(datasette, request, post_vars, actor)
-            elif operation == 'clear_old_trash':
-                return await handle_maintenance_operation(datasette, request, 'clear_old_trash', actor)
-            elif operation == 'optimize_database':
-                return await handle_maintenance_operation(datasette, request, 'optimize_database', actor)
-            elif operation == 'regenerate_thumbnails':
-                return await handle_maintenance_operation(datasette, request, 'regenerate_thumbnails', actor)
-            elif operation == 'export_system_logs':
-                return await export_system_logs(datasette, request, actor)
-            elif operation == 'reset_system_settings':
-                return await handle_settings_reset(datasette, request, actor)
-            # NEW: Handle user management operations
-            elif operation == 'reset_user_password':
-                return await handle_confirmed_reset_user_password(datasette, request, post_vars, actor)
-            elif operation == 'delete_user':
-                return await handle_confirmed_delete_user(datasette, request, post_vars, actor)
-            else:
-                logger.error(f"Unknown operation: {operation}")
-                return Response.redirect("/system-admin?error=Unknown operation")
+            # Get basic fields first - avoid complex form data collection
+            post_vars = await request.post_vars()
+            admin_password = post_vars.get('admin_password', '').strip()
+            operation = post_vars.get('operation', '')
+            
+            logger.debug(f"Password verification attempt for operation: {operation}")
+            
+            # Verify password
+            password_valid, password_error = await verify_admin_password_direct(datasette, actor, admin_password)
+            
+            if not password_valid:
+                logger.warning(f"Invalid password attempt by {actor.get('username')} for operation {operation}")
+                
+                # REDIRECT WITH ERROR - avoids HTTP disconnect issues
+                error_msg = password_error or "Invalid administrator password"
+                
+                # Build redirect URL with original form data and error
+                redirect_params = [f"operation={operation}", f"error={error_msg}"]
+                
+                # Add original form data as query params (excluding sensitive fields)
+                try:
+                    for key, value in post_vars.items():
+                        if key not in ['admin_password', 'csrftoken', 'operation']:
+                            # URL encode the value to handle special characters
+                            import urllib.parse
+                            encoded_value = urllib.parse.quote(str(value))
+                            redirect_params.append(f"{key}={encoded_value}")
+                except Exception as param_error:
+                    logger.warning(f"Error preserving form params: {param_error}")
+                
+                redirect_url = f"/admin/confirm-password?{'&'.join(redirect_params)}"
+                logger.debug(f"Redirecting with error to: {redirect_url}")
+                return Response.redirect(redirect_url)
+            
+            logger.info(f"Password verified successfully for {actor.get('username')}, executing operation: {operation}")
+            
+            # Password verified - execute operation
+            try:
+                if operation == 'update_system_settings':
+                    return await handle_system_settings_update(datasette, request, post_vars, actor)
+                elif operation == 'add_blocked_domain':
+                    return await handle_domain_block(datasette, request, post_vars, actor)
+                elif operation == 'remove_blocked_domain':
+                    return await handle_domain_unblock(datasette, request, post_vars, actor)
+                elif operation == 'clear_old_trash':
+                    return await handle_maintenance_operation(datasette, request, 'clear_old_trash', actor)
+                elif operation == 'optimize_database':
+                    return await handle_maintenance_operation(datasette, request, 'optimize_database', actor)
+                elif operation == 'regenerate_thumbnails':
+                    return await handle_maintenance_operation(datasette, request, 'regenerate_thumbnails', actor)
+                elif operation == 'export_system_logs':
+                    return await export_system_logs(datasette, request, actor)
+                elif operation == 'reset_system_settings':
+                    return await handle_settings_reset(datasette, request, actor)
+                elif operation == 'reset_user_password':
+                    return await handle_confirmed_reset_user_password(datasette, request, post_vars, actor)
+                elif operation == 'delete_user':
+                    return await handle_confirmed_delete_user(datasette, request, post_vars, actor)
+                else:
+                    logger.error(f"Unknown operation: {operation}")
+                    return Response.redirect("/system-admin?error=Unknown operation")
+                    
+            except Exception as e:
+                logger.error(f"Error executing confirmed operation {operation}: {e}")
+                return Response.redirect(f"/system-admin?error=Operation failed: {str(e)}")
                 
         except Exception as e:
-            logger.error(f"Error executing confirmed operation {operation}: {e}")
-            return Response.redirect(f"/system-admin?error=Operation failed: {str(e)}")
+            logger.error(f"Error in password confirmation POST: {e}")
+            return Response.redirect("/system-admin?tab=settings&error=Password confirmation failed")
     
     # GET request - show confirmation page
     operation = request.args.get('operation', '')
-    return await show_confirmation_page(datasette, request, actor, operation)
+    error = request.args.get('error', '')  # Get error from URL params
+    
+    return await show_confirmation_page_simple(datasette, request, actor, operation, error)
+
+async def show_confirmation_page_simple(datasette, request, actor, operation, error=None):
+    """Simplified confirmation page that gets form data from URL params only."""
+    
+    # Define operation details
+    SECURE_OPERATIONS = {
+        'update_system_settings': {
+            'title': 'Update System Configuration',
+            'description': 'Modify critical system settings that affect all users.',
+            'details': [
+                'Database retention policies',
+                'User upload limits', 
+                'File size restrictions',
+                'Security configurations'
+            ]
+        },
+        'add_blocked_domain': {
+            'title': 'Block Domain',
+            'description': 'Add a domain to the security blocklist.',
+            'details': [
+                'Prevent CSV imports from this domain',
+                'Apply security restrictions',
+                'Affect all user upload capabilities'
+            ]
+        },
+        'remove_blocked_domain': {
+            'title': 'Remove Blocked Domain',
+            'description': 'Remove a domain from the security blocklist.',
+            'details': [
+                'Allow CSV imports from this domain',
+                'Remove security restrictions',
+                'Restore user upload capabilities'
+            ]
+        },
+        'clear_old_trash': {
+            'title': 'Clear Expired Trash',
+            'description': 'Permanently delete expired databases from trash.',
+            'details': [
+                'Delete databases past retention period',
+                'Free up storage space',
+                'Action cannot be undone'
+            ]
+        },
+        'optimize_database': {
+            'title': 'Optimize Database',
+            'description': 'Optimize database performance by running VACUUM.',
+            'details': [
+                'Compress database files',
+                'Improve performance',
+                'May take several minutes'
+            ]
+        },
+        'regenerate_thumbnails': {
+            'title': 'Regenerate Image Thumbnails',
+            'description': 'Regenerate and optimize all image thumbnails.',
+            'details': [
+                'Process all uploaded images',
+                'Optimize file sizes',
+                'Update image cache'
+            ]
+        },
+        'export_system_logs': {
+            'title': 'Export System Logs',
+            'description': 'Export system activity logs as a CSV file.',
+            'details': [
+                'Export all activity logs',
+                'Include user information',
+                'Download as CSV file'
+            ]
+        },
+        'reset_system_settings': {
+            'title': 'Reset All System Settings',
+            'description': 'DANGER: Reset all system configuration to default values.',
+            'details': [
+                'All custom settings will be lost',
+                'Blocked domains list will be cleared',
+                'System will revert to factory defaults',
+                'This action cannot be undone'
+            ]
+        },
+        'reset_user_password': {
+            'title': 'Reset User Password',
+            'description': 'Reset a user\'s password and force them to change it on next login.',
+            'details': [
+                'User will receive a temporary password',
+                'User must change password on next login',
+                'Previous password will be invalidated',
+                'Action will be logged in system activity'
+            ]
+        },
+        'delete_user': {
+            'title': 'Delete User Account',
+            'description': 'DANGER: Permanently remove a user from the system.',
+            'details': [
+                'User account will be permanently deleted',
+                'User will lose access to all databases',
+                'User data and activity logs will be preserved',
+                'This action cannot be undone'
+            ]
+        }
+    }
+    
+    # Get operation details
+    op_info = SECURE_OPERATIONS.get(operation, {
+        'title': 'System Operation',
+        'description': 'This operation requires administrator verification.',
+        'details': []
+    })
+    
+    # SIMPLIFIED: Get form data only from URL parameters
+    form_data = {}
+    for key in request.args.keys():
+        if key not in ['operation', 'error']:
+            # URL decode the value
+            import urllib.parse
+            decoded_value = urllib.parse.unquote(request.args[key])
+            form_data[key] = decoded_value
+    
+    # Always include operation
+    form_data['operation'] = operation
+    
+    logger.debug(f"Form data from URL params: {list(form_data.keys())}")
+    logger.debug(f"Error message: {error}")
+    
+    # Get content for template
+    content = await get_portal_content(datasette)
+
+    return Response.html(
+        await datasette.render_template(
+            "admin_password_confirmation.html",
+            {
+                "content": content,
+                "actor": actor,
+                "operation_title": op_info['title'],
+                "operation_description": op_info['description'],
+                "operation_details": op_info['details'],
+                "form_action": "/admin/confirm-password",
+                "form_data": form_data,
+                "cancel_url": "/system-admin?tab=settings",
+                "error": error,
+            },
+            request=request
+        )
+    )
 
 async def verify_admin_password_direct(datasette, actor, password):
     """Direct password verification for confirmation page."""
     try:
+        logger.debug(f"Verifying password for user: {actor.get('username')}")
+        
         if not password:
+            logger.warning("No password provided")
             return False, "Administrator password is required"
         
         query_db = datasette.get_database('portal')
@@ -789,15 +965,19 @@ async def verify_admin_password_direct(datasette, actor, password):
         
         user_info = result.first()
         if not user_info:
+            logger.error(f"Admin user not found: {actor.get('id')}")
             return False, "Administrator account not found"
         
         import bcrypt
         stored_hash = user_info['password_hash'].encode('utf-8')
         password_bytes = password.encode('utf-8')
         
+        logger.debug("Comparing password hashes...")
         if bcrypt.checkpw(password_bytes, stored_hash):
+            logger.info("Password verification successful")
             return True, None
         else:
+            logger.warning("Password verification failed - incorrect password")
             return False, "Invalid administrator password"
             
     except Exception as e:
@@ -904,23 +1084,41 @@ async def show_confirmation_page(datasette, request, actor, operation, error=Non
         'details': []
     })
     
-    # FIXED: Collect form data from request - handle MultiParams properly
+    # Properly collect form data
     form_data = {}
+    
     if request.method == "POST":
-        post_vars = await request.post_vars()
-        # post_vars is already a dict-like object we can iterate over
-        for key in post_vars:
-            if key not in ['admin_password', 'csrftoken']:
-                form_data[key] = post_vars[key]
+        try:
+            # Use a timeout and better error handling for POST data
+            import asyncio
+            post_vars = await asyncio.wait_for(request.post_vars(), timeout=5.0)
+            
+            # Convert post_vars to regular dict, excluding sensitive fields
+            for key in post_vars.keys():
+                if key not in ['admin_password', 'csrftoken']:
+                    form_data[key] = post_vars[key]
+            logger.debug(f"Successfully collected POST form data: {list(form_data.keys())}")
+            
+        except asyncio.TimeoutError:
+            logger.error("Timeout while collecting POST data")
+            # Fallback: try to get data from URL params if POST fails
+            for key in request.args.keys():
+                if key not in ['operation']:
+                    form_data[key] = request.args[key]
+        except Exception as e:
+            logger.error(f"Error collecting POST data: {e}")
+            # If POST data collection fails, try to get original data from URL params
+            for key in request.args.keys():
+                if key not in ['operation']:
+                    form_data[key] = request.args[key]
     else:
         # For GET requests, collect from query parameters
-        # FIXED: Convert MultiParams to dict properly
-        for key in request.args:
+        for key in request.args.keys():
             if key not in ['operation']:
-                # Get the first value for each key
                 form_data[key] = request.args[key]
+        logger.debug(f"Collected GET form data: {list(form_data.keys())}")
     
-    # Add operation to form data
+    # Always include operation
     form_data['operation'] = operation
     
     # Get content for template
@@ -937,7 +1135,7 @@ async def show_confirmation_page(datasette, request, actor, operation, error=Non
                 "operation_details": op_info['details'],
                 "form_action": "/admin/confirm-password",
                 "form_data": form_data,
-                "cancel_url": "/system-admin?tab=users",  # Updated for user operations
+                "cancel_url": "/system-admin?tab=settings",
                 "error": error,
             },
             request=request
@@ -1124,7 +1322,7 @@ async def handle_maintenance_operation(datasette, request, action, actor):
                 total_space_saved = 0
                 
                # 1. Optimize portal database (VACUUM only, no ANALYZE)
-                portal_db_path = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
+                portal_db_path = PORTAL_DB_PATH
                 if os.path.exists(portal_db_path):
                     portal_size_before = os.path.getsize(portal_db_path)
                     
@@ -1252,9 +1450,9 @@ async def handle_settings_reset(datasette, request, actor):
         default_settings = [
             ('trash_retention_days', '30'),
             ('max_databases_per_user', '10'),
-            ('max_file_size', str(50 * 1024 * 1024)),
+            ('max_file_size', str(500 * 1024 * 1024)),
             ('max_img_size', str(5 * 1024 * 1024)),
-            ('allowed_extensions', '.jpg, .jpeg, .png, .csv, .xls, .xlsx, .txt')
+            ('allowed_extensions', '.jpg,.jpeg,.png,.csv,.xls,.xlsx,.txt,.db,.jsonl,.json')
         ]
         
         for key, value in default_settings:
@@ -1664,8 +1862,8 @@ def startup(datasette):
             # Ensure directories exist
             ensure_data_directories()
                        
-            # Get database path - SUPPORT BOTH ENVIRONMENTS
-            db_path = None
+            # Get portal database path - SUPPORT BOTH ENVIRONMENTS
+            db_path = PORTAL_DB_PATH
             if not db_path:
                 # Check common locations
                 possible_paths = [
@@ -1673,6 +1871,7 @@ def startup(datasette):
                     "/data/portal.db",            # Docker/production
                     "data/portal.db",             # Local development relative
                     os.path.join(ROOT_DIR, "data", "portal.db"),  # Absolute local
+                    os.path.join(DATA_DIR, "portal.db"),    # Data dir      
                     os.path.join(DATA_DIR, "..", "portal.db"),    # Parent of data dir
                     "portal.db"                   # Current directory fallback
                 ]
