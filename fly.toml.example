@@ -2,6 +2,8 @@
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
+# Replace <secret-key>, <default-password>, and <subdomain> with appropriate values before deploying.
+#
 
 app = 'edgi-cloud'
 primary_region = 'ord'
@@ -9,12 +11,12 @@ primary_region = 'ord'
 [build]
 
 [env]
-  CSRF_SECRET_KEY = 'fd93c677e08304855095d266835d86c9a2eadda209d6c2c9fe0bea65fe0941d4'
+  CSRF_SECRET_KEY = '<secret-key>'
   RESETTE_DATA_DIR = '/data'
   RESETTE_STATIC_DIR = '/app/static'
   PORTAL_DB_PATH = '/data/portal.db'
-  DEFAULT_PASSWORD = 'edgi2025!'
-  APP_URL = 'https://edgi-cloud.fly.dev'
+  DEFAULT_PASSWORD = '<default-password>'
+  APP_URL = 'https://<subdomain>.fly.dev'
 
 [[mounts]]
   source = 'edgi_data_volume'
