@@ -68,7 +68,7 @@ def load_config(config_file: Optional[str] = None) -> Config:
     ])
 
     for config_path in config_files_to_try:
-        if os.path.exists(config_path) and tomllib:
+        if os.path.exists(config_path):
             try:
                 with open(config_path, 'rb') as f:
                     toml_config = tomllib.load(f)
@@ -84,7 +84,7 @@ def load_config(config_file: Optional[str] = None) -> Config:
         'RESETTE_DATA_DIR': 'data_dir',
         'RESETTE_STATIC_DIR': 'static_dir',
         'CSRF_SECRET_KEY': 'csrf_secret_key',
-        'DEFAULT_PASSWORD': 'default_password',
+        'ADMIN_PASSWORD': 'admin_password',
         'APP_URL': 'app_url',
         'DEBUG': 'debug',
         'MAX_FILE_SIZE_IN_MB': 'max_file_size_in_mb',
