@@ -3,7 +3,7 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 # Replace <secret-key>, <default-password>, and <subdomain> with appropriate values before deploying.
-#
+# And check other settings as needed.
 
 app = 'edgi-cloud'
 primary_region = 'ord'
