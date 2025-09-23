@@ -16,16 +16,17 @@ package-lock.json
 # uv
 .python-version
 hello.py
-pyproject.toml
 uv.lock*.db
-# Database files
+
+# Database files and other configs
 *.db
 *.db-shm
 *.db-wal
 data/
 *.db
 /data/
-
+data/
+metadata.json
 # Fly
 
 fly.toml

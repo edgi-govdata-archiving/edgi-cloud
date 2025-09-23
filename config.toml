@@ -1,0 +1,24 @@
+# EDGI Cloud Portal Configuration
+# Copy this file to config.toml and customize for your environment
+
+# Database paths - override with environment variables for production
+data_dir = "data"
+static_dir = "static"
+# portal_db_path will be constructed from data_dir if not specified
+
+# SECURITY
+# NEVER commit real secrets to git - use environment variables in production
+# csrf_secret_key = "your-secret-key-here"  # Set via CSRF_SECRET_KEY env var
+# admin_password = "secure-password"      # Set via ADMIN_PASSWORD env var
+
+# APP
+app_url = "http://localhost:8001"
+debug = false
+
+# LIMITS
+max_file_size_in_mb = 500
+max_img_size_in_mb = 5
+
+# FEATURES
+maintenance_mode = false
+registration_enabled = true
