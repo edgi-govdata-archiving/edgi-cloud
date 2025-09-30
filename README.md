@@ -9,22 +9,26 @@ The EDGI Cloud Portal serves the critical mission of **democratizing environment
 ## 🚀 Recent Updates (September 2025)
 
 ### Markdown Support Enhancement (#57)
+
 - **Full GitHub Flavored Markdown** - Complete implementation with headers, lists, links, bold, italic, code blocks
 - **Dynamic Rendering** - Custom render_links.py plugin for runtime markdown processing
 - **Protected URLs** - Smart markdown processing that preserves URL integrity
 - **Metadata Generation** - Added generate_metadata.py for dynamic configuration
 
 ### Security & User Management (#54)
+
 - **Forced Password Change** - New users must change password on first login
 - **Enhanced Authentication** - Improved session management and password policies
 - **User Activity Tracking** - Comprehensive logging of user actions
 
 ### Preview & Access Control (#53)
+
 - **Unpublished Database Preview** - Owners can preview databases before publishing
 - **Portal Homepage Preview** - Test customizations before going live
 - **Access Verification** - Improved permission checking for preview features
 
 ### Upload System Improvements (#50-52)
+
 - **JSONL Support** - Added JSON Lines format for streaming data
 - **Progress Tracking** - Real-time upload progress with cancellation
 - **Null Value Handling** - Three configurable strategies for empty cells
@@ -33,6 +37,7 @@ The EDGI Cloud Portal serves the critical mission of **democratizing environment
 - **Excel Processing** - Fixed Excel file handling with proper null processing
 
 ### Database Import Enhancements
+
 - **Name Validation** - Check database name availability before import
 - **Size Validation** - Verify file size limits before processing
 - **Error Messages** - User-friendly feedback for validation failures
@@ -40,6 +45,7 @@ The EDGI Cloud Portal serves the critical mission of **democratizing environment
 ## ⚡ Key Features
 
 ### Data Upload & Processing
+
 - **Multi-Source Upload** - CSV, Excel (.xlsx, .xls), JSONL, Google Sheets, and Web CSV
 - **Advanced Null Handling** - Three strategies: empty string, preserve NULL, or skip rows
 - **Data Quality Analysis** - Automated assessment and reporting
@@ -48,22 +54,29 @@ The EDGI Cloud Portal serves the critical mission of **democratizing environment
 - **Connection Testing** - Pre-upload validation for remote sources
 
 ### Content Management
+
 - **GitHub Flavored Markdown** - Full markdown support for rich content
+
   ```markdown
   # Headers
-  **Bold text** and *italic text*
+
+  **Bold text** and _italic text_
   [Links](https://example.com)
-  
+
   ## Lists
+
   - Bullet points
+
   1. Numbered lists
-  
+
   `code blocks` and more!
   ```
+
 - **Dynamic Rendering** - Markdown processed at runtime, not just at startup
 - **Custom Homepages** - Database-specific branding and descriptions
 
 ### Portal Management
+
 - **Custom Branding** - Professional portals with organization identity
 - **Instant Publishing** - Share data with preview before publishing
 - **Advanced Search** - Filter, sort, and explore datasets
@@ -71,6 +84,7 @@ The EDGI Cloud Portal serves the critical mission of **democratizing environment
 - **Trash System** - Safe deletion with recovery options
 
 ### Administration & Security
+
 - **Role-Based Access** - System admin and user roles
 - **Password Policies** - Forced change on first login
 - **Activity Monitoring** - Comprehensive logging
@@ -140,12 +154,14 @@ edgi-cloud/
 ## 🔐 Security Features
 
 ### Recent Security Enhancements
+
 - **Forced Password Change** - New users must set their own password
 - **Preview Access Control** - Strict permission checking for unpublished content
 - **Upload Validation** - Pre-upload checks for file size and format
 - **Session Management** - Enhanced cookie-based authentication
 
 ### Core Security
+
 - **Password Security**: bcrypt hashing
 - **CSRF Protection**: Token validation
 - **Input Validation**: Comprehensive sanitization
@@ -155,6 +171,7 @@ edgi-cloud/
 ## 📊 Upload System Features
 
 ### Supported Formats (September 2025)
+
 - **CSV/TSV** - With intelligent delimiter detection
 - **Excel** - .xlsx and .xls with null handling
 - **JSONL** - JSON Lines for streaming data
@@ -162,6 +179,7 @@ edgi-cloud/
 - **Web CSV** - Direct URL import
 
 ### Null Handling Options
+
 ```python
 # Option 1: Convert to empty string (default)
 NULL, N/A, nan → ""
@@ -174,6 +192,7 @@ Rows with >80% empty → Skip
 ```
 
 ### Upload Features
+
 - **Progress Tracking** - Real-time percentage display
 - **Cancellation** - Abort uploads mid-process
 - **Size Validation** - Check before processing
@@ -183,6 +202,7 @@ Rows with >80% empty → Skip
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Python 3.11+
 - Git
 - Docker (for deployment)
@@ -190,6 +210,7 @@ Rows with >80% empty → Skip
 ### Local Development
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/edgi-govdata-archiving/edgi-cloud.git
    cd edgi-cloud
@@ -199,24 +220,41 @@ Rows with >80% empty → Skip
 
 For example:
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-3. **Initialize database**
+If you want to start with a completely blank database, take these steps:
+
+```bash
+rm data/portal.db
+export DEFAULT_PASSWORD=[some-password]
+```
+
+You can use the script generate_admin_password.py to generate a moderately
+secure password:
+
+```bash
+script/generate_admin_password.py
+```
+
+1. **Initialize database**
+
    ```bash
    python init_db.py
    python migrate_db.py  # Apply latest schema updates
    ```
 
-4. **Generate metadata**
+2. **Generate metadata**
+
    ```bash
    python plugins/generate_metadata.py
    ```
 
-5. **Start development server**
+3. **Start development server**
+
    ```bash
    datasette serve data/portal.db \
      --metadata metadata.json \
@@ -226,7 +264,7 @@ For example:
      --reload
    ```
 
-6. **Access the portal**
+4. **Access the portal**
    - Navigate to `http://localhost:8001`
    - Default login: `admin / edgi2025!`
    - Change password on first login
@@ -234,6 +272,7 @@ For example:
 ### Production Deployment
 
 1. **Deploy to Fly.io**
+
    ```bash
    fly deploy
    ```
@@ -247,6 +286,7 @@ For example:
 ## 🎛️ Administration
 
 ### System Admin Features
+
 - **User Management** - Create users with forced password change
 - **Portal Customization** - Full markdown editor for homepage
 - **Database Oversight** - Preview and manage all databases
@@ -255,6 +295,7 @@ For example:
 - **Trash Management** - Recover deleted databases
 
 ### User Features
+
 - **Database Creation** - Import or create new databases
 - **Upload Data** - Multiple formats with progress tracking
 - **Markdown Content** - Rich text descriptions with GitHub Flavored Markdown
@@ -265,6 +306,7 @@ For example:
 ## 🔧 Configuration
 
 ### Environment Variables
+
 ```bash
 CSRF_SECRET_KEY=your-secret-key
 PORTAL_DB_PATH=/data/portal.db
@@ -274,6 +316,7 @@ APP_URL=https://your-domain.fly.dev
 ```
 
 ### System Settings (Configurable via Admin)
+
 - `max_file_size` - Upload size limit
 - `max_databases_per_user` - Database quota
 - `trash_retention_days` - Recovery period
@@ -300,6 +343,7 @@ We welcome contributions! Please:
 4. Submit a pull request
 
 ### Recent Contributors
+
 - Enhanced markdown support implementation
 - Upload system improvements
 - Security enhancements
@@ -308,6 +352,7 @@ We welcome contributions! Please:
 ## 📈 Version History
 
 ### September 2025 Updates
+
 - **v2.5.0** - Full GitHub Flavored Markdown support
 - **v2.4.0** - Forced password change for new users
 - **v2.3.0** - Preview mode for unpublished content
@@ -324,6 +369,7 @@ MIT License - see LICENSE file for details
 Built by the [Environmental Data & Governance Initiative (EDGI)](https://envirodatagov.org) to democratize environmental data access.
 
 Special thanks to:
+
 - The Datasette community
 - Environmental researchers and activists
 - Open source contributors
@@ -336,4 +382,4 @@ Special thanks to:
 
 ---
 
-*Democratizing environmental data access, one dataset at a time.*
+_Democratizing environmental data access, one dataset at a time._
