@@ -372,7 +372,3 @@ Special thanks to:
 ---
 
 _Democratizing environmental data access, one dataset at a time._
-
-```
-
-```
