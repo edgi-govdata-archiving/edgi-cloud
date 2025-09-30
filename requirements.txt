@@ -5,10 +5,11 @@ markupsafe==2.1.5
 gunicorn==22.0.0
 bcrypt==4.2.0
 
-# Datasette Plugins  
+# Datasette Plugins
 datasette-cluster-map
 datasette-render-markdown
 datasette-template-sql
+datasette-block-robots
 
 
 # Upload System Core
@@ -20,7 +21,7 @@ psutil>=5.9.0
 
 # File Processing
 openpyxl>=3.0.0          # Excel .xlsx files
-xlrd>=2.0.0              # Excel .xls files  
+xlrd>=2.0.0              # Excel .xls files
 chardet>=5.1.0           # Encoding detection
 Pillow>=9.0.0            # Image processing
 
