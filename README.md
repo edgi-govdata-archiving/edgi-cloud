@@ -260,13 +260,13 @@ script/generate_admin_password.py
      --metadata metadata.json \
      --plugins-dir=plugins \
      --template-dir=templates \
-     --static static:static \
-     --reload
+     --static static:static
+
    ```
 
 4. **Access the portal**
    - Navigate to `http://localhost:8001`
-   - Default login: `admin / edgi2025!`
+   - Default login: `admin / resette2025!` (perhaps)
    - Change password on first login
 
 ### Production Deployment
@@ -322,17 +322,6 @@ APP_URL=https://your-domain.fly.dev
 - `trash_retention_days` - Recovery period
 - `allowed_extensions` - Permitted file types
 
-## 🧪 Testing
-
-```bash
-# Run tests
-python -m pytest tests/
-
-# With coverage
-coverage run -m pytest
-coverage report
-```
-
 ## 🤝 Contributing
 
 We welcome contributions! Please:
@@ -383,3 +372,7 @@ Special thanks to:
 ---
 
 _Democratizing environmental data access, one dataset at a time._
+
+```
+
+```
