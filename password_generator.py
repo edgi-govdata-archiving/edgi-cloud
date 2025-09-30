@@ -996,7 +996,6 @@ common_nouns = [
 "fun",
 "arrival",
 "snow",
-"no",
 "command",
 "abuse",
 "limit",
