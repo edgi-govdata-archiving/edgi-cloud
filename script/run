@@ -1,0 +1,8 @@
+#!/bin/bash
+
+datasette data/portal.db \
+  --metadata metadata.json \
+  --plugins-dir=plugins \
+  --template-dir=templates \
+  --static static:static \
+  --reload
