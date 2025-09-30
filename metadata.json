@@ -3,52 +3,7 @@
   "license_url": "https://opendatacommons.org/licenses/odbl/",
   "source": "EDGI Cloud Portal",
   "source_url": "https://edgi-cloud.fly.dev/",
-  "databases": {
-    "risk_management_plans": {
-      "tables": {
-        "facility_view": {
-          "title": "Facilities",
-          "description": "Details of facilities in the EPA Risk Management Plans, including associated chemical names and NAICS codes.",
-          "facets": ["state", "county", "naics_codes"],
-          "fts_table": "facility_fts",
-          "fts_pk": "epa_facility_id"
-        },
-        "facility_accidents_view": {
-          "title": "Facility Accidents",
-          "description": "Details of accidents in the EPA Risk Management Plans, including associated chemical names and NAICS codes.",
-          "facets": ["state", "county", "date_of_accident", "naics_code"],
-          "fts_table": "facility_accidents_fts",
-          "fts_pk": "rowid"
-        },
-        "accident_chemicals_view": {
-          "title": "Accident Chemicals",
-          "description": "Details of chemicals released during accidents in the EPA Risk Management Plans.",
-          "facets": ["state", "county", "date_of_accident", "chemical_name"],
-          "fts_table": "accident_chemicals_fts",
-          "fts_pk": "accident_chemical_id"
-        },
-        "rmp_facility": {
-          "title": "Facilities",
-          "description": "Details of facilities in the EPA Risk Management Plans, including associated chemical names and NAICS codes.",
-          "facets": ["state", "county"],
-          "fts_table": "facility_fts",
-          "fts_pk": "epa_facility_id"
-        },
-        "tbl_accident_details": {
-          "title": "Detailed Accidents",
-          "description": "Details of accidents in the EPA Risk Management Plans, including associated chemicals and injuries."
-        },
-        "rmp_chemical": {
-          "title": "Regulated Chemicals",
-          "description": "Regulated chemicals with their CAS numbers and classification."
-        },
-        "rmp_naics": {
-          "title": "Industry Codes",
-          "description": "NAICS industry codes and their descriptions."
-        }
-      }
-    }
-  },
+  "databases": {},
   "plugins": {
     "datasette-cluster-map": {
       "latitude": "latitude",
@@ -69,6 +24,9 @@
     "datasette-template-sql": {},
     "settings": {
       "csrf_protect": true
+    },
+    "datasette-block-robots": {
+      "allow_only_index": true
     }
   }
 }

@@ -14,27 +14,27 @@ PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH', os.path.join(DATA_DIR, "portal.db")
 
 def migrate_database():
     """Comprehensive database migration with table creation and column updates."""
-    
+    global PORTAL_DB_PATH
     # Create directory if it doesn't exist
     db_dir = os.path.dirname(PORTAL_DB_PATH)
     if db_dir and not os.path.exists(db_dir):
         print(f"Creating directory: {db_dir}")
         os.makedirs(db_dir, exist_ok=True)
-    
+
     if not os.path.exists(PORTAL_DB_PATH):
         print(f"Database not found at: {PORTAL_DB_PATH}")
         print("Creating new database file...")
         # This will create the database file when we connect
-    
+
     print("Starting comprehensive database migration...")
-    
+
     try:
         db = sqlite_utils.Database(PORTAL_DB_PATH)
-        
+
         # Get existing tables
         existing_tables = [table.name for table in db.tables]
         print(f"Found existing tables: {existing_tables}")
-        
+
         # 1. Create/Update users table
         if 'users' not in existing_tables:
             print("Creating users table...")
@@ -52,11 +52,11 @@ def migrate_database():
             print("   Created users table with must_change_password field")
         else:
             print("Updating users table structure...")
-            
+
             # Get current columns
             current_columns = [col.name for col in db['users'].columns]
             print(f"   Current users columns: {current_columns}")
-            
+
             # Add must_change_password column if missing
             if 'must_change_password' not in current_columns:
                 try:
@@ -69,7 +69,7 @@ def migrate_database():
                         print(f"   Failed to add must_change_password: {e}")
             else:
                 print("   Exists: must_change_password")
-        
+
         # 2. Create system_settings table if it doesn't exist
         if 'system_settings' not in existing_tables:
             print("Creating system_settings table...")
@@ -81,7 +81,7 @@ def migrate_database():
                     updated_by TEXT
                 );
             """)
-            
+
             # Add default system settings
             current_time = datetime.now(timezone.utc).isoformat()
             default_settings = [
@@ -91,35 +91,35 @@ def migrate_database():
                 ('max_img_size', str(5 * 1024 * 1024)),    # 5MB
                 ('allowed_extensions', '.jpg,.jpeg,.png,.csv,.xls,.xlsx,.txt,.db,.jsonl,.json')
             ]
-            
+
             for setting_key, setting_value in default_settings:
                 db.execute(
                     "INSERT INTO system_settings (setting_key, setting_value, updated_at, updated_by) VALUES (?, ?, ?, ?)",
                     [setting_key, setting_value, current_time, 'system_migration']
                 )
-            
+
             print("   Created system_settings table with defaults")
         else:
             print("   system_settings table already exists")
-        
+
         # 3. Update databases table structure
         if 'databases' in existing_tables:
             print("Updating databases table structure...")
-            
+
             # Get current columns
             current_columns = [col.name for col in db['databases'].columns]
             print(f"   Current columns: {current_columns}")
-            
+
             # Define all required columns
             required_columns = {
                 'updated_at': 'TEXT',
-                'trashed_at': 'TEXT', 
+                'trashed_at': 'TEXT',
                 'restore_deadline': 'TEXT',
                 'deletion_reason': 'TEXT',
                 'deleted_by_user_id': 'TEXT',
                 'deleted_at': 'TEXT'
             }
-            
+
             # Add missing columns
             for column_name, column_type in required_columns.items():
                 if column_name not in current_columns:
@@ -133,7 +133,7 @@ def migrate_database():
                             print(f"   Failed: {column_name} - {e}")
                 else:
                     print(f"   Exists: {column_name}")
-            
+
             # Set updated_at for existing records where it's NULL
             current_time = datetime.now(timezone.utc).isoformat()
             result = db.execute("UPDATE databases SET updated_at = created_at WHERE updated_at IS NULL")
@@ -144,11 +144,11 @@ def migrate_database():
         # Fix activity_logs table structure
         if 'activity_logs' in existing_tables:
             print("Updating activity_logs table structure...")
-            
+
             # Get current columns
             current_columns = [col.name for col in db['activity_logs'].columns]
             print(f"   Current activity_logs columns: {current_columns}")
-            
+
             # Add missing action_metadata column
             if 'action_metadata' not in current_columns:
                 try:
@@ -161,7 +161,7 @@ def migrate_database():
                         print(f"   Failed to add action_metadata: {e}")
             else:
                 print("   Exists: action_metadata")
-            
+
         else:
             print("Creating databases table...")
             db.executescript("""
@@ -182,7 +182,7 @@ def migrate_database():
                 );
             """)
             print("   Created databases table")
-        
+
         # 4. Create blocked_domains table if it doesn't exist
         if 'blocked_domains' not in existing_tables:
             print("Creating blocked_domains table...")
@@ -196,7 +196,7 @@ def migrate_database():
             print("   Created blocked_domains table")
         else:
             print("   blocked_domains table already exists")
-        
+
         # 5. Create database_tables table if it doesn't exist
         if 'database_tables' not in existing_tables:
             print("Creating database_tables table...")
@@ -216,7 +216,7 @@ def migrate_database():
             print("   Created database_tables table")
         else:
             print("   database_tables table already exists")
-        
+
         # 6. Create/Update markdown_columns table
         if 'markdown_columns' not in existing_tables:
             print("Creating markdown_columns table...")
@@ -234,11 +234,11 @@ def migrate_database():
             print("   Created markdown_columns table")
         else:
             print("Updating markdown_columns table structure...")
-            
+
             # Get current columns
             current_columns = [col.name for col in db['markdown_columns'].columns]
             print(f"   Current markdown_columns columns: {current_columns}")
-            
+
             # Add created_by column if missing
             if 'created_by' not in current_columns:
                 try:
@@ -251,11 +251,11 @@ def migrate_database():
                         print(f"   Failed to add created_by: {e}")
             else:
                 print("   Exists: created_by")
-        
+
         # Insert default configurations if table is empty
         current_time = datetime.now(timezone.utc).isoformat()
         existing_count = db.execute("SELECT COUNT(*) FROM markdown_columns").fetchone()[0]
-        
+
         if existing_count == 0:
             print("Inserting default markdown configurations...")
             default_markdown_configs = [
@@ -269,30 +269,30 @@ def migrate_database():
                 ('campd', 'emissions', 'file_key'),
                 ('campd', 'emissions', 'datasette_link')
             ]
-            
+
             for db_name, table_name, column_name in default_markdown_configs:
                 try:
                     result = db.execute("""
-                        INSERT OR IGNORE INTO markdown_columns 
-                        (db_name, table_name, column_name, created_at, created_by) 
+                        INSERT OR IGNORE INTO markdown_columns
+                        (db_name, table_name, column_name, created_at, created_by)
                         VALUES (?, ?, ?, ?, 'migration')
                     """, [db_name, table_name, column_name, current_time])
                     print(f"   Inserted: {db_name}.{table_name}.{column_name}")
                 except Exception as e:
                     print(f"   Warning: Could not insert {db_name}.{table_name}.{column_name}: {e}")
-            
+
             # Explicitly commit the transaction
             db.conn.commit()
-            
+
             # Verify the inserts worked
             final_count = db.execute("SELECT COUNT(*) FROM markdown_columns").fetchone()[0]
             print(f"   Final count after insert: {final_count} markdown configurations")
         else:
             print(f"   markdown_columns table already has {existing_count} entries - skipping default inserts")
-        
+
         # 7. Verify table structures
         print("Verifying table structures...")
-        
+
         # Check users
         users_columns = [col.name for col in db['users'].columns]
         expected_users = ['user_id', 'username', 'password_hash', 'role', 'email', 'created_at', 'must_change_password']
@@ -301,7 +301,7 @@ def migrate_database():
             print(f"   Missing users columns: {missing_users}")
         else:
             print("   users structure verified")
-        
+
         # Check system_settings
         system_settings_columns = [col.name for col in db['system_settings'].columns]
         expected_system_settings = ['setting_key', 'setting_value', 'updated_at', 'updated_by']
@@ -310,12 +310,12 @@ def migrate_database():
             print(f"   Missing system_settings columns: {missing_system_settings}")
         else:
             print("   system_settings structure verified")
-        
-        # Check databases  
+
+        # Check databases
         databases_columns = [col.name for col in db['databases'].columns]
         expected_databases = [
-            'db_id', 'user_id', 'db_name', 'website_url', 'status', 'created_at', 
-            'file_path', 'trashed_at', 'restore_deadline', 'deletion_reason', 
+            'db_id', 'user_id', 'db_name', 'website_url', 'status', 'created_at',
+            'file_path', 'trashed_at', 'restore_deadline', 'deletion_reason',
             'deleted_by_user_id', 'deleted_at', 'updated_at'
         ]
         missing_databases = [col for col in expected_databases if col not in databases_columns]
@@ -323,7 +323,7 @@ def migrate_database():
             print(f"   Missing databases columns: {missing_databases}")
         else:
             print("   databases structure verified")
-        
+
         # Check blocked_domains
         blocked_domains_columns = [col.name for col in db['blocked_domains'].columns]
         expected_blocked_domains = ['domain', 'created_at', 'created_by']
@@ -332,11 +332,11 @@ def migrate_database():
             print(f"   Missing blocked_domains columns: {missing_blocked_domains}")
         else:
             print("   blocked_domains structure verified")
-        
+
         # Check database_tables
         database_tables_columns = [col.name for col in db['database_tables'].columns]
         expected_database_tables = [
-            'table_id', 'db_id', 'table_name', 'show_in_homepage', 'display_order', 
+            'table_id', 'db_id', 'table_name', 'show_in_homepage', 'display_order',
             'created_at', 'updated_at'
         ]
         missing_database_tables = [col for col in expected_database_tables if col not in database_tables_columns]
@@ -344,7 +344,7 @@ def migrate_database():
             print(f"   Missing database_tables columns: {missing_database_tables}")
         else:
             print("   database_tables structure verified")
-        
+
         # Check markdown_columns
         markdown_columns_columns = [col.name for col in db['markdown_columns'].columns]
         expected_markdown_columns = ['id', 'db_name', 'table_name', 'column_name', 'created_at', 'created_by']
@@ -353,7 +353,7 @@ def migrate_database():
             print(f"   Missing markdown_columns columns: {missing_markdown_columns}")
         else:
             print("   markdown_columns structure verified")
-        
+
         # 8. Database statistics
         print("Database statistics:")
         try:
@@ -363,23 +363,23 @@ def migrate_database():
             domains_count = db.execute("SELECT COUNT(*) FROM blocked_domains").fetchone()[0]
             tables_count = db.execute("SELECT COUNT(*) FROM database_tables").fetchone()[0]
             markdown_count = db.execute("SELECT COUNT(*) FROM markdown_columns").fetchone()[0]
-            
+
             print(f"   Users: {users_count}")
             print(f"   Databases: {databases_count}")
             print(f"   Database tables: {tables_count}")
             print(f"   Settings: {settings_count}")
             print(f"   Blocked domains: {domains_count}")
             print(f"   Markdown columns: {markdown_count}")
-            
+
             # Show users with must_change_password flag
             users_must_change = db.execute("SELECT COUNT(*) FROM users WHERE must_change_password = 1").fetchone()[0]
             print(f"   Users requiring password change: {users_must_change}")
-            
+
         except Exception as stats_error:
             print(f"   Could not get statistics: {stats_error}")
-        
+
         print("Comprehensive migration completed successfully!")
-        
+
     except Exception as e:
         print(f"Migration failed: {e}")
         import traceback
@@ -387,57 +387,57 @@ def migrate_database():
 
 def verify_migration():
     """Verify that the migration was successful."""
-    PORTAL_DB_PATH = os.getenv('PORTAL_DB_PATH', "/data/portal.db")
-    
+    global PORTAL_DB_PATH
+
     if not os.path.exists(PORTAL_DB_PATH):
         print("Cannot verify - database not found")
         return False
-    
+
     try:
         db = sqlite_utils.Database(PORTAL_DB_PATH)
-        
+
         required_tables = ['users', 'system_settings', 'databases', 'blocked_domains', 'database_tables', 'markdown_columns']
         existing_tables = [table.name for table in db.tables]
-        
+
         missing_tables = [table for table in required_tables if table not in existing_tables]
-        
+
         if missing_tables:
             print(f"Verification failed - missing tables: {missing_tables}")
             return False
-        
+
         # Check users table has must_change_password column
         users_columns = [col.name for col in db['users'].columns]
         if 'must_change_password' not in users_columns:
             print("Verification failed - users table missing must_change_password column")
             return False
-        
+
         # Check system_settings has default values
         settings_count = db.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0]
         if settings_count == 0:
             print("Warning: system_settings table is empty")
-        
+
         # Check markdown_columns has default values
         markdown_count = db.execute("SELECT COUNT(*) FROM markdown_columns").fetchone()[0]
         if markdown_count == 0:
             print("Warning: markdown_columns table is empty")
         else:
             print(f"Found {markdown_count} markdown column configurations")
-            
+
             # Show configured markdown columns
             markdown_configs = db.execute("SELECT db_name, table_name, column_name FROM markdown_columns ORDER BY db_name, table_name, column_name").fetchall()
             for db_name, table_name, column_name in markdown_configs:
                 print(f"   Markdown: {db_name}:{table_name}:{column_name}")
-        
+
         # Verify foreign key constraint exists for database_tables
         try:
             db.execute("PRAGMA foreign_key_check(database_tables)").fetchall()
             print("database_tables foreign key constraints verified")
         except Exception as fk_error:
             print(f"Foreign key check warning: {fk_error}")
-        
+
         print("Migration verification passed!")
         return True
-        
+
     except Exception as e:
         print(f"Verification failed: {e}")
         return False

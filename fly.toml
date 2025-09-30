@@ -9,25 +9,23 @@ primary_region = 'ord'
 [build]
 
 [env]
-  CSRF_SECRET_KEY = 'fd93c677e08304855095d266835d86c9a2eadda209d6c2c9fe0bea65fe0941d4'
-  RESETTE_DATA_DIR = '/data'
-  RESETTE_STATIC_DIR = '/app/static'
-  PORTAL_DB_PATH = '/data/portal.db'
-  DEFAULT_PASSWORD = 'edgi2025!'
-  APP_URL = 'https://edgi-cloud.fly.dev'
+RESETTE_DATA_DIR = '/data'
+RESETTE_STATIC_DIR = '/app/static'
+PORTAL_DB_PATH = '/data/portal.db'
+APP_URL = 'https://edgi-cloud.fly.dev'
 
 [[mounts]]
-  source = 'edgi_data_volume'
-  destination = '/data'
+source = 'edgi_data_volume'
+destination = '/data'
 
 [http_service]
-  internal_port = 8001
-  force_https = true
-  auto_stop_machines = 'off'
-  auto_start_machines = false
-  min_machines_running = 1
-  processes = ['app']
-  [http_service.concurrency]
-    type = "requests"
-    soft_limit = 20
-    hard_limit = 25
+internal_port = 8001
+force_https = true
+auto_stop_machines = 'off'
+auto_start_machines = false
+min_machines_running = 1
+processes = ['app']
+[http_service.concurrency]
+type = "requests"
+soft_limit = 20
+hard_limit = 25
