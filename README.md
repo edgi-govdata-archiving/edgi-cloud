@@ -196,9 +196,12 @@ Rows with >80% empty → Skip
    ```
 
 2. **Set up Python environment**
+
+For example:
+
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
+   python -m venv .venv
+   source .venv/bin/activate  # Windows: venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
