@@ -327,7 +327,9 @@ def create_test_users(portal_db):
     print("Creating test users...")
 
     # Test password
-    test_password = os.getenv('DEFAULT_PASSWORD', 'resette2025!')
+    test_password = os.getenv('DEFAULT_PASSWORD')
+    if not test_password:
+        raise ValueError("Environment variable DEFAULT_PASSWORD must be set for test users")
     hashed_password = bcrypt.hashpw(test_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
     users = [
