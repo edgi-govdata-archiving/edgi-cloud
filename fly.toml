@@ -14,9 +14,9 @@ RESETTE_STATIC_DIR = '/app/static'
 PORTAL_DB_PATH = '/data/portal.db'
 APP_URL = 'https://edgi-cloud.fly.dev'
 # Configure Uvicorn to trust proxy headers for real client IPs
-FORWARDED_ALLOW_IPS = '*'
+# FORWARDED_ALLOW_IPS = '*'
 # Alternative: specify Fly.io's proxy network
-# FORWARDED_ALLOW_IPS = '172.16.0.0/12'
+FORWARDED_ALLOW_IPS = '172.16.0.0/12'
 
 [[mounts]]
 source = 'edgi_data_volume'
