@@ -277,6 +277,20 @@ script/generate_admin_password.py
    fly deploy
    ```
 
+   You will likely get a warning that looks like this:
+
+```log
+ WARNING The app is not listening on the expected address and will not be reachable by fly-proxy.
+You can fix this by configuring your app to listen on the following addresses:
+  - 0.0.0.0:8001
+Found these processes inside the machine with open listening sockets:
+  PROCESS        | ADDRESSES
+-----------------*----------------------------------------
+  /.fly/hallpass | [fdaa:2c:9baa:a7b:17a:e4d4:785a:2]:22
+```
+
+This is just Fly.io blocking the SSH port.
+
 2. **Set secrets**
    ```bash
    fly secrets set CSRF_SECRET_KEY="your-secret-key"
