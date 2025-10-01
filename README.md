@@ -291,6 +291,13 @@ Found these processes inside the machine with open listening sockets:
 
 This is just Fly.io blocking the SSH port.
 
+_NOTE_: Currently, this is set up to deploy only via the command line. To _stop_ the Fly.io
+servers from running, scale down to 0 machines using:
+
+```bash
+fly scale count 0
+```
+
 2. **Set secrets**
    ```bash
    fly secrets set CSRF_SECRET_KEY="your-secret-key"
