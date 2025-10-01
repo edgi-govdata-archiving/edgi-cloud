@@ -71,8 +71,6 @@ RUN echo '#!/bin/bash\n\
   --setting max_returned_rows 3000000 \\\n\
   --setting sql_time_limit_ms 360000 \\\n\
   --setting allow_download on \\\n\
-  --setting trust_proxy_headers on \\\n\
-  --setting forwarded_allow_ips "*"\n\
   ' > /app/start.sh && chmod +x /app/start.sh
 
 CMD ["/app/start.sh"]
