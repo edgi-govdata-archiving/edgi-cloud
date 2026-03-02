@@ -25,3 +25,6 @@ uv.lock*.db
 data/
 *.db
 /data/
+
+# Mac metadata
+.DS_Store
