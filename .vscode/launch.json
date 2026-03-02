@@ -1,0 +1,64 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Datasette",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "datasette",
+            "args": [
+                "apps/datasette/data/portal.db",
+                "--metadata",
+                "apps/datasette/metadata.json",
+                "--plugins-dir",
+                "apps/datasette/plugins",
+                "--template-dir",
+                "apps/datasette/templates",
+                "--static",
+                "static:apps/datasette/static",
+                "--reload"
+            ],
+            "env": {
+                "DATASETTE_DEBUG": "1"
+            },
+            "justMyCode": true,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "NextJS",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "dev"],
+            "cwd": "${workspaceFolder}/apps/web",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Init Resette portal.db",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "program": "${workspaceFolder}/apps/datasette/init_db.py"
+        },
+        {
+            "name": "Migrate Resette portal.db",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "program": "${workspaceFolder}/apps/datasette/migrate_db.py"
+        },
+        {
+            "name": "Generate metadata",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "program": "${workspaceFolder}/apps/datasette/plugins/generate_metadata.py"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Full Stack",
+            "configurations": ["NextJS", "Datasette"]
+        }
+    ]
+}
