@@ -28,3 +28,8 @@ export async function getCookieString() {
     const allCookies = cookieStore.getAll();
     return allCookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }
+
+export async function deleteCookie(name: string) {
+    const cookieStore = await cookies();
+    cookieStore.delete(name);
+}

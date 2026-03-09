@@ -1,11 +1,32 @@
 import { DATASETTE_URL } from "../environment";
-import { getCookieString, setCookiesFromResponse } from "./cookies";
+import {
+    getCookieString,
+    setCookiesFromResponse,
+    deleteCookie,
+} from "./cookies";
 import { ensureCsrfToken } from "./csrf";
 
+const FORBIDDEN_STATUS = 403;
+
 export async function datasetteFetch(path: string, options: RequestInit = {}) {
+    let res = await executeRequest(path, options);
+    if (res.status === FORBIDDEN_STATUS) {
+        // One possible scenario is that the server has refreshed and the CSRF
+        // token is no longer valid.
+        await deleteCookie("ds_csrftoken");
+        res = await executeRequest(path, options);
+    }
+    if (!res.ok) {
+        throw new Error(`Datasette request failed: ${res.status}`);
+    }
+    await setCookiesFromResponse(res);
+    return res;
+}
+
+async function executeRequest(path: string, options: RequestInit) {
     const token = await ensureCsrfToken();
     const cookieString = await getCookieString();
-    const res = await fetch(`${DATASETTE_URL}${path}`, {
+    return fetch(`${DATASETTE_URL}${path}`, {
         ...options,
         headers: {
             "x-csrftoken": token,
@@ -13,9 +34,4 @@ export async function datasetteFetch(path: string, options: RequestInit = {}) {
             cookie: cookieString,
         },
     });
-    if (!res.ok) {
-        throw new Error(`Datasette request failed: ${res.status}`);
-    }
-    await setCookiesFromResponse(res);
-    return res;
 }
