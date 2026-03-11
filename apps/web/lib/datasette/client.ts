@@ -5,8 +5,7 @@ import {
     deleteCookie,
 } from "./cookies";
 import { ensureCsrfToken } from "./csrf";
-
-const FORBIDDEN_STATUS = 403;
+import { FORBIDDEN_STATUS } from "@/lib/http";
 
 export async function datasetteFetch(path: string, options: RequestInit = {}) {
     let res = await executeRequest(path, options);

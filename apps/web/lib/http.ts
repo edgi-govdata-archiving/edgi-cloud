@@ -1,0 +1,2 @@
+export const UNAUTHORIZED_STATUS = 401;
+export const FORBIDDEN_STATUS = 403;
