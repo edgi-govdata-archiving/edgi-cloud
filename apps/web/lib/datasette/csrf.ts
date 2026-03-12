@@ -11,7 +11,7 @@ export async function ensureCsrfToken() {
     }
     // We need to use a regular request here, instead of datasetteFetch to
     // avoid infinite recursion when fetching the CSRF token itself.
-    const res = await fetch(`${DATASETTE_URL}/csrf`, {
+    const res = await fetch(`${DATASETTE_URL}/resette/csrf`, {
         method: "GET",
     });
     await setCookiesFromResponse(res);

@@ -1,14 +1,11 @@
 from datasette import hookimpl
 from datasette.utils.asgi import Response
+from apps.datasette.plugins.router import DatasetteRouter
 
+router = DatasetteRouter()
 
-@hookimpl
-def register_routes():
-    return [
-        (r"^/csrf$", csrf),
-    ]
-        
-def csrf(request):
+@router.get("/resette/csrf")
+async def csrf(request):
     token = request.scope["csrftoken"]()
     response = Response.json(
         {"status": "ok"},
@@ -20,3 +17,7 @@ def csrf(request):
         samesite="lax"
     )
     return response
+
+@hookimpl
+def register_routes():
+    return router.get_routes()
