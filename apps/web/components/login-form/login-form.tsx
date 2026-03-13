@@ -1,0 +1,85 @@
+"use client";
+
+import { cn } from "@/lib/utils";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircleIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+    Field,
+    FieldError,
+    FieldGroup,
+    FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { login } from "./actions";
+import { useActionState } from "react";
+import { getEmptyLoginState, LoginState } from "./schema";
+
+const initialState: LoginState = getEmptyLoginState();
+
+export function LoginForm({
+    className,
+    ...props
+}: React.ComponentProps<"form">) {
+    const [state, formAction, pending] = useActionState(login, initialState);
+
+    return (
+        <form
+            action={formAction}
+            className={cn("flex flex-col gap-6", className)}
+            {...props}
+        >
+            {state.formError && (
+                <FormError title="Login failed" description={state.formError} />
+            )}
+            <FieldGroup>
+                <Field>
+                    <FieldLabel htmlFor="username">Username</FieldLabel>
+                    <Input
+                        id="username"
+                        name="username"
+                        type="text"
+                        placeholder="Enter your username"
+                        defaultValue={state.values?.username ?? ""}
+                    />
+                    <FieldError errors={state.fieldErrors?.username} />
+                </Field>
+                <Field>
+                    <FieldLabel htmlFor="password">Password</FieldLabel>
+                    <Input
+                        id="password"
+                        name="password"
+                        type="password"
+                        placeholder="Enter your password"
+                        defaultValue={state.values?.password ?? ""}
+                    />
+                    <FieldError errors={state.fieldErrors?.password} />
+                </Field>
+                <Field>
+                    <Button type="submit" disabled={pending}>
+                        Login
+                    </Button>
+                </Field>
+            </FieldGroup>
+        </form>
+    );
+}
+
+function FormError({
+    title,
+    description,
+    className,
+    ...props
+}: { title: string; description: string } & React.ComponentProps<"div">) {
+    return (
+        <Alert
+            variant="destructive"
+            className={cn("w-full border-destructive", className)}
+            {...props}
+        >
+            <AlertCircleIcon />
+            <AlertTitle>{title}</AlertTitle>
+            <AlertDescription>{description}</AlertDescription>
+        </Alert>
+    );
+}

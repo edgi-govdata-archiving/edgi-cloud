@@ -13,7 +13,7 @@ export function Header() {
                 </div>
                 {/* Login and whatnot */}
                 <div>
-                    <Link href="#">
+                    <Link href="/login">
                         <Button size="sm">
                             <span>Sign in</span>
                         </Button>
