@@ -15,9 +15,6 @@ export async function datasetteFetch(path: string, options: RequestInit = {}) {
         await deleteCookie("ds_csrftoken");
         res = await executeRequest(path, options);
     }
-    if (!res.ok) {
-        throw new Error(`Datasette request failed: ${res.status}`);
-    }
     await setCookiesFromResponse(res);
     return res;
 }

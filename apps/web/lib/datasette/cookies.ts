@@ -6,6 +6,8 @@ import { parseSetCookie } from "cookie";
 export async function setCookiesFromResponse(response: Response) {
     const cookieStore = await cookies();
     const rawCookies = response.headers.getSetCookie?.();
+    if (!rawCookies) return;
+
     for (const c of rawCookies) {
         const parsed = parseSetCookie(c);
         if (parsed.value === undefined) continue;
