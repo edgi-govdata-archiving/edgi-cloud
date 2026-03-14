@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/hooks/use-auth";
+import { getUser } from "@/lib/auth";
 
 const geistSans = Geist({
     variable: "--font-geist-sans",
@@ -17,17 +19,19 @@ export const metadata: Metadata = {
     description: "EDGI Cloud Portal",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
+    const user = await getUser();
+
     return (
         <html lang="en">
             <body
                 className={`${geistSans.variable} ${geistMono.variable} antialiased`}
             >
-                {children}
+                <AuthProvider initialUser={user}>{children}</AuthProvider>
             </body>
         </html>
     );
