@@ -12,8 +12,10 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { login } from "./actions";
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { getEmptyLoginState, LoginState } from "./schema";
+import { useAuth } from "@/hooks/use-auth";
+import { useRouter } from "next/navigation";
 
 const initialState: LoginState = getEmptyLoginState();
 
@@ -21,7 +23,19 @@ export function LoginForm({
     className,
     ...props
 }: React.ComponentProps<"form">) {
+    const auth = useAuth();
+    const router = useRouter();
     const [state, formAction, pending] = useActionState(login, initialState);
+
+    useEffect(() => {
+        if (!state.user) {
+            return;
+        }
+        auth.setUser(state.user);
+        if (state.redirectTo) {
+            router.push(state.redirectTo);
+        }
+    }, [auth, router, state.redirectTo, state.user]);
 
     return (
         <form

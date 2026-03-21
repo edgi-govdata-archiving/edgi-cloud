@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { User } from "@/lib/auth";
 
 export const loginSchema = z.object({
     username: z.string().trim().min(1, "Username is required"),
@@ -14,6 +15,8 @@ export type LoginState = {
     };
     formError: string;
     values: { username: string; password: string };
+    user: User | null;
+    redirectTo: string;
 };
 
 export function getEmptyLoginState(): LoginState {
@@ -21,5 +24,7 @@ export function getEmptyLoginState(): LoginState {
         fieldErrors: { username: [], password: [] },
         formError: "",
         values: { username: "", password: "" },
+        user: null,
+        redirectTo: "",
     };
 }

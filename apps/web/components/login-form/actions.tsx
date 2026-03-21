@@ -1,10 +1,10 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { datasetteFetch } from "@/lib/datasette/client";
 import { getEmptyLoginState, loginSchema, LoginState } from "./schema";
 import { z } from "zod";
 import { UNAUTHORIZED_STATUS } from "@/lib/http";
+import { getUser } from "@/lib/auth";
 
 export async function login(
     _prev: LoginState,
@@ -14,6 +14,7 @@ export async function login(
     if (!parsed.success) {
         const { fieldErrors, formErrors } = z.flattenError(parsed.error);
         return {
+            ...getEmptyLoginState(),
             fieldErrors: {
                 username:
                     fieldErrors.username?.map((m) => ({ message: m })) ?? [],
@@ -27,6 +28,7 @@ export async function login(
             },
         };
     }
+
     const { username, password } = parsed.data;
     const res = await datasetteFetch(`/resette/login`, {
         method: "POST",
@@ -37,8 +39,9 @@ export async function login(
     if (res.status === UNAUTHORIZED_STATUS) {
         return { ...getEmptyLoginState(), formError: data.error };
     }
-    if ("redirectTo" in data) {
-        redirect(data.redirectTo);
-    }
-    return getEmptyLoginState();
+
+    const user = await getUser();
+    const redirectTo = data?.redirectTo || "";
+
+    return { ...getEmptyLoginState(), user, redirectTo };
 }
