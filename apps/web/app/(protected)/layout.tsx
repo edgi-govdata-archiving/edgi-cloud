@@ -1,3 +1,4 @@
+import { Header } from "@/components/header/header";
 import { requireUser } from "@/lib/auth";
 
 export default async function ProtectedLayout({
@@ -7,5 +8,10 @@ export default async function ProtectedLayout({
 }>) {
     await requireUser();
 
-    return <>{children}</>;
+    return (
+        <>
+            <Header />
+            {children}
+        </>
+    );
 }

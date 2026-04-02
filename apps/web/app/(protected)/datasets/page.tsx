@@ -15,7 +15,6 @@ export default async function Page() {
 
     return (
         <div>
-            <Header />
             <div className="container max-w-[1200px] px-4 lg:px-6 xl:px-10 w-full mx-auto pt-12">
                 <div className="space-y-4">
                     <div className="flex items-center justify-between gap-4">
