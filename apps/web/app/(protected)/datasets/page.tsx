@@ -1,5 +1,4 @@
 import { TableView } from "@/app/(protected)/datasets/table-view";
-import { Header } from "@/components/header/header";
 import { datasetteFetch } from "@/lib/datasette/client";
 import { Dataset } from "./datasets.types";
 
