@@ -1,3 +1,6 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import { Check, EllipsisVertical } from "lucide-react";
 import { type Dataset } from "./datasets.types";
 import { Button } from "@/components/ui/button";
@@ -49,6 +52,8 @@ function TableHeader() {
 }
 
 function TableBody({ datasets }: { datasets: Dataset[] }) {
+    const router = useRouter();
+
     const getDisplayDate = (isoString: string) => {
         const date = new Date(isoString);
         return date.toLocaleDateString() + " " + date.toLocaleTimeString();
@@ -56,44 +61,47 @@ function TableBody({ datasets }: { datasets: Dataset[] }) {
 
     return (
         <tbody className="[&_tr:last-child]:border-0">
-            {datasets.map((d: Dataset) => {
-                return (
-                    <tr
-                        key={d.db_id}
-                        className="border-b [&>td]:hover:bg-surface-200 data-[state=selected]:bg-muted cursor-pointer hover:bg-surface-200 inset-focus"
-                    >
-                        <td className="transition-colors p-4 align-middle [&:has([role=checkbox])]:pr-0">
-                            <div className="flex flex-col gap-y-2">
-                                <div>
-                                    <h5 className="text-sm font-bold">
-                                        {d.db_name}
-                                    </h5>
-                                </div>
-                            </div>
-                        </td>
-                        <td className="transition-colors p-4 align-middle [&:has([role=checkbox])]:pr-0">
-                            <div className="flex items-center">
-                                <DatasetStatusBadge status={d.status} />
-                            </div>
-                        </td>
-                        <td className="transition-colors p-4 align-middle [&:has([role=checkbox])]:pr-0">
-                            <div className="w-fit">
-                                <span>{getDisplayDate(d.created_at)}</span>
-                            </div>
-                        </td>
-                        <td className="transition-colors p-4 align-middle [&:has([role=checkbox])]:pr-0">
-                            <span>{getDisplayDate(d.updated_at)}</span>
-                        </td>
-                        <td className="transition-colors p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">
+            {datasets.map((d: Dataset) => (
+                <tr
+                    key={d.db_id}
+                    onClick={() => router.push(`/datasets/${d.db_id}`)}
+                    className="border-b [&>td]:hover:bg-muted data-[state=selected]:bg-muted cursor-pointer hover:bg-muted inset-focus"
+                >
+                    <td className="p-4 align-middle">
+                        <div className="flex flex-col gap-y-2">
                             <div>
-                                <Button variant="outline" size="icon">
-                                    <EllipsisVertical />
-                                </Button>
+                                <h5 className="text-sm font-bold">
+                                    {d.db_name}
+                                </h5>
                             </div>
-                        </td>
-                    </tr>
-                );
-            })}
+                        </div>
+                    </td>
+                    <td className="p-4 align-middle">
+                        <div className="flex items-center">
+                            <DatasetStatusBadge status={d.status} />
+                        </div>
+                    </td>
+                    <td className="p-4 align-middle">
+                        <div className="w-fit">
+                            <span>{getDisplayDate(d.created_at)}</span>
+                        </div>
+                    </td>
+                    <td className="p-4 align-middle">
+                        <span>{getDisplayDate(d.updated_at)}</span>
+                    </td>
+                    <td className="p-4 align-middle text-right">
+                        <div>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <EllipsisVertical />
+                            </Button>
+                        </div>
+                    </td>
+                </tr>
+            ))}
         </tbody>
     );
 }
