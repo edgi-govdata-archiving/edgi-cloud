@@ -53,7 +53,7 @@ def get_redirect_url(must_change_password):
     if must_change_password:
         return "/force-change-password?reason=first_login"  
     # Normal login flow
-    return "/databases"
+    return "/datasets"
 
 @hookimpl
 def register_routes():
