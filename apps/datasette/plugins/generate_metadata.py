@@ -26,7 +26,7 @@ def generate_metadata():
         "license": "ODbL",
         "license_url": "https://opendatacommons.org/licenses/odbl/",
         "source": "EDGI Cloud Portal",
-        "source_url": "https://edgi-cloud.fly.dev/",
+        "source_url": "https://resette.envirodatagov.org",
         "databases": {},
         "plugins": {
             "datasette-cluster-map": {

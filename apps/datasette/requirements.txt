@@ -1,5 +1,5 @@
 # Core Datasette
-datasette==0.65.1
+datasette==0.65.2
 sqlite-utils>=3.35
 markupsafe==2.1.5
 gunicorn==22.0.0
