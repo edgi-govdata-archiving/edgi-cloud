@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY plugins/ ./plugins/
+COPY templates/ ./templates/
+COPY static/ ./static/
+COPY tests/ ./tests/
+COPY pytest.ini .
+COPY init_db.py .
+COPY migrate_db.py .
+COPY metadata.json .
+
+CMD ["pytest", "--tb=short", "-v"]

@@ -68,6 +68,7 @@ RUN echo '#!/bin/bash\n\
   --template-dir templates \\\n\
   --static static:static \\\n\
   --plugins-dir plugins \\\n\
+  --setting base_url "${APP_URL:-https://resette.envirodatagov.org}/" \\\n\
   --setting max_returned_rows 3000000 \\\n\
   --setting sql_time_limit_ms 360000 \\\n\
   --setting allow_download on \\\n\
