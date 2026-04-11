@@ -1,7 +1,7 @@
 from datasette import hookimpl
 from datasette.hookspecs import database_actions
 from datasette.utils.asgi import Response
-from apps.datasette.plugins.router import DatasetteRouter
+from apps.datasette.lib.router import DatasetteRouter
 from apps.datasette.lib.datasets import get_all_datasets, get_dataset_by_id
 
 router = DatasetteRouter()

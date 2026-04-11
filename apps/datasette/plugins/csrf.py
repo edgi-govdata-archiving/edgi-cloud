@@ -1,6 +1,6 @@
 from datasette import hookimpl
 from datasette.utils.asgi import Response
-from apps.datasette.plugins.router import DatasetteRouter
+from apps.datasette.lib.router import DatasetteRouter
 
 router = DatasetteRouter()
 
