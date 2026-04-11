@@ -343,6 +343,24 @@ APP_URL=https://your-domain.fly.dev
 - `trash_retention_days` - Recovery period
 - `allowed_extensions` - Permitted file types
 
+## 🧪 Testing
+
+### Run tests with Docker (recommended)
+
+```bash
+docker build -f Dockerfile.test -t edgi-test .
+docker run --rm edgi-test
+```
+
+### Run tests locally
+
+Ensure dependencies are installed, then:
+
+```bash
+pip install -r requirements.txt
+pytest
+```
+
 ## 🤝 Contributing
 
 We welcome contributions! Please:
