@@ -1,6 +1,10 @@
 import re
+import traceback
+
 from datasette.utils.asgi import Response
 from datasette.utils import async_call_with_supported_arguments
+
+from apps.datasette.lib.http import INTERNAL_SERVER_ERROR, METHOD_NOT_ALLOWED
 
 
 class DatasetteRouter:
@@ -69,17 +73,25 @@ class DatasetteRouter:
                         "error": f"Method {request_method} not allowed.",
                         "allowedMethods": sorted(methods),
                     }, 
-                    status=405,
+                    status=METHOD_NOT_ALLOWED,
                 )
 
-            return await async_call_with_supported_arguments(
-                func,
-                datasette=datasette,
-                request=request,
-                scope=scope,
-                send=send,
-                receive=receive,
-            )
+            try:
+                return await async_call_with_supported_arguments(
+                    func,
+                    datasette=datasette,
+                    request=request,
+                    scope=scope,
+                    send=send,
+                    receive=receive,
+                )
+            except:
+                return Response.json(
+                    {
+                        "error": traceback.format_exc(),
+                    },
+                    status=INTERNAL_SERVER_ERROR,
+                )
 
         return handler
 

@@ -1,2 +1,5 @@
 export const UNAUTHORIZED_STATUS = 401;
 export const FORBIDDEN_STATUS = 403;
+export const METHOD_NOT_ALLOWED = 405;
+
+export const INTERNAL_SERVER_ERROR = 500;
