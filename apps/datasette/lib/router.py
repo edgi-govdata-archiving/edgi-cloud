@@ -70,8 +70,8 @@ class DatasetteRouter:
             if request_method not in methods:
                 return Response.json(
                     {
-                        "error": f"Method {request_method} not allowed.",
-                        "allowedMethods": sorted(methods),
+                        "error": f"405 Method Not Allowed: {request_method}",
+                        "allowed_methods": sorted(methods),
                     }, 
                     status=METHOD_NOT_ALLOWED,
                 )
@@ -88,7 +88,8 @@ class DatasetteRouter:
             except:
                 return Response.json(
                     {
-                        "error": traceback.format_exc(),
+                        "error": "500 Internal Server Error",
+                        "traceback": traceback.format_exc(),
                     },
                     status=INTERNAL_SERVER_ERROR,
                 )
