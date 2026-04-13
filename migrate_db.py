@@ -165,7 +165,7 @@ def migrate_database():
         else:
             print("Creating databases table...")
             db.executescript("""
-                CREATE TABLE databases (
+                CREATE TABLE IF NOT EXISTS databases (
                     db_id TEXT PRIMARY KEY,
                     user_id TEXT,
                     db_name TEXT,
@@ -354,7 +354,36 @@ def migrate_database():
         else:
             print("   markdown_columns structure verified")
 
-        # 8. Database statistics
+        # 8. Correct frozen website_url values that point to the wrong host
+        app_url = os.getenv('APP_URL', '').rstrip('/')
+        current_tables = [t.name for t in db.tables]
+        if app_url and 'databases' in current_tables:
+            print("Checking for website_url values with incorrect host...")
+            from urllib.parse import urlparse
+            canonical_host = urlparse(app_url).netloc
+            rows = db.execute(
+                "SELECT db_id, db_name, website_url FROM databases WHERE website_url IS NOT NULL"
+            ).fetchall()
+            fixed_count = 0
+            for db_id, db_name, website_url in rows:
+                parsed = urlparse(website_url)
+                if parsed.netloc and parsed.netloc != canonical_host:
+                    corrected = f"{app_url}/db/{db_name}/homepage"
+                    db.execute(
+                        "UPDATE databases SET website_url = ? WHERE db_id = ?",
+                        [corrected, db_id]
+                    )
+                    fixed_count += 1
+                    print(f"   Fixed: {website_url} -> {corrected}")
+            if fixed_count:
+                db.conn.commit()
+                print(f"   Corrected {fixed_count} website_url value(s)")
+            else:
+                print("   All website_url values are already correct")
+        else:
+            print("   Skipping website_url correction (APP_URL not set)")
+
+        # 9. Database statistics
         print("Database statistics:")
         try:
             users_count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]

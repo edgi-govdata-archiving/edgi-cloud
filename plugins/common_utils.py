@@ -1049,14 +1049,22 @@ async def redirect_authenticated_user(actor):
 def generate_website_url(request, db_name):
     """
     Generate a full website URL for a database homepage.
-    
+
+    Uses the APP_URL environment variable as the base when set, so the stored
+    URL always reflects the canonical public domain rather than whatever host
+    header the creator happened to use (e.g. edgi-cloud.fly.dev). Falls back
+    to deriving scheme + host from the request for local development.
+
     Args:
         request: HTTP request object
         db_name (str): Database name
-        
+
     Returns:
         str: Full URL to database homepage
     """
+    app_url = os.getenv('APP_URL', '').rstrip('/')
+    if app_url:
+        return f"{app_url}/db/{db_name}/homepage"
     scheme = request.scheme
     host = request.headers.get('host', 'localhost:8001')
     return f"{scheme}://{host}/db/{db_name}/homepage"
