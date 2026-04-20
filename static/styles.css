@@ -280,3 +280,147 @@ tr:hover {
 .prose-resette > *:last-child {
     margin-bottom: 0;
 }
+
+/* Migrated from index.html */
+.stat-card {
+    transition: all 0.3s ease;
+}
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.feature-card {
+    transition: all 0.3s ease;
+}
+.feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+/* Horizontal scroll styling */
+.overflow-x-auto::-webkit-scrollbar {
+    height: 8px;
+}
+.overflow-x-auto::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+/* Vertical scroll styling for featured databases */
+.max-h-96::-webkit-scrollbar {
+    width: 8px;
+}
+.max-h-96::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+}
+.max-h-96::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+.max-h-96::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+/* Line clamp for description */
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Migrated from database_homepage.html */
+
+.stat-card {
+    transition: all 0.3s ease;
+}
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.feature-card {
+    transition: all 0.3s ease;
+}
+.feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Horizontal scroll styling */
+.overflow-x-auto::-webkit-scrollbar {
+    height: 8px;
+}
+.overflow-x-auto::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+/* Line clamp for description */
+.line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Migrated from manage_databases.html */
+
+.table-name-display:hover {
+    background-color: #7699df;
+}
+
+.table-name-edit input {
+    min-width: 120px;
+}
+
+/* Migrated from upload_table.html */
+
+.upload-tab.active {
+    border-bottom: 2px solid #3b82f6;
+}
+.upload-tab:not(.active) {
+    border-bottom: 2px solid transparent;
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+@keyframes pulse-gradient {
+    0% { background-position: 200% 0; opacity: 0.6; }
+    50% { background-position: 0% 0; opacity: 1; }
+    100% { background-position: -200% 0; opacity: 0.6; }
+}
+.progress-pulse {
+    background: linear-gradient(90deg, #3b82f6, #1d4ed8, #3b82f6);
+    background-size: 200% 100%;
+    animation: pulse-gradient 2s ease-in-out infinite;
+}
+button:disabled {
+    transform: none !important;
+}
+
+#upload-progress-overlay {
+    backdrop-filter: blur(4px);
+}
+.error-details {
+    max-height: 120px;
+    overflow-y: auto;
+}

@@ -10,48 +10,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/remixicon/4.6.0/remixicon.min.css">
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.ico">
-    <style>
-        .upload-tab.active {
-            border-bottom: 2px solid #3b82f6;
-        }
-        .upload-tab:not(.active) {
-            border-bottom: 2px solid transparent;
-        }
-        
-        .animate-spin {
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes pulse-gradient {
-            0% { background-position: 200% 0; opacity: 0.6; }
-            50% { background-position: 0% 0; opacity: 1; }
-            100% { background-position: -200% 0; opacity: 0.6; }
-        }
-
-        .progress-pulse {
-            background: linear-gradient(90deg, #3b82f6, #1d4ed8, #3b82f6);
-            background-size: 200% 100%;
-            animation: pulse-gradient 2s ease-in-out infinite;
-        }
-
-        button:disabled {
-            transform: none !important;
-        }
-        
-        #upload-progress-overlay {
-            backdrop-filter: blur(4px);
-        }
-
-        .error-details {
-            max-height: 120px;
-            overflow-y: auto;
-        }
-    </style>
 </head>
 <body class="bg-gray-50">
     <header class="fixed top-0 left-0 right-0 z-50 bg-header text-white shadow-md">
